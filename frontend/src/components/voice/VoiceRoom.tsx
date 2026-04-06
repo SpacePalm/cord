@@ -68,7 +68,32 @@ const VolumeContext = createContext<UserVolumeCtx>({
   setOpenMenuId: () => {},
 });
 
-// ─── Applies volume to remote participants ──────────────────────────
+// ─── Applies volume to remote participants via Web Audio GainNode ────
+
+const audioGains = new Map<string, { ctx: AudioContext; gain: GainNode; streamId: string }>();
+
+function getOrCreateGain(identity: string, stream: MediaStream): GainNode | null {
+  const existing = audioGains.get(identity);
+  if (existing && existing.streamId === stream.id) return existing.gain;
+
+  // Clean up old entry if stream changed
+  if (existing) {
+    try { existing.ctx.close(); } catch {}
+    audioGains.delete(identity);
+  }
+
+  try {
+    const ctx = new AudioContext();
+    const source = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    audioGains.set(identity, { ctx, gain, streamId: stream.id });
+    return gain;
+  } catch {
+    return null;
+  }
+}
 
 function VolumeApplier() {
   const participants = useParticipants();
@@ -81,20 +106,38 @@ function VolumeApplier() {
         ? 0
         : Math.max(0, Math.min(3, Number.isFinite(volumes[p.identity]) ? volumes[p.identity] : 1));
 
-      // Apply volume to each track individually to avoid breaking screen share audio
       for (const pub of p.audioTrackPublications.values()) {
-        if (!pub.track) continue;
+        if (!pub.track || pub.source !== Track.Source.Microphone) continue;
         try {
-          if (pub.source === Track.Source.Microphone) {
-            pub.track.setVolume(vol);
+          const stream = (pub.track as any).mediaStream as MediaStream | undefined;
+          if (stream) {
+            // Use GainNode for full 0-300% range
+            const gain = getOrCreateGain(p.identity, stream);
+            if (gain) {
+              gain.gain.value = vol;
+              // Mute the original element to avoid double audio
+              pub.track.setVolume(0);
+              continue;
+            }
           }
-          // ScreenShareAudio is controlled via the <audio> element in ScreenShareView
+          // Fallback: no stream available, use native (0-1 only)
+          pub.track.setVolume(Math.min(vol, 1));
         } catch {
           // track not ready
         }
       }
     }
   }, [participants, volumes, mutedUsers, deafened]);
+
+  // Cleanup all gain nodes on unmount
+  useEffect(() => {
+    return () => {
+      for (const [, entry] of audioGains) {
+        try { entry.ctx.close(); } catch {}
+      }
+      audioGains.clear();
+    };
+  }, []);
 
   return null;
 }

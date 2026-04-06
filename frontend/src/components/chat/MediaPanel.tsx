@@ -160,7 +160,7 @@ function FilesTab({ chatId }: { chatId: string }) {
 
   const files = messages
     .flatMap((m) => m.attachments.map((url) => ({ url, msg: m })))
-    .filter(({ url }) => !IMAGE_RE.test(url));
+    .filter(({ url }) => !IMAGE_RE.test(url) && !AUDIO_RE.test(url));
 
   if (isLoading) return <p className="text-center text-sm text-[var(--text-muted)] mt-12">{t('media.loading')}</p>;
   if (!files.length) return <p className="text-center text-sm text-[var(--text-muted)] mt-12">{t('media.empty')}</p>;

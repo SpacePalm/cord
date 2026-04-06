@@ -43,18 +43,9 @@ function VoiceChannelView({ channel, groupName }: { channel: Chat; groupName: st
 
   const isInThisChannel = voicePresence?.channelId === channel.id;
 
-  // Если подключён — показываем LiveKit комнату
-  if (isInThisChannel) {
-    return (
-      <VoiceRoom
-        channelId={channel.id}
-        channelName={channel.name}
-        groupName={groupName}
-      />
-    );
-  }
+  // When connected — VoiceRoom is rendered at AppPage level (not unmounted on channel switch)
+  if (isInThisChannel) return null;
 
-  // Иначе — кнопка «Войти»
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-4 text-[var(--text-muted)]">
       <Volume2 size={64} strokeWidth={1} />
@@ -151,8 +142,8 @@ export function AppPage() {
   const t = useT();
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
+  const voicePresence = useSessionStore((s) => s.voicePresence);
 
-  // Читаем последний открытый сервер/канал из персистентного store
   const lastGroupId = useSessionStore((s) => s.lastGroupId);
   const lastChannelId = useSessionStore((s) => s.lastChannelId);
   const setLastGroup = useSessionStore((s) => s.setLastGroup);
@@ -368,12 +359,16 @@ export function AppPage() {
                 </div>
               </div>
 
-              {selectedChannel.type === 'voice' ? (
+              {/* Voice join screen (not connected) */}
+              {selectedChannel.type === 'voice' && (!voicePresence || voicePresence.channelId !== selectedChannel.id) && (
                 <VoiceChannelView
                   channel={selectedChannel}
                   groupName={selectedGroup?.name ?? ''}
                 />
-              ) : (
+              )}
+
+              {/* Text chat */}
+              {selectedChannel.type === 'text' && (
                 <>
                   <MessageList ref={messageListRef} chatId={selectedChannel.id} onReply={setReplyTo} />
                   <ChatInput
@@ -389,6 +384,20 @@ export function AppPage() {
             </>
           ) : (
             <EmptyState message={groupList.length === 0 ? t('server.createFirst') : t('group.select')} />
+          )}
+
+          {/* VoiceRoom — persists across channel switches, hidden via display */}
+          {voicePresence && (
+            <div
+              className="flex-1 flex flex-col overflow-hidden min-h-0"
+              style={{ display: selectedChannel?.id === voicePresence.channelId ? 'flex' : 'none' }}
+            >
+              <VoiceRoom
+                channelId={voicePresence.channelId}
+                channelName={voicePresence.channelName}
+                groupName={voicePresence.groupName}
+              />
+            </div>
           )}
         </div>
 
@@ -434,6 +443,7 @@ export function AppPage() {
       )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
     </div>
   );
 }
