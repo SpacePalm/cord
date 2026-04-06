@@ -8,7 +8,7 @@ services:
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}"
       LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
-    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+    command: --dev --bind 0.0.0.0 --node-ip ${SERVER_IP:-127.0.0.1}
 
   redis:
     image: redis:7-alpine

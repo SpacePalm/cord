@@ -864,9 +864,15 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
     setShowModal(false);
     try {
       const res = RESOLUTION_MAP[settings.resolution];
+      const isChrome = /Chrome/.test(navigator.userAgent) && !/Edge/.test(navigator.userAgent);
       await localParticipant.setScreenShareEnabled(true, {
-        audio: settings.audio, selfBrowserSurface: 'include', surfaceSwitching: 'include',
-        systemAudio: settings.audio ? 'include' : 'exclude', contentHint: settings.contentHint,
+        audio: settings.audio,
+        contentHint: settings.contentHint,
+        ...(isChrome ? {
+          selfBrowserSurface: 'include',
+          surfaceSwitching: 'include',
+          systemAudio: settings.audio ? 'include' : 'exclude',
+        } : {}),
         video: { frameRate: { ideal: settings.fps }, ...(res ? { width: { ideal: res.width }, height: { ideal: res.height } } : {}) },
       });
     } catch { /* cancelled */ }
@@ -989,7 +995,7 @@ export function VoiceRoom({ channelId, channelName, groupName }: VoiceRoomProps)
   return (
     <div className="flex-1 h-0 flex flex-col overflow-hidden">
       <VolumeContext.Provider value={volumeCtx} >
-        <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={true} video={false} onError={handleError} className="flex-1 h-0 flex flex-col overflow-hidden">
+        <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={false} video={false} onError={handleError} className="flex-1 h-0 flex flex-col overflow-hidden">
           <RoomAudioRenderer />
           <ParticipantSync />
           <VolumeApplier />

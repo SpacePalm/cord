@@ -5,7 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    host: '0.0.0.0',   // обязательно для Docker — иначе Vite слушает только localhost внутри контейнера
+    host: '0.0.0.0',
+    allowedHosts: true,  // allow any host (nginx proxies the domain)
     proxy: {
       '/api': {
         target: 'http://backend:8000',
