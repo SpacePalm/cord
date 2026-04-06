@@ -205,10 +205,13 @@ export const en: Record<string, string> = {
   'audio.testSpeakers': 'Test speakers',
   'audio.testingSpeakers': 'Playing…',
   'audio.outputNotSupported': 'Output device selection is not supported by this browser',
+  'audio.autoMic': 'Auto-enable microphone',
+  'audio.autoMicHint': 'Automatically turn on microphone when joining voice chat',
 
   // ─── Sidebar ──────────────────────────────────────────────────────
   'sidebar.cord': 'Cord',
   'sidebar.admin': 'Admin Panel',
+  'sidebar.adminInCall': 'Unavailable during call',
   'sidebar.logout': 'Log out',
 
   // ─── Admin ────────────────────────────────────────────────────────

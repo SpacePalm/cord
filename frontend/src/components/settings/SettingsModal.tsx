@@ -278,9 +278,11 @@ function AudioTab() {
   const audioInputId   = useSessionStore((s) => s.audioInputId);
   const audioOutputId  = useSessionStore((s) => s.audioOutputId);
   const audioInputGain = useSessionStore((s) => s.audioInputGain);
+  const autoMic        = useSessionStore((s) => s.autoMic);
   const setAudioInput      = useSessionStore((s) => s.setAudioInput);
   const setAudioOutput     = useSessionStore((s) => s.setAudioOutput);
   const setAudioInputGain  = useSessionStore((s) => s.setAudioInputGain);
+  const setAutoMic         = useSessionStore((s) => s.setAutoMic);
 
   const [inputs,  setInputs]  = useState<MediaDeviceInfo[]>([]);
   const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
@@ -545,6 +547,24 @@ function AudioTab() {
         >
           <Volume2 size={14} />
           {playingTone ? t('audio.testingSpeakers') : t('audio.testSpeakers')}
+        </button>
+      </div>
+
+      {/* Auto-mic toggle */}
+      <div className="flex items-center justify-between gap-4 mt-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-[var(--text-primary)]">{t('audio.autoMic')}</p>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">{t('audio.autoMicHint')}</p>
+        </div>
+        <button
+          onClick={() => setAutoMic(!autoMic)}
+          className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+            autoMic ? 'bg-[var(--accent)]' : 'bg-white/10'
+          }`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+            autoMic ? 'translate-x-5' : 'translate-x-0'
+          }`} />
         </button>
       </div>
     </div>

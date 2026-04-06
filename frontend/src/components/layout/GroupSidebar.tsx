@@ -3,6 +3,7 @@
 import { Plus, Shield, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
+import { useSessionStore } from '../../store/sessionStore';
 import type { Group } from '../../types';
 import { useT } from '../../i18n';
 
@@ -70,6 +71,7 @@ export function GroupSidebar({
   const t = useT();
   const navigate = useNavigate();
   const userRole = useAuthStore((s) => s.user?.role);
+  const inCall = !!useSessionStore((s) => s.voicePresence);
   const logout = useAuthStore((s) => s.logout);
 
   return (
@@ -107,14 +109,18 @@ export function GroupSidebar({
         <Plus size={24} />
       </button>
 
-      {/* Кнопка админ-панели — только для администраторов */}
+      {/* Admin panel — disabled during voice call */}
       {userRole === 'admin' && (
         <>
           <div className="w-8 h-px bg-[var(--bg-secondary)] my-1" />
           <button
-            onClick={() => navigate('/admin')}
-            title={t('sidebar.admin')}
-            className="w-12 h-12 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white hover:rounded-2xl transition-all"
+            onClick={() => !inCall && navigate('/admin')}
+            title={inCall ? t('sidebar.adminInCall') : t('sidebar.admin')}
+            className={`w-12 h-12 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center transition-all ${
+              inCall
+                ? 'text-[var(--text-muted)] opacity-50 cursor-not-allowed'
+                : 'text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white hover:rounded-2xl'
+            }`}
           >
             <Shield size={20} />
           </button>

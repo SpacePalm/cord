@@ -39,9 +39,11 @@ interface SessionState {
   audioInputId: string | null;
   audioOutputId: string | null;
   audioInputGain: number; // 0–3, 1 = normal
+  autoMic: boolean; // auto-enable mic when joining voice
   setAudioInput: (id: string | null) => void;
   setAudioOutput: (id: string | null) => void;
   setAudioInputGain: (gain: number) => void;
+  setAutoMic: (v: boolean) => void;
 
   // Voice channel
   voicePresence: VoicePresence | null;
@@ -107,9 +109,11 @@ export const useSessionStore = create<SessionState>()(
       audioInputId: null,
       audioOutputId: null,
       audioInputGain: 1,
+      autoMic: true,
       setAudioInput: (id) => set({ audioInputId: id }),
       setAudioOutput: (id) => set({ audioOutputId: id }),
       setAudioInputGain: (gain) => set({ audioInputGain: gain }),
+      setAutoMic: (v) => set({ autoMic: v }),
 
       // --- Voice channel ---
       voicePresence: null,
@@ -148,6 +152,7 @@ export const useSessionStore = create<SessionState>()(
         audioInputId: state.audioInputId,
         audioOutputId: state.audioOutputId,
         audioInputGain: state.audioInputGain,
+        autoMic: state.autoMic,
         drafts: state.drafts,
         voicePresence: state.voicePresence,
       }),

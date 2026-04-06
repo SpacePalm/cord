@@ -995,6 +995,7 @@ export function VoiceRoom({ channelId, channelName, groupName }: VoiceRoomProps)
   const volumeCtx: UserVolumeCtx = { volumes, mutedUsers, deafened, setUserVolume, toggleUserMute, openMenuId, setOpenMenuId };
 
   const leaveVoice = useSessionStore((s) => s.leaveVoice);
+  const autoMic = useSessionStore((s) => s.autoMic) ?? true;
 
   useEffect(() => {
     let cancelled = false;
@@ -1038,7 +1039,7 @@ export function VoiceRoom({ channelId, channelName, groupName }: VoiceRoomProps)
   return (
     <div className="flex-1 h-0 flex flex-col overflow-hidden">
       <VolumeContext.Provider value={volumeCtx} >
-        <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={false} video={false} onError={handleError} className="flex-1 h-0 flex flex-col overflow-hidden">
+        <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={autoMic} video={false} onError={handleError} className="flex-1 h-0 flex flex-col overflow-hidden">
           <RoomAudioRenderer />
           <ParticipantSync />
           <VolumeApplier />
