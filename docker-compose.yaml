@@ -1,0 +1,88 @@
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    ports:
+      - "7880:7880"   # HTTP / WebSocket signaling
+      - "7881:7881"   # RTC over TCP
+      - "7882:7882/udp" # RTC over UDP
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}"
+      LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cord}
+      POSTGRES_USER: ${POSTGRES_USER:-cord}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cord}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cord} -d ${POSTGRES_DB:-cord}"]
+      interval: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    # Нужно для s3fs-монтирования внутри контейнера (FUSE)
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    environment:
+      CORD_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cord}:${POSTGRES_PASSWORD:-cord}@db:5432/${POSTGRES_DB:-cord}
+      CORD_JWT_SECRET: ${CORD_JWT_SECRET:-change-me-in-dev}
+      CORD_JWT_EXPIRE_MINUTES: ${CORD_JWT_EXPIRE_MINUTES:-1440}
+      CORD_ADMIN_USERNAME: ${CORD_ADMIN_USERNAME:-admin}
+      CORD_ADMIN_EMAIL: ${CORD_ADMIN_EMAIL:-admin@admin.com}
+      CORD_ADMIN_PASSWORD: ${CORD_ADMIN_PASSWORD:-admin123}
+      # S3 / MinIO (опционально; используется entrypoint.sh для s3fs-монтирования)
+      CORD_S3_ENABLED: ${CORD_S3_ENABLED:-false}
+      CORD_S3_ENDPOINT_URL: ${CORD_S3_ENDPOINT_URL:-}
+      CORD_S3_BUCKET: ${CORD_S3_BUCKET:-cord-media}
+      CORD_S3_ACCESS_KEY: ${CORD_S3_ACCESS_KEY:-}
+      CORD_S3_SECRET_KEY: ${CORD_S3_SECRET_KEY:-}
+      CORD_S3_REGION: ${CORD_S3_REGION:-us-east-1}
+      # LiveKit
+      CORD_LIVEKIT_URL: http://livekit:7880
+      CORD_LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+      CORD_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      CORD_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    volumes:
+      - ./backend/app:/app/app  # hot-reload: изменения в коде применяются сразу
+      - ./media:/app/media       # локальные файлы; при S3 s3fs монтируется поверх
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app              # монтируем весь проект (src, index.html, vite.config.ts...)
+      - /app/node_modules            # node_modules остаётся в контейнере, не перезаписывается с хоста
