@@ -2,9 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Пиксельный шрифт — Press Start 2P */
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-
 /* CSS переменные тем. Значения устанавливаются через themeStore при старте. */
 :root {
   --bg-primary: #111113;
