@@ -566,8 +566,7 @@ function MessageList({ chatId, onReply }, ref) {
   const { data: latest = [], isLoading } = useQuery({
     queryKey: ['messages', chatId],
     queryFn: () => messagesApi.list(chatId, undefined, undefined, PAGE),
-    refetchInterval: 3000,
-    staleTime: 1000,
+    staleTime: 60_000,
   });
 
   const messages = useMemo(() => {

@@ -1,0 +1,101 @@
+import { useEffect, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import type { Message } from '../types';
+
+interface WsMessageCreated {
+  type: 'message_created';
+  message: Message;
+}
+
+interface WsMessageEdited {
+  type: 'message_edited';
+  message: Message;
+}
+
+interface WsMessageDeleted {
+  type: 'message_deleted';
+  chat_id: string;
+  message_id: string;
+}
+
+type WsEvent = WsMessageCreated | WsMessageEdited | WsMessageDeleted;
+
+export function useCordWebSocket() {
+  const queryClient = useQueryClient();
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectDelay = useRef(1000);
+
+  const connect = useCallback(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) return;
+
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws?token=${token}`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      reconnectDelay.current = 1000;
+    };
+
+    ws.onmessage = (ev) => {
+      let event: WsEvent;
+      try {
+        event = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+
+      if (event.type === 'message_created') {
+        const msg = event.message;
+        queryClient.setQueryData<Message[]>(['messages', msg.chat_id], (old) => {
+          if (!old) return old;
+          if (old.some((m) => m.id === msg.id)) return old;
+          return [...old, msg];
+        });
+      }
+
+      if (event.type === 'message_edited') {
+        const msg = event.message;
+        queryClient.setQueryData<Message[]>(['messages', msg.chat_id], (old) => {
+          if (!old) return old;
+          return old.map((m) => (m.id === msg.id ? msg : m));
+        });
+      }
+
+      if (event.type === 'message_deleted') {
+        queryClient.setQueryData<Message[]>(['messages', event.chat_id], (old) => {
+          if (!old) return old;
+          return old.filter((m) => m.id !== event.message_id);
+        });
+      }
+    };
+
+    ws.onclose = (ev) => {
+      wsRef.current = null;
+      if (ev.code === 4001) return; // auth failure
+      reconnectTimer.current = setTimeout(() => {
+        reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30000);
+        connect();
+      }, reconnectDelay.current);
+    };
+
+    ws.onerror = () => {
+      ws.close();
+    };
+  }, [queryClient]);
+
+  const reconnect = useCallback(() => {
+    wsRef.current?.close();
+  }, []);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+    };
+  }, [connect]);
+
+  return { reconnect };
+}

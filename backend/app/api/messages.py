@@ -32,6 +32,7 @@ from app.models.message import Message, MessageAttachment
 from app.schemas.message import MessageOut, MessageEdit, MessageForward, ForwardedFrom, ReplyTo, PollOut, PollOptionOut
 from app.models.poll import Poll, PollOption, PollVote
 from app.cache import get_cached_messages, set_cached_messages, invalidate_messages
+from app.ws_manager import manager
 
 router = APIRouter(prefix='/api/chats', tags=['messages'])
 
@@ -263,7 +264,13 @@ async def send_message(
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
         )
     )
-    return _to_out(result.scalar_one(), user.id)
+    created_msg = result.scalar_one()
+    msg_out = _to_out(created_msg, user.id)
+    await manager.broadcast(chat_id, {
+        "type": "message_created",
+        "message": _to_out(created_msg, None).model_dump(mode="json"),
+    })
+    return msg_out
 
 
 # POST forward
@@ -324,7 +331,13 @@ async def forward_message(
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
         )
     )
-    return _to_out(result.scalar_one(), user.id)
+    fwd_msg = result.scalar_one()
+    msg_out = _to_out(fwd_msg, user.id)
+    await manager.broadcast(chat_id, {
+        "type": "message_created",
+        "message": _to_out(fwd_msg, None).model_dump(mode="json"),
+    })
+    return msg_out
 
 
 # PATCH edit
@@ -361,7 +374,12 @@ async def edit_message(
     await db.commit()
     await db.refresh(msg)
     await invalidate_messages(str(chat_id))
-    return _to_out(msg, user.id)
+    msg_out = _to_out(msg, user.id)
+    await manager.broadcast(chat_id, {
+        "type": "message_edited",
+        "message": _to_out(msg, None).model_dump(mode="json"),
+    })
+    return msg_out
 
 
 # DELETE
@@ -389,6 +407,11 @@ async def delete_message(
     await db.delete(msg)
     await db.commit()
     await invalidate_messages(str(chat_id))
+    await manager.broadcast(chat_id, {
+        "type": "message_deleted",
+        "chat_id": str(chat_id),
+        "message_id": str(message_id),
+    })
 
 
 # GET search

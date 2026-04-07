@@ -17,6 +17,7 @@ import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
 import { useT } from '../i18n';
 import { useUnreadCounts } from '../hooks/useUnreadCounts';
+import { useCordWebSocket } from '../hooks/useWebSocket';
 import { ToastContainer } from '../components/ui/ToastContainer';
 
 type SidePanel = 'search' | 'media' | 'members' | null;
@@ -161,6 +162,7 @@ export function AppPage() {
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
   const voicePresence = useSessionStore((s) => s.voicePresence);
+  useCordWebSocket();
 
   const lastGroupId = useSessionStore((s) => s.lastGroupId);
   const lastChannelId = useSessionStore((s) => s.lastChannelId);

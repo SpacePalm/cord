@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base, AsyncSessionLocal
-from app.api import auth, groups, messages, admin, polls, media, voice, notifications
+from app.api import auth, groups, messages, admin, polls, media, voice, notifications, ws
 from app.api.groups import invite_router
 from app.models import poll as _poll_models  # noqa: F401 — registers Poll tables
 from app.models import user_chat_state as _user_chat_state_models  # noqa: F401 — registers UserChatState table
@@ -33,6 +33,7 @@ app.include_router(media.router)
 app.include_router(voice.router)
 app.include_router(notifications.router)
 app.include_router(admin.router)
+app.include_router(ws.router)
 
 # Static files
 # Аватары — публичные, раздаются напрямую.
