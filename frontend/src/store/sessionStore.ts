@@ -55,6 +55,10 @@ interface SessionState {
   // Voice channel participants (synced from LiveKit)
   voiceParticipants: VoiceParticipant[];
   setVoiceParticipants: (participants: VoiceParticipant[]) => void;
+
+  // Conference start time (from Redis via /api/voice/token)
+  callStartedAt: number | null;
+  setCallStartedAt: (ts: number) => void;
 }
 
 export const useSessionStore = create<SessionState>()(
@@ -123,7 +127,7 @@ export const useSessionStore = create<SessionState>()(
           voicePresence: { channelId, channelName, groupName, muted: false, deafened: false },
         }),
 
-      leaveVoice: () => set({ voicePresence: null, voiceParticipants: [] }),
+      leaveVoice: () => set({ voicePresence: null, voiceParticipants: [], callStartedAt: null }),
 
       toggleMute: () =>
         set((state) =>
@@ -142,6 +146,11 @@ export const useSessionStore = create<SessionState>()(
       // --- Voice participants ---
       voiceParticipants: [],
       setVoiceParticipants: (participants) => set({ voiceParticipants: participants }),
+
+      callStartedAt: null,
+      setCallStartedAt: (ts: number) => set((state: SessionState) => ({
+        callStartedAt: state.callStartedAt === null || ts < state.callStartedAt ? ts : state.callStartedAt,
+      })),
     }),
     {
       name: 'cord-session',

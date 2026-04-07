@@ -3,6 +3,7 @@ import { api } from './client';
 export interface VoiceToken {
   token: string;
   url: string;
+  call_started_at: number;
 }
 
 export interface VoiceParticipantInfo {
@@ -17,4 +18,7 @@ export const voiceApi = {
 
   listParticipants: (channelId: string) =>
     api.get<VoiceParticipantInfo[]>(`/voice/participants?channel_id=${channelId}`),
+
+  leave: (channelId: string) =>
+    api.post(`/voice/leave?channel_id=${channelId}`),
 };

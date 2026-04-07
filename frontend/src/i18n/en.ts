@@ -103,7 +103,6 @@ export const en: Record<string, string> = {
   'screen.quality': 'Quality',
   'screen.source': 'Source',
   'screen.fps': 'Frame Rate',
-  'screen.optimize': 'Optimization',
   'screen.audio': 'Share audio',
   'screen.start': 'Start Streaming',
 

@@ -103,7 +103,6 @@ export const ru: Record<string, string> = {
   'screen.quality': 'Качество',
   'screen.source': 'Исходное',
   'screen.fps': 'Частота кадров',
-  'screen.optimize': 'Оптимизация',
   'screen.audio': 'Передавать звук',
   'screen.start': 'Начать трансляцию',
 

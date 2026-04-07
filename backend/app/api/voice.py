@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid as _uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,6 +11,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.group import Chat, GroupMember
 from app.config import settings
+from app.cache import get_call_started, set_call_started, clear_call_started
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +53,15 @@ async def get_voice_token(
         ))
     )
 
+    # Инициализируем время старта конференции (NX — только если ещё нет)
+    now_ms = int(time.time() * 1000)
+    await set_call_started(channel_id, now_ms)
+    call_started = await get_call_started(channel_id) or now_ms
+
     return {
         "token": token.to_jwt(),
         "url": settings.livekit_public_url,
+        "call_started_at": call_started,
     }
 
 
@@ -106,3 +114,40 @@ async def list_participants(
         }
         for p in resp.participants
     ]
+
+
+@router.post("/leave")
+async def leave_voice(
+    channel_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Вызывается при выходе из канала. Если комната пуста — сбрасывает таймер."""
+
+    chat = await db.get(Chat, _uuid.UUID(channel_id))
+    if not chat or chat.type != "voice":
+        return {"ok": True}
+
+    room_name = str(channel_id)
+    participant_count = 0
+
+    async with LiveKitAPI(
+        url=settings.livekit_url,
+        api_key=settings.livekit_api_key,
+        api_secret=settings.livekit_api_secret,
+    ) as lk:
+        try:
+            resp = await lk.room.list_participants(
+                ListParticipantsRequest(room=room_name)
+            )
+            # -1 потому что текущий пользователь ещё может числиться
+            participant_count = len([
+                p for p in resp.participants if p.identity != str(user.id)
+            ])
+        except Exception as e:
+            logger.warning("Failed to check room %s on leave: %s", room_name, e)
+
+    if participant_count == 0:
+        await clear_call_started(channel_id)
+
+    return {"ok": True}

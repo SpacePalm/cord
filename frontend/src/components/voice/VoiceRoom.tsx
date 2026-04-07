@@ -871,9 +871,9 @@ function RoomContent() {
 
   return (
     <div className="flex-1 h-0 grid gap-2 p-4 overflow-hidden" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
-      {participants.map((p) => (
-        <ParticipantTile key={p.identity} participant={p} isLocal={p.identity === localParticipant.identity} />
-      ))}
+        {participants.map((p) => (
+          <ParticipantTile key={p.identity} participant={p} isLocal={p.identity === localParticipant.identity} />
+        ))}
     </div>
   );
 }
@@ -1009,6 +1009,7 @@ export function VoiceRoom({ channelId, channelName, groupName }: VoiceRoomProps)
   const volumeCtx: UserVolumeCtx = { volumes, mutedUsers, deafened, setUserVolume, toggleUserMute, openMenuId, setOpenMenuId };
 
   const leaveVoice = useSessionStore((s) => s.leaveVoice);
+  const setCallStartedAt = useSessionStore((s) => s.setCallStartedAt);
   const autoMic = useSessionStore((s) => s.autoMic) ?? true;
 
   useEffect(() => {
@@ -1017,7 +1018,11 @@ export function VoiceRoom({ channelId, channelName, groupName }: VoiceRoomProps)
       try {
         setLoading(true); setError(null);
         const data = await voiceApi.getToken(channelId);
-        if (!cancelled) { setToken(data.token); setServerUrl(data.url); }
+        if (!cancelled) {
+          setToken(data.token);
+          setServerUrl(data.url);
+          setCallStartedAt(data.call_started_at);
+        }
       } catch (e: any) {
         if (!cancelled) setError(e.message || 'Failed to get token');
       } finally {
@@ -1026,9 +1031,12 @@ export function VoiceRoom({ channelId, channelName, groupName }: VoiceRoomProps)
     }
     fetchToken();
     return () => { cancelled = true; };
-  }, [channelId]);
+  }, [channelId, setCallStartedAt]);
 
-  const handleLeave = useCallback(() => leaveVoice(), [leaveVoice]);
+  const handleLeave = useCallback(() => {
+    voiceApi.leave(channelId).catch(() => {});
+    leaveVoice();
+  }, [leaveVoice, channelId]);
   const handleError = useCallback((err: Error) => console.error('[VoiceRoom] LiveKit error:', err), []);
 
   if (loading) {

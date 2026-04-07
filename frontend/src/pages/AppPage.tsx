@@ -21,6 +21,24 @@ import { ToastContainer } from '../components/ui/ToastContainer';
 
 type SidePanel = 'search' | 'media' | 'members' | null;
 
+function CallTimer() {
+  const callStartedAt = useSessionStore((s) => s.callStartedAt);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((v: number) => v + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (!callStartedAt) return null;
+  const sec = Math.floor((Date.now() - callStartedAt) / 1000);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const text = h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return <span className="text-xs text-[var(--text-muted)] tabular-nums ml-2">{text}</span>;
+}
+
 // ---------------------------------------------------------------------------
 // EmptyState
 // ---------------------------------------------------------------------------
@@ -316,6 +334,9 @@ export function AppPage() {
                 <span className="font-semibold text-[var(--text-primary)]">
                   {selectedChannel.name}
                 </span>
+                {voicePresence && voicePresence.channelId === selectedChannel.id && (
+                  <CallTimer />
+                )}
 
                 {/* Кнопки панелей */}
                 <div className="ml-auto flex items-center gap-1">

@@ -140,3 +140,38 @@ async def invalidate_unread(user_id: str) -> None:
         await r.delete(UNREAD_KEY.format(user_id=user_id))
     except Exception as exc:
         logger.warning("Redis unread invalidate error: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Call start time
+# ---------------------------------------------------------------------------
+
+CALL_KEY = "cord:call:{channel_id}"
+
+
+async def get_call_started(channel_id: str) -> int | None:
+    """Возвращает unix-ms старта конференции или None."""
+    try:
+        r = await get_redis()
+        val = await r.get(CALL_KEY.format(channel_id=channel_id))
+        return int(val) if val else None
+    except Exception as exc:
+        logger.warning("Redis call_started read error: %s", exc)
+        return None
+
+
+async def set_call_started(channel_id: str, ts_ms: int) -> None:
+    """Ставит время старта, только если ключа ещё нет (NX)."""
+    try:
+        r = await get_redis()
+        await r.set(CALL_KEY.format(channel_id=channel_id), str(ts_ms), nx=True)
+    except Exception as exc:
+        logger.warning("Redis call_started write error: %s", exc)
+
+
+async def clear_call_started(channel_id: str) -> None:
+    try:
+        r = await get_redis()
+        await r.delete(CALL_KEY.format(channel_id=channel_id))
+    except Exception as exc:
+        logger.warning("Redis call_started clear error: %s", exc)
