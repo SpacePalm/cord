@@ -90,8 +90,10 @@ export function useCordWebSocket() {
   }, []);
 
   useEffect(() => {
-    connect();
+    // Даём время на загрузку страницы и авторизацию перед первым подключением
+    const delay = setTimeout(connect, 1000);
     return () => {
+      clearTimeout(delay);
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
     };
