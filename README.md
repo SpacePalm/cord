@@ -15,6 +15,7 @@
 
 - [Features](#features)
 - [Architecture](#architecture)
+- [Ports](#ports)
 - [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -39,7 +40,8 @@
 - **Text Chats** — messages with markdown (`**bold**`, `*italic*`, `||spoiler||`), replies, forwards, file attachments, voice messages
 - **Polls** — create polls with multiple options, one vote per user, real-time results
 - **Voice Chats** — real-time audio via [LiveKit](https://livekit.io) WebRTC, mute/deafen controls
-- **Screen Sharing** — configurable resolution (720p–1440p), FPS (5–60), system audio capture, optimization for video/text content
+- **Screen Sharing** — configurable resolution (720p–1440p), FPS (5–60), system audio capture; uses LiveKit ScreenSharePresets with proper bitrate encoding for each quality level
+- **Call Duration Timer** — shared conference timer displayed in the channel header, synced via Redis across all participants and page reloads
 - **Per-user Volume** — mute individual users, adjust volume 0–300%, settings persist across sessions
 
 ### Social
@@ -56,6 +58,7 @@
 ### Customization
 - **Theme Engine** — 4 built-in presets (Dark, Light, Midnight, Forest) + full color customization (11 colors)
 - **Shape Controls** — adjustable border radius (0–20px) and font size (12–18px)
+- **Font Customization** — 22 fonts from Google Fonts (sans-serif, monospace, serif), loaded on demand
 - **Theme Import/Export** — save and share themes as JSON files
 - **Live Preview** — real-time theme preview panel in settings
 - **Multi-language** — English and Russian, extensible
@@ -91,6 +94,26 @@
 3. Backend authenticates via JWT, queries PostgreSQL, caches hot data in Redis
 4. Voice/video: backend generates LiveKit JWT → browser connects directly to LiveKit server (port 7880) via WebSocket/WebRTC
 5. Online status: browser sends heartbeat every 60s → backend writes to Redis with 120s TTL
+
+---
+
+## Ports
+
+All services expose the following ports. Make sure they are open on your firewall/server.
+
+| Port | Protocol | Service | Required | Description |
+|------|----------|---------|----------|-------------|
+| **5173** | TCP | Frontend | Yes | Vite dev server (SPA). In production replace with your static server / reverse proxy port (e.g. 80/443) |
+| **8000** | TCP | Backend | Internal | FastAPI API server. In dev accessed via Vite proxy; in production proxied through nginx/Caddy |
+| **7880** | TCP | LiveKit | Yes | WebSocket signaling for WebRTC. Must be accessible from browser (`LIVEKIT_PUBLIC_URL`) |
+| **7881** | TCP | LiveKit | Yes | RTC media over TCP (fallback when UDP is blocked) |
+| **7882** | UDP | LiveKit | Yes | RTC media over UDP (primary, lowest latency). **Must be open for voice/video to work** |
+| **5432** | TCP | PostgreSQL | Internal | Database. Only needs to be exposed if you access DB from host (e.g. pgAdmin) |
+| **6379** | TCP | Redis | Internal | Cache. Only needs to be exposed for debugging |
+
+> **Internal** = only needs to be reachable between Docker containers (the default Docker network handles this). You can remove the `ports` mapping from `docker-compose.yaml` for these services in production.
+>
+> **Production with reverse proxy:** expose only 80/443 (HTTPS) and 7880-7882 (LiveKit). The reverse proxy handles TLS termination and routes `/api/*`, `/media/*` to the backend, everything else to the frontend build.
 
 ---
 
@@ -293,6 +316,7 @@ When enabled, s3fs mounts an S3 bucket as `/app/media` inside the backend contai
 - **Deafen** — headphones button, mutes all incoming audio
 - **Per-user volume** — click "..." on a participant's tile to adjust their volume (0–300%) or mute them
 - **Screen share** — monitor button, configure quality/FPS/audio before sharing
+- **Call timer** — conference duration displayed next to the channel name in the header
 - **Connection stats** — signal button shows ping, bitrate, packet loss, codec
 
 ### Notifications
@@ -307,108 +331,116 @@ When enabled, s3fs mounts an S3 bucket as `/app/media` inside the backend contai
 - **Security** — change password
 - **Audio** — select input/output devices, adjust mic sensitivity, test speakers
 - **Notifications** — toggle browser notifications
-- **Appearance** — choose theme preset or customize colors, border radius, font size; export/import themes
+- **Appearance** — choose theme preset or customize colors, border radius, font size, font family; export/import themes
 - **Language** — switch between English and Russian
 
 ---
 
 ## API Reference
 
-### Authentication
+### Health Check
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/auth/register` | Register new user |
-| `POST` | `/api/auth/login` | Login, returns JWT |
+| `GET` | `/` | Health check, returns `{"status": "ok"}` |
+
+### Authentication (`/api/auth`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/auth/register` | Register new user (disabled if registration is off) |
+| `POST` | `/api/auth/login` | Login with email + password, returns JWT |
 | `GET` | `/api/auth/me` | Get current user profile |
-| `PATCH` | `/api/auth/profile` | Update profile |
-| `POST` | `/api/auth/avatar` | Upload avatar |
-| `POST` | `/api/auth/heartbeat` | Update online status |
+| `PATCH` | `/api/auth/profile` | Update display name, email, or password |
+| `POST` | `/api/auth/avatar` | Upload avatar image (JPEG/PNG, cropped on frontend) |
+| `POST` | `/api/auth/heartbeat` | Update online status in Redis (called every 60s) |
 
-### Groups
+### Groups & Channels (`/api/groups`)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/groups` | List user's groups |
-| `POST` | `/api/groups` | Create group |
-| `DELETE` | `/api/groups/{id}` | Delete group |
-| `PATCH` | `/api/groups/{id}` | Rename group |
+| `GET` | `/api/groups` | List all groups the current user is a member of |
+| `POST` | `/api/groups` | Create group (auto-creates `general` text + `Голосовой` voice channels) |
+| `DELETE` | `/api/groups/{id}` | Delete group (owner or admin only) |
+| `PATCH` | `/api/groups/{id}` | Update group name |
 | `POST` | `/api/groups/{id}/avatar` | Upload group avatar |
-| `POST` | `/api/groups/{id}/join` | Join group |
+| `POST` | `/api/groups/{id}/join` | Join group by ID |
 | `POST` | `/api/groups/{id}/leave` | Leave group |
-| `GET` | `/api/groups/{id}/members` | List members (with online status) |
-| `DELETE` | `/api/groups/{id}/members/{uid}` | Kick member |
-| `POST` | `/api/groups/{id}/invite` | Create invite link |
-| `GET` | `/api/groups/{id}/chats` | List chats |
-| `POST` | `/api/groups/{id}/chats` | Create chat |
-| `PATCH` | `/api/groups/{id}/chats/{cid}` | Rename chat |
-| `DELETE` | `/api/groups/{id}/chats/{cid}` | Delete chat |
+| `GET` | `/api/groups/{id}/members` | List members with online status (batch Redis lookup) |
+| `DELETE` | `/api/groups/{id}/members/{uid}` | Kick member (owner/admin only) |
+| `PATCH` | `/api/groups/{id}/members/{uid}/role` | Update member role: `member`, `editor`, `owner` |
+| `POST` | `/api/groups/{id}/invite` | Create 24-hour invite link (returns code) |
+| `GET` | `/api/groups/{id}/chats` | List all channels in group |
+| `POST` | `/api/groups/{id}/chats` | Create channel (`type`: `text` or `voice`, editor+ only) |
+| `PATCH` | `/api/groups/{id}/chats/{cid}` | Rename channel (editor+ only) |
+| `DELETE` | `/api/groups/{id}/chats/{cid}` | Delete channel (editor+ only) |
 
-### Invites
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/invite/{code}` | Get invite info (public) |
-| `POST` | `/api/invite/{code}/join` | Join via invite |
-
-### Messages
+### Invites (`/api/invite`)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/chats/{id}/messages` | Get messages (50/page, cursor-based) |
-| `POST` | `/api/chats/{id}/messages` | Send message (text, files, poll) |
-| `POST` | `/api/chats/{id}/messages/forward` | Forward message |
-| `PATCH` | `/api/chats/{id}/messages/{mid}` | Edit message |
-| `DELETE` | `/api/chats/{id}/messages/{mid}` | Delete message |
-| `GET` | `/api/chats/{id}/messages/search?q=` | Search messages |
-| `GET` | `/api/chats/{id}/media` | List attachments |
-| `GET` | `/api/chats/{id}/links` | List URLs |
+| `GET` | `/api/invite/{code}` | Get invite info — group name, member count (public, no auth) |
+| `POST` | `/api/invite/{code}/join` | Join group via invite code |
 
-### Notifications
+### Messages (`/api/chats`)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/chats/unread` | Get unread counts per chat (cached 5s) |
-| `POST` | `/api/chats/{id}/read` | Mark chat as read |
+| `GET` | `/api/chats/{id}/messages` | Get messages (cursor-based pagination, 50/page). First page cached in Redis 60s |
+| `POST` | `/api/chats/{id}/messages` | Send message — supports `content` (text), `files` (attachments), `reply_to_id`, `poll_question` + `poll_options` |
+| `POST` | `/api/chats/{id}/messages/forward` | Forward message to another chat (copies content + author info) |
+| `PATCH` | `/api/chats/{id}/messages/{mid}` | Edit message text (author only, sets `is_edited` flag) |
+| `DELETE` | `/api/chats/{id}/messages/{mid}` | Delete message (author, group owner, or admin) |
+| `GET` | `/api/chats/{id}/messages/search?q=` | Full-text search in chat (min 2 chars, limit 20) |
+| `GET` | `/api/chats/{id}/media` | List messages with attachments (cursor-based, 50/page) |
+| `GET` | `/api/chats/{id}/links` | List messages containing URLs (cursor-based, 50/page) |
 
-### Voice
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/voice/token?channel_id=` | Get LiveKit JWT token |
-| `GET` | `/api/voice/participants?channel_id=` | List voice participants |
-
-### Polls
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/polls/{id}/vote` | Vote on poll option |
-| `DELETE` | `/api/polls/{id}/vote` | Remove vote |
-
-### Media
+### Notifications (`/api/chats`)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/media/messages/{mid}/{filename}` | Download attachment (auth + membership required) |
+| `GET` | `/api/chats/unread` | Get unread counts per chat, grouped by group (cached 5s in Redis) |
+| `POST` | `/api/chats/{id}/read` | Mark chat as read (sets `last_read_at` to now, invalidates unread cache) |
 
-### Admin
+### Voice (`/api/voice`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/voice/token?channel_id=` | Get LiveKit JWT + server URL + `call_started_at` (ms). Initializes call timer in Redis on first join |
+| `GET` | `/api/voice/participants?channel_id=` | List active participants (identity, name, avatar) via LiveKit API |
+| `POST` | `/api/voice/leave?channel_id=` | Notify leave. Checks remaining participants via LiveKit; clears Redis call timer if room is empty |
+
+### Polls (`/api/polls`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/polls/{id}/vote` | Vote on poll option (one vote per user per poll, replaces previous) |
+| `DELETE` | `/api/polls/{id}/vote` | Remove vote from poll |
+
+### Media (`/api/media`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/media/messages/{mid}/{filename}` | Serve attachment file (auth + group membership required). Supports range requests for audio/video |
+
+### Admin (`/api/admin`)
 
 All admin endpoints require `role == "admin"`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/admin/settings` | Get app settings |
-| `PATCH` | `/api/admin/settings` | Update settings |
-| `GET` | `/api/admin/users?q=` | List/search users |
-| `PATCH` | `/api/admin/users/{id}` | Update role/status |
-| `DELETE` | `/api/admin/users/{id}` | Delete user |
-| `GET` | `/api/admin/groups` | List all groups |
-| `DELETE` | `/api/admin/groups/{id}` | Delete group |
+| `GET` | `/api/admin/settings` | Get app settings (registration_enabled, etc.) |
+| `PATCH` | `/api/admin/settings` | Update app settings |
+| `GET` | `/api/admin/users?q=` | List/search all users (username, email, role, status) |
+| `PATCH` | `/api/admin/users/{id}` | Update user role (`user`/`admin`) or status (`is_active`) |
+| `DELETE` | `/api/admin/users/{id}` | Permanently delete user and their data |
+| `GET` | `/api/admin/groups` | List all groups with owner, member count, channel count |
+| `DELETE` | `/api/admin/groups/{id}` | Delete group with all channels and messages |
 | `GET` | `/api/admin/groups/{id}/members` | List group members |
-| `DELETE` | `/api/admin/groups/{id}/members/{uid}` | Kick member |
-| `GET` | `/api/admin/stats` | Disk/DB statistics |
-| `POST` | `/api/admin/cleanup/messages` | Delete old messages |
-| `POST` | `/api/admin/cleanup/attachments` | Delete orphaned files |
+| `DELETE` | `/api/admin/groups/{id}/members/{uid}` | Kick member from group |
+| `GET` | `/api/admin/stats` | System stats: user/group/message counts, disk usage, attachment count |
+| `POST` | `/api/admin/cleanup/messages` | Delete messages older than N days (body: `days`, default 30) |
+| `POST` | `/api/admin/cleanup/attachments` | Find and delete orphaned files (no matching DB record) |
 
 ---
 
@@ -504,7 +536,7 @@ AppSetting ───────────────────────
 
 ## Caching (Redis)
 
-Redis is used for three purposes, reducing PostgreSQL load:
+Redis is used for four purposes, reducing PostgreSQL load:
 
 ### 1. Message Page Cache
 
@@ -529,6 +561,14 @@ Checked via `PIPELINE EXISTS` for batch online status lookups.
 | `cord:unread:{user_id}` | 5s | Cached result of unread COUNT query |
 
 Invalidated when user marks a chat as read.
+
+### 4. Call Start Time
+
+| Key | TTL | Description |
+|-----|-----|-------------|
+| `cord:call:{channel_id}` | None | Unix-ms timestamp when the first participant joined the voice channel |
+
+Set with `NX` (only if key doesn't exist) when a user requests a voice token. Cleared when the last participant leaves via `/api/voice/leave`. This allows the conference duration timer to persist across page reloads and stay synchronized for all participants.
 
 All Redis operations have try/catch — if Redis is unavailable, the app falls back to direct database queries.
 
@@ -575,7 +615,9 @@ Language preference is stored in `localStorage` (`cord-lang`) and can be changed
 
 **Colors (11):** Primary/secondary/tertiary backgrounds, input background, primary/secondary/muted text, accent, accent hover, accent text, borders, danger
 
-**Shape:** Border radius (0–20px), font size (12–18px)
+**Shape:** Border radius (0–20px), font size (12–18px), font family (22 options)
+
+**Fonts:** System, Inter, Roboto, Open Sans, Nunito, Ubuntu, Poppins, Montserrat, Lato, Raleway, Manrope, Rubik, Noto Sans, Plus Jakarta Sans, Geist, JetBrains Mono, Fira Code, Source Code Pro, IBM Plex Mono, Merriweather, Playfair Display, Lora. Loaded on demand from Google Fonts.
 
 ### Export/Import
 

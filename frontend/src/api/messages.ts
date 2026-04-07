@@ -10,7 +10,6 @@ export const messagesApi = {
     return api.get<Message[]>(`/chats/${chatId}/messages?${p}`);
   },
 
-  /** Отправить сообщение (text + files + optional poll, с прогрессом загрузки) */
   send: (
     chatId: string,
     content: string,
@@ -33,32 +32,26 @@ export const messagesApi = {
     return postForm<Message>(`/chats/${chatId}/messages`, form);
   },
 
-  /** Переслать сообщение в другой чат */
   forward: (targetChatId: string, sourceMessageId: string): Promise<Message> =>
     api.post<Message>(`/chats/${targetChatId}/messages/forward`, {
       source_message_id: sourceMessageId,
     }),
 
-  /** Редактировать сообщение */
   edit: (chatId: string, messageId: string, content: string): Promise<Message> =>
     api.patch<Message>(`/chats/${chatId}/messages/${messageId}`, { content }),
 
-  /** Удалить сообщение */
   delete: (chatId: string, messageId: string): Promise<void> =>
     api.delete<void>(`/chats/${chatId}/messages/${messageId}`),
 
-  /** Поиск по тексту */
   search: (chatId: string, q: string, limit = 20) =>
     api.get<Message[]>(`/chats/${chatId}/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 
-  /** Вложения канала */
   media: (chatId: string, before?: string) => {
     const p = new URLSearchParams();
     if (before) p.set('before', before);
     return api.get<Message[]>(`/chats/${chatId}/media?${p}`);
   },
 
-  /** Ссылки из сообщений */
   links: (chatId: string, before?: string) => {
     const p = new URLSearchParams();
     if (before) p.set('before', before);

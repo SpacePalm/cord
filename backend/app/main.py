@@ -15,9 +15,6 @@ from app.config import settings
 app = FastAPI(title='Cord API')
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# CORS — в dev разрешаем всё; в prod заменить origins на конкретные домены
-# ---------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=['*'],
@@ -26,9 +23,7 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
-# ---------------------------------------------------------------------------
 # Routers
-# ---------------------------------------------------------------------------
 app.include_router(auth.router)
 app.include_router(groups.router)
 app.include_router(invite_router)
@@ -39,11 +34,9 @@ app.include_router(voice.router)
 app.include_router(notifications.router)
 app.include_router(admin.router)
 
-# ---------------------------------------------------------------------------
 # Static files
 # Аватары — публичные, раздаются напрямую.
 # Вложения сообщений (/media/messages/) защищены через /api/media/messages/
-# ---------------------------------------------------------------------------
 MEDIA_ROOT = Path('/app/media')
 MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 (MEDIA_ROOT / 'avatars').mkdir(exist_ok=True)
@@ -52,9 +45,7 @@ app.mount('/media/avatars', StaticFiles(directory=str(MEDIA_ROOT / 'avatars')), 
 app.mount('/media/group_avatars', StaticFiles(directory=str(MEDIA_ROOT / 'group_avatars')), name='group_avatars')
 
 
-# ---------------------------------------------------------------------------
 # Startup
-# ---------------------------------------------------------------------------
 @app.on_event('startup')
 async def create_tables():
     async with engine.begin() as conn:

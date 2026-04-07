@@ -31,9 +31,7 @@ async def get_redis() -> aioredis.Redis:
     return _client
 
 
-# ---------------------------------------------------------------------------
 # Messages cache
-# ---------------------------------------------------------------------------
 
 def _key(chat_id: str) -> str:
     return PAGE_KEY.format(chat_id=chat_id)
@@ -66,11 +64,9 @@ async def invalidate_messages(chat_id: str) -> None:
         logger.warning("Redis invalidate error: %s", exc)
 
 
-# ---------------------------------------------------------------------------
 # Online presence
-# ---------------------------------------------------------------------------
 
-ONLINE_TTL = 120  # секунды — если нет heartbeat 2 мин, считается оффлайн
+ONLINE_TTL = 120  # секунды
 ONLINE_KEY = "cord:online:{user_id}"
 
 
@@ -107,9 +103,7 @@ async def get_online_user_ids(user_ids: list[str]) -> set[str]:
         return set()
 
 
-# ---------------------------------------------------------------------------
 # Unread counts cache
-# ---------------------------------------------------------------------------
 
 UNREAD_TTL = 5  # секунды
 UNREAD_KEY = "cord:unread:{user_id}"
@@ -142,9 +136,7 @@ async def invalidate_unread(user_id: str) -> None:
         logger.warning("Redis unread invalidate error: %s", exc)
 
 
-# ---------------------------------------------------------------------------
 # Call start time
-# ---------------------------------------------------------------------------
 
 CALL_KEY = "cord:call:{channel_id}"
 

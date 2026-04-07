@@ -43,9 +43,7 @@ async def _require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-# ---------------------------------------------------------------------------
 # Schemas
-# ---------------------------------------------------------------------------
 
 class AdminUserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -95,17 +93,13 @@ class CleanupMessagesBody(BaseModel):
     days: int = 30  # delete messages older than N days
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 def _dir_size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob('*') if f.is_file()) if path.exists() else 0
 
 
-# ---------------------------------------------------------------------------
 # Settings endpoints
-# ---------------------------------------------------------------------------
 
 @router.get('/settings', response_model=AppSettingsOut)
 async def get_settings(
@@ -143,9 +137,7 @@ async def update_settings(
     return AppSettingsOut(registration_enabled=enabled)
 
 
-# ---------------------------------------------------------------------------
 # Users endpoints
-# ---------------------------------------------------------------------------
 
 @router.get('/users', response_model=list[AdminUserOut])
 async def list_users(
@@ -212,9 +204,7 @@ async def delete_user(
     await db.commit()
 
 
-# ---------------------------------------------------------------------------
 # Groups endpoints
-# ---------------------------------------------------------------------------
 
 @router.get('/groups', response_model=list[AdminGroupOut])
 async def list_groups(
@@ -328,9 +318,7 @@ async def kick_group_member(
     await db.commit()
 
 
-# ---------------------------------------------------------------------------
 # Stats endpoint
-# ---------------------------------------------------------------------------
 
 @router.get('/stats')
 async def get_stats(
@@ -368,9 +356,7 @@ async def get_stats(
     }
 
 
-# ---------------------------------------------------------------------------
 # Cleanup endpoints
-# ---------------------------------------------------------------------------
 
 @router.post('/cleanup/messages')
 async def cleanup_messages(

@@ -10,9 +10,6 @@
   GET    /api/chats/{id}/media                 — вложения канала
   GET    /api/chats/{id}/links                 — ссылки из сообщений
 
-Кэширование:
-  Первая страница (без before/after) хранится в Redis 60 сек.
-  Любое изменение инвалидирует ключ канала.
 """
 
 import asyncio
@@ -43,9 +40,7 @@ PAGE_SIZE = 50
 URL_RE = re.compile(r'https?://[^\s<>"\']+')
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 async def _require_chat_member(chat_id: uuid.UUID, user: User, db: AsyncSession) -> Chat:
     chat = await db.get(Chat, chat_id)
@@ -164,9 +159,7 @@ async def _load_messages_from_db(
     return list(rows)
 
 
-# ---------------------------------------------------------------------------
 # GET messages (с кэшем на первую страницу)
-# ---------------------------------------------------------------------------
 
 @router.get('/{chat_id}/messages', response_model=list[MessageOut])
 async def get_messages(
@@ -195,9 +188,7 @@ async def get_messages(
     return result
 
 
-# ---------------------------------------------------------------------------
 # POST message
-# ---------------------------------------------------------------------------
 
 @router.post('/{chat_id}/messages', response_model=MessageOut, status_code=201)
 async def send_message(
@@ -275,9 +266,7 @@ async def send_message(
     return _to_out(result.scalar_one(), user.id)
 
 
-# ---------------------------------------------------------------------------
 # POST forward
-# ---------------------------------------------------------------------------
 
 @router.post('/{chat_id}/messages/forward', response_model=MessageOut, status_code=201)
 async def forward_message(
@@ -338,9 +327,7 @@ async def forward_message(
     return _to_out(result.scalar_one(), user.id)
 
 
-# ---------------------------------------------------------------------------
 # PATCH edit
-# ---------------------------------------------------------------------------
 
 @router.patch('/{chat_id}/messages/{message_id}', response_model=MessageOut)
 async def edit_message(
@@ -377,9 +364,7 @@ async def edit_message(
     return _to_out(msg, user.id)
 
 
-# ---------------------------------------------------------------------------
 # DELETE
-# ---------------------------------------------------------------------------
 
 @router.delete('/{chat_id}/messages/{message_id}', status_code=204)
 async def delete_message(
@@ -406,9 +391,7 @@ async def delete_message(
     await invalidate_messages(str(chat_id))
 
 
-# ---------------------------------------------------------------------------
 # GET search
-# ---------------------------------------------------------------------------
 
 @router.get('/{chat_id}/messages/search', response_model=list[MessageOut])
 async def search_messages(
@@ -434,9 +417,7 @@ async def search_messages(
     return [_to_out(m, user.id) for m in result.scalars().all()]
 
 
-# ---------------------------------------------------------------------------
 # GET media (вложения)
-# ---------------------------------------------------------------------------
 
 @router.get('/{chat_id}/media', response_model=list[MessageOut])
 async def get_media(
@@ -469,9 +450,7 @@ async def get_media(
     return [_to_out(m, user.id) for m in result.scalars().all()]
 
 
-# ---------------------------------------------------------------------------
 # GET links (ссылки из текста сообщений)
-# ---------------------------------------------------------------------------
 
 @router.get('/{chat_id}/links', response_model=list[MessageOut])
 async def get_links(

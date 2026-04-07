@@ -1,4 +1,3 @@
-// Базовый API клиент. Автоматически добавляет токен к каждому запросу.
 // При 401 — автоматически разлогиниваем и редиректим на /login.
 
 import { useAuthStore } from '../store/authStore';
@@ -59,7 +58,6 @@ export const api = {
 };
 
 // Для multipart/form-data (загрузка файлов).
-// Content-Type НЕ устанавливаем — браузер сам добавит boundary.
 export async function postForm<T>(path: string, form: FormData): Promise<T> {
   const token = localStorage.getItem('access_token');
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -79,7 +77,6 @@ export async function postForm<T>(path: string, form: FormData): Promise<T> {
 }
 
 // То же, но с колбэком прогресса загрузки (0–100).
-// Использует XMLHttpRequest — единственный способ отслеживать upload progress.
 export function postFormWithProgress<T>(
   path: string,
   form: FormData,

@@ -47,9 +47,7 @@ router = APIRouter(prefix='/api/groups', tags=['groups'])
 invite_router = APIRouter(prefix='/api/invite', tags=['invite'])
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 async def _get_group_or_404(group_id: uuid.UUID, db: AsyncSession) -> Group:
     group = await db.get(Group, group_id)
@@ -108,9 +106,7 @@ async def _join_group(group_id: uuid.UUID, user: User, db: AsyncSession) -> None
         await db.commit()
 
 
-# ---------------------------------------------------------------------------
 # Groups
-# ---------------------------------------------------------------------------
 
 @router.get('', response_model=list[GroupOut])
 async def list_groups(
@@ -188,9 +184,7 @@ async def leave_group(
         await db.commit()
 
 
-# ---------------------------------------------------------------------------
 # Members
-# ---------------------------------------------------------------------------
 
 @router.get('/{group_id}/members', response_model=list[MemberOut])
 async def list_members(
@@ -287,9 +281,7 @@ async def update_member_role(
     await db.commit()
 
 
-# ---------------------------------------------------------------------------
 # Group settings
-# ---------------------------------------------------------------------------
 
 @router.patch('/{group_id}', response_model=GroupOut)
 async def update_group(
@@ -335,9 +327,7 @@ async def upload_group_avatar(
     return group
 
 
-# ---------------------------------------------------------------------------
 # Invites
-# ---------------------------------------------------------------------------
 
 @router.post('/{group_id}/invite', response_model=InviteOut)
 async def create_invite(
@@ -372,9 +362,7 @@ def _now_utc():
     return datetime.now(tz=timezone.utc)
 
 
-# ---------------------------------------------------------------------------
 # Chats (channels)
-# ---------------------------------------------------------------------------
 
 @router.get('/{group_id}/chats', response_model=list[ChatOut])
 async def list_chats(
@@ -442,9 +430,7 @@ async def delete_chat(
     await db.commit()
 
 
-# ---------------------------------------------------------------------------
 # Invite router (public + auth)
-# ---------------------------------------------------------------------------
 
 @invite_router.get('/{code}')
 async def resolve_invite(

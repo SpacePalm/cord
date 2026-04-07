@@ -7,3 +7,4 @@ test
 media
 pgdata
 __pycache__
+node_modules
