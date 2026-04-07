@@ -67,8 +67,8 @@ function VoiceChannelItem({ channel, selected, active, onSelect, onJoin }: {
     queryKey: ['voice-participants', channel.id],
     queryFn: () => voiceApi.listParticipants(channel.id),
     enabled: !isLocal,
-    refetchInterval: 5000,
-    staleTime: 3000,
+    refetchInterval: 30000,
+    staleTime: 25000,
   });
 
   const participants = isLocal ? localParticipants : (remoteParticipants ?? []);
