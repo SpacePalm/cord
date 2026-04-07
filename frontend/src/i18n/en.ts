@@ -104,8 +104,6 @@ export const en: Record<string, string> = {
   'screen.source': 'Source',
   'screen.fps': 'Frame Rate',
   'screen.optimize': 'Optimization',
-  'screen.motion': 'Video / Games',
-  'screen.detail': 'Text / Code',
   'screen.audio': 'Share audio',
   'screen.start': 'Start Streaming',
 
@@ -278,6 +276,7 @@ export const en: Record<string, string> = {
   'appearance.dangerColor': 'Danger',
   'appearance.borderRadius': 'Border Radius',
   'appearance.fontSize': 'Font Size',
+  'appearance.fontFamily': 'Font',
   'appearance.reset': 'Reset to Default',
   'appearance.export': 'Export Theme',
   'appearance.import': 'Import Theme',

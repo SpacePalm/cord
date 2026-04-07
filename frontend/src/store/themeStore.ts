@@ -16,9 +16,40 @@ export interface ThemeColors {
   dangerColor: string;
 }
 
+export const FONT_OPTIONS = [
+  { value: 'system', label: 'System', stack: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
+  // Sans-serif
+  { value: 'inter', label: 'Inter', stack: '"Inter", sans-serif' },
+  { value: 'roboto', label: 'Roboto', stack: '"Roboto", sans-serif' },
+  { value: 'open-sans', label: 'Open Sans', stack: '"Open Sans", sans-serif' },
+  { value: 'nunito', label: 'Nunito', stack: '"Nunito", sans-serif' },
+  { value: 'ubuntu', label: 'Ubuntu', stack: '"Ubuntu", sans-serif' },
+  { value: 'poppins', label: 'Poppins', stack: '"Poppins", sans-serif' },
+  { value: 'montserrat', label: 'Montserrat', stack: '"Montserrat", sans-serif' },
+  { value: 'lato', label: 'Lato', stack: '"Lato", sans-serif' },
+  { value: 'raleway', label: 'Raleway', stack: '"Raleway", sans-serif' },
+  { value: 'manrope', label: 'Manrope', stack: '"Manrope", sans-serif' },
+  { value: 'rubik', label: 'Rubik', stack: '"Rubik", sans-serif' },
+  { value: 'noto-sans', label: 'Noto Sans', stack: '"Noto Sans", sans-serif' },
+  { value: 'plus-jakarta', label: 'Plus Jakarta Sans', stack: '"Plus Jakarta Sans", sans-serif' },
+  { value: 'geist', label: 'Geist', stack: '"Geist", sans-serif' },
+  // Monospace
+  { value: 'jetbrains-mono', label: 'JetBrains Mono', stack: '"JetBrains Mono", monospace' },
+  { value: 'fira-code', label: 'Fira Code', stack: '"Fira Code", monospace' },
+  { value: 'source-code-pro', label: 'Source Code Pro', stack: '"Source Code Pro", monospace' },
+  { value: 'ibm-plex-mono', label: 'IBM Plex Mono', stack: '"IBM Plex Mono", monospace' },
+  // Serif
+  { value: 'merriweather', label: 'Merriweather', stack: '"Merriweather", serif' },
+  { value: 'playfair', label: 'Playfair Display', stack: '"Playfair Display", serif' },
+  { value: 'lora', label: 'Lora', stack: '"Lora", serif' },
+] as const;
+
+export type FontValue = typeof FONT_OPTIONS[number]['value'];
+
 export interface ThemeShape {
   borderRadius: number; // px, 0–20
   fontSize: number;     // px, 12–18
+  fontFamily: FontValue;
 }
 
 export interface Theme {
@@ -27,7 +58,7 @@ export interface Theme {
   shape: ThemeShape;
 }
 
-const defaultShape: ThemeShape = { borderRadius: 8, fontSize: 14 };
+const defaultShape: ThemeShape = { borderRadius: 8, fontSize: 14, fontFamily: 'system' };
 
 const darkTheme: Theme = {
   name: 'dark',
@@ -107,6 +138,19 @@ const forestTheme: Theme = {
 
 export const PRESET_THEMES: Theme[] = [darkTheme, lightTheme, midnightTheme, forestTheme];
 
+function loadGoogleFont(fontFamily: FontValue) {
+  if (fontFamily === 'system') return;
+  const font = FONT_OPTIONS.find((f) => f.value === fontFamily);
+  if (!font) return;
+  const id = `gfont-${fontFamily}`;
+  if (document.getElementById(id)) return;
+  const link = document.createElement('link');
+  link.id = id;
+  link.rel = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${font.label.replace(/ /g, '+')}:wght@300;400;500;600;700&display=swap`;
+  document.head.appendChild(link);
+}
+
 function applyTheme(theme: Theme) {
   const root = document.documentElement;
   const { colors, shape } = theme;
@@ -124,13 +168,18 @@ function applyTheme(theme: Theme) {
   root.style.setProperty('--danger', colors.dangerColor);
   root.style.setProperty('--radius', shape.borderRadius + 'px');
   root.style.fontSize = shape.fontSize + 'px';
+  const font = FONT_OPTIONS.find((f) => f.value === shape.fontFamily);
+  if (font) {
+    loadGoogleFont(shape.fontFamily);
+    root.style.setProperty('--font-family', font.stack);
+  }
 }
 
 interface ThemeState {
   current: Theme;
   setTheme: (theme: Theme) => void;
   setColor: (key: keyof ThemeColors, value: string) => void;
-  setShape: (key: keyof ThemeShape, value: number) => void;
+  setShape: <K extends keyof ThemeShape>(key: K, value: ThemeShape[K]) => void;
   resetToPreset: (name: string) => void;
   initTheme: () => void;
 }
@@ -180,6 +229,9 @@ export const useThemeStore = create<ThemeState>()(
         // Migration: add shape if missing (legacy localStorage data)
         if (!(current as Theme & { shape?: ThemeShape }).shape) {
           current.shape = defaultShape;
+        }
+        if (!current.shape.fontFamily) {
+          current.shape.fontFamily = 'system';
         }
         if (!current.colors.accentText) {
           current.colors.accentText = '#ffffff';

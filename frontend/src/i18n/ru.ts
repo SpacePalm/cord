@@ -104,8 +104,6 @@ export const ru: Record<string, string> = {
   'screen.source': 'Исходное',
   'screen.fps': 'Частота кадров',
   'screen.optimize': 'Оптимизация',
-  'screen.motion': 'Видео / Игры',
-  'screen.detail': 'Текст / Код',
   'screen.audio': 'Передавать звук',
   'screen.start': 'Начать трансляцию',
 
@@ -278,6 +276,7 @@ export const ru: Record<string, string> = {
   'appearance.dangerColor': 'Опасность',
   'appearance.borderRadius': 'Скругление углов',
   'appearance.fontSize': 'Размер шрифта',
+  'appearance.fontFamily': 'Шрифт',
   'appearance.reset': 'Сбросить по умолчанию',
   'appearance.export': 'Экспорт темы',
   'appearance.import': 'Импорт темы',

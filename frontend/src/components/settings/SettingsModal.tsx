@@ -6,7 +6,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
 import { ApiError } from '../../api/client';
 import { useT, useLangStore, LANGUAGES } from '../../i18n';
-import { useThemeStore, PRESET_THEMES, type ThemeColors, type Theme } from '../../store/themeStore';
+import { useThemeStore, PRESET_THEMES, FONT_OPTIONS, type ThemeColors, type Theme, type FontValue } from '../../store/themeStore';
 import { ImageCropModal } from '../ui/ImageCropModal';
 import { useNotificationStore } from '../../store/notificationStore';
 import { Download, Upload, RotateCcw, Bell, BellOff } from 'lucide-react';
@@ -719,7 +719,8 @@ function AppearanceTab() {
       try {
         const theme = JSON.parse(reader.result as string) as Theme;
         if (!theme.colors || !theme.name) throw new Error();
-        if (!theme.shape) theme.shape = { borderRadius: 8, fontSize: 14 };
+        if (!theme.shape) theme.shape = { borderRadius: 8, fontSize: 14, fontFamily: 'system' };
+        if (!theme.shape.fontFamily) theme.shape.fontFamily = 'system';
         setTheme(theme);
         setImportMsg(t('appearance.imported'));
       } catch {
@@ -821,6 +822,24 @@ function AppearanceTab() {
               onChange={(e) => setShape('fontSize', Number(e.target.value))}
               className="w-full accent-[var(--accent)] h-1.5"
             />
+          </div>
+
+          <div>
+            <span className="text-xs text-[var(--text-secondary)] block mb-2">{t('appearance.fontFamily')}</span>
+            <select
+              value={current.shape.fontFamily}
+              onChange={(e) => setShape('fontFamily', e.target.value as FontValue)}
+              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] outline-none focus:border-[var(--accent)] transition-colors"
+              style={{
+                fontFamily: FONT_OPTIONS.find((f) => f.value === current.shape.fontFamily)?.stack,
+              }}
+            >
+              {FONT_OPTIONS.map((font) => (
+                <option key={font.value} value={font.value} style={{ fontFamily: font.stack }}>
+                  {font.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>

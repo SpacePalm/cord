@@ -15,7 +15,7 @@ import {
 import { ConnectionState, Track, RemoteParticipant, ScreenSharePresets, VideoPreset } from 'livekit-client';
 import {
   Mic, MicOff, PhoneOff, Loader2, WifiOff,
-  MonitorUp, MonitorOff, X, Volume2, VolumeX, Monitor,
+  MonitorUp, MonitorOff, X, Volume2, VolumeX,
   Maximize, Minimize, Headphones, HeadphoneOff,
   MoreVertical, Signal,
 } from 'lucide-react';
@@ -481,14 +481,12 @@ interface ScreenShareSettings {
   resolution: '720' | '1080' | '1440' | 'source';
   fps: number;
   audio: boolean;
-  contentHint: 'motion' | 'detail';
 }
 
 const DEFAULT_SETTINGS: ScreenShareSettings = {
   resolution: '1080',
   fps: 30,
   audio: true,
-  contentHint: 'motion',
 };
 
 const SCREENSHARE_PRESETS: Record<string, Record<number, VideoPreset>> = {
@@ -548,20 +546,6 @@ function ScreenShareModal({ onStart, onCancel }: {
                 {fps} FPS
               </button>
             ))}
-          </div>
-        </div>
-
-        <div className="mb-4">
-          <label className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-2">{t('screen.optimize')}</label>
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => setSettings((s) => ({ ...s, contentHint: 'motion' }))}
-              className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${settings.contentHint === 'motion' ? 'bg-[var(--accent)] text-white' : 'bg-white/5 text-[var(--text-secondary)] hover:bg-white/10'}`}>
-              <Monitor size={16} /> {t('screen.motion')}
-            </button>
-            <button onClick={() => setSettings((s) => ({ ...s, contentHint: 'detail' }))}
-              className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${settings.contentHint === 'detail' ? 'bg-[var(--accent)] text-white' : 'bg-white/5 text-[var(--text-secondary)] hover:bg-white/10'}`}>
-              <MonitorUp size={16} /> {t('screen.detail')}
-            </button>
           </div>
         </div>
 
@@ -926,7 +910,6 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
         : undefined;
       const captureOpts = {
         audio: settings.audio,
-        contentHint: settings.contentHint,
         resolution: preset,
         ...(isChrome ? {
           selfBrowserSurface: 'include',
@@ -936,12 +919,14 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
       };
       const tracks = await localParticipant.createScreenTracks(captureOpts);
       for (const track of tracks) {
-        if (track.kind === 'video' && preset) {
-          await track.mediaStreamTrack.applyConstraints({
-            frameRate: { ideal: preset.resolution.frameRate },
-            width: { ideal: preset.resolution.width },
-            height: { ideal: preset.resolution.height },
-          });
+        if (track.kind === 'video') {
+          if (preset) {
+            await track.mediaStreamTrack.applyConstraints({
+              frameRate: { ideal: preset.resolution.frameRate },
+              width: { ideal: preset.resolution.width },
+              height: { ideal: preset.resolution.height },
+            });
+          }
         }
         await localParticipant.publishTrack(track, preset ? {
           videoEncoding: preset.encoding,
