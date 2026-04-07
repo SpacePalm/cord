@@ -162,7 +162,7 @@ export function AppPage() {
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
   const voicePresence = useSessionStore((s) => s.voicePresence);
-  useCordWebSocket();
+  const { reconnect: reconnectWs } = useCordWebSocket();
 
   const lastGroupId = useSessionStore((s) => s.lastGroupId);
   const lastChannelId = useSessionStore((s) => s.lastChannelId);
@@ -218,6 +218,7 @@ export function AppPage() {
     onSuccess: (newGroup: Group) => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       setSelectedGroupId(newGroup.id);
+      reconnectWs();
     },
   });
 
