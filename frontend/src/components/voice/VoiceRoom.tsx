@@ -12,7 +12,7 @@ import {
   useTracks,
   useRoomContext,
 } from '@livekit/components-react';
-import { ConnectionState, Track, RemoteParticipant } from 'livekit-client';
+import { ConnectionState, Track, RemoteParticipant, ScreenSharePresets, VideoPreset } from 'livekit-client';
 import {
   Mic, MicOff, PhoneOff, Loader2, WifiOff,
   MonitorUp, MonitorOff, X, Volume2, VolumeX, Monitor,
@@ -491,11 +491,25 @@ const DEFAULT_SETTINGS: ScreenShareSettings = {
   contentHint: 'motion',
 };
 
-const RESOLUTION_MAP: Record<string, { width: number; height: number } | null> = {
-  '720': { width: 1280, height: 720 },
-  '1080': { width: 1920, height: 1080 },
-  '1440': { width: 2560, height: 1440 },
-  'source': null,
+const SCREENSHARE_PRESETS: Record<string, Record<number, VideoPreset>> = {
+  '720': {
+    5: ScreenSharePresets.h720fps5,
+    15: ScreenSharePresets.h720fps15,
+    30: ScreenSharePresets.h720fps30,
+    60: new VideoPreset(1280, 720, 3_000_000, 60, 'medium'),
+  },
+  '1080': {
+    5: new VideoPreset(1920, 1080, 1_500_000, 5, 'medium'),
+    15: ScreenSharePresets.h1080fps15,
+    30: ScreenSharePresets.h1080fps30,
+    60: new VideoPreset(1920, 1080, 8_000_000, 60, 'medium'),
+  },
+  '1440': {
+    5: new VideoPreset(2560, 1440, 2_500_000, 5, 'medium'),
+    15: new VideoPreset(2560, 1440, 4_000_000, 15, 'medium'),
+    30: new VideoPreset(2560, 1440, 8_000_000, 30, 'medium'),
+    60: new VideoPreset(2560, 1440, 12_000_000, 60, 'medium'),
+  },
 };
 
 function ScreenShareModal({ onStart, onCancel }: {
@@ -906,18 +920,33 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
   const startScreenShare = useCallback(async (settings: ScreenShareSettings) => {
     setShowModal(false);
     try {
-      const res = RESOLUTION_MAP[settings.resolution];
       const isChrome = /Chrome/.test(navigator.userAgent) && !/Edge/.test(navigator.userAgent);
-      await localParticipant.setScreenShareEnabled(true, {
+      const preset = settings.resolution !== 'source'
+        ? SCREENSHARE_PRESETS[settings.resolution]?.[settings.fps]
+        : undefined;
+      const captureOpts = {
         audio: settings.audio,
         contentHint: settings.contentHint,
+        resolution: preset,
         ...(isChrome ? {
           selfBrowserSurface: 'include',
           surfaceSwitching: 'include',
           systemAudio: settings.audio ? 'include' : 'exclude',
         } : {}),
-        video: { frameRate: { ideal: settings.fps }, ...(res ? { width: { ideal: res.width }, height: { ideal: res.height } } : {}) },
-      });
+      };
+      const tracks = await localParticipant.createScreenTracks(captureOpts);
+      for (const track of tracks) {
+        if (track.kind === 'video' && preset) {
+          await track.mediaStreamTrack.applyConstraints({
+            frameRate: { ideal: preset.resolution.frameRate },
+            width: { ideal: preset.resolution.width },
+            height: { ideal: preset.resolution.height },
+          });
+        }
+        await localParticipant.publishTrack(track, preset ? {
+          videoEncoding: preset.encoding,
+        } : undefined);
+      }
     } catch { /* cancelled */ }
   }, [localParticipant]);
 
