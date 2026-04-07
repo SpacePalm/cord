@@ -40,4 +40,7 @@ export const authApi = {
 
   heartbeat: () =>
     api.post<{ ok: boolean }>('/auth/heartbeat'),
+
+  saveTheme: (theme: unknown) =>
+    api.put<{ ok: boolean }>('/auth/theme', theme),
 };

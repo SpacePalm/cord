@@ -3,6 +3,7 @@ import { useNavigate, Link, Navigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
+import { useThemeStore } from '../store/themeStore';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { ApiError } from '../api/client';
@@ -24,6 +25,7 @@ export function LoginPage() {
       // Save the token and fetch user data
       localStorage.setItem('access_token', data.access_token);
       const user = await authApi.me();
+      useThemeStore.getState().loadFromServer(user.theme_json ?? null);
       setAuth(user, data.access_token);
       navigate('/app');
     },

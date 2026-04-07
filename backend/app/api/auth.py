@@ -43,6 +43,7 @@ class UserInfo(BaseModel):
     email: str
     role: str
     image_path: str = ''
+    theme_json: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -56,12 +57,26 @@ def _user_info(u: User) -> UserInfo:
         email=u.email,
         role=u.role,
         image_path=u.image_path or '',
+        theme_json=u.theme_json,
     )
 
 
 @router.get("/me", response_model=UserInfo)
 async def get_profile(current_user: User = Depends(get_current_user)):
     return _user_info(current_user)
+
+
+@router.put("/theme")
+async def save_theme(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Сохраняет тему пользователя в БД."""
+    import json
+    current_user.theme_json = json.dumps(body)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/heartbeat")

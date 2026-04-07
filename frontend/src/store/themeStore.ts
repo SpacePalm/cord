@@ -175,6 +175,17 @@ function applyTheme(theme: Theme) {
   }
 }
 
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function syncToServer(theme: Theme) {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    import('../api/auth').then(({ authApi }) => {
+      authApi.saveTheme(theme).catch(() => {});
+    });
+  }, 1500);
+}
+
 interface ThemeState {
   current: Theme;
   setTheme: (theme: Theme) => void;
@@ -182,6 +193,7 @@ interface ThemeState {
   setShape: <K extends keyof ThemeShape>(key: K, value: ThemeShape[K]) => void;
   resetToPreset: (name: string) => void;
   initTheme: () => void;
+  loadFromServer: (themeJson: string | null) => void;
 }
 
 export const useThemeStore = create<ThemeState>()(
@@ -192,6 +204,7 @@ export const useThemeStore = create<ThemeState>()(
       setTheme: (theme) => {
         applyTheme(theme);
         set({ current: theme });
+        syncToServer(theme);
       },
 
       setColor: (key, value) => {
@@ -203,6 +216,7 @@ export const useThemeStore = create<ThemeState>()(
         };
         applyTheme(updated);
         set({ current: updated });
+        syncToServer(updated);
       },
 
       setShape: (key, value) => {
@@ -214,6 +228,7 @@ export const useThemeStore = create<ThemeState>()(
         };
         applyTheme(updated);
         set({ current: updated });
+        syncToServer(updated);
       },
 
       resetToPreset: (name) => {
@@ -221,6 +236,7 @@ export const useThemeStore = create<ThemeState>()(
         if (preset) {
           applyTheme(preset);
           set({ current: preset });
+          syncToServer(preset);
         }
       },
 
@@ -237,6 +253,18 @@ export const useThemeStore = create<ThemeState>()(
           current.colors.accentText = '#ffffff';
         }
         applyTheme(current);
+      },
+
+      loadFromServer: (themeJson: string | null) => {
+        if (!themeJson) return;
+        try {
+          const theme = JSON.parse(themeJson) as Theme;
+          if (!theme.colors || !theme.name) return;
+          if (!theme.shape) theme.shape = defaultShape;
+          if (!theme.shape.fontFamily) theme.shape.fontFamily = 'system';
+          applyTheme(theme);
+          set({ current: theme });
+        } catch { /* invalid JSON */ }
       },
     }),
     {

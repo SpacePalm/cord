@@ -23,9 +23,16 @@ const queryClient = new QueryClient({
 
 function ThemeInit() {
   const initTheme = useThemeStore((s) => s.initTheme);
+  const loadFromServer = useThemeStore((s: { loadFromServer: (json: string | null) => void }) => s.loadFromServer);
+  const token = useAuthStore((s) => s.token);
   useEffect(() => {
     initTheme();
-  }, [initTheme]);
+    if (token) {
+      authApi.me().then((user) => {
+        if (user.theme_json) loadFromServer(user.theme_json);
+      }).catch(() => {});
+    }
+  }, [initTheme, loadFromServer, token]);
   return null;
 }
 

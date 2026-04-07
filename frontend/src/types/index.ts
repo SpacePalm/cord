@@ -5,6 +5,7 @@ export interface User {
   email: string;
   role: string;
   image_path: string;
+  theme_json?: string | null;
 }
 
 export interface Group {
