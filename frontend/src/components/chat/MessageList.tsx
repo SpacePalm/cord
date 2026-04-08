@@ -8,6 +8,7 @@ import { ForwardModal } from './ForwardModal';
 import { renderContent, Spoiler as _Spoiler } from '../../utils/renderContent';
 import { useProtectedUrl, toProtectedUrl } from '../../hooks/useProtectedUrl';
 import type { Message, ReplyTo, Poll } from '../../types';
+import { useT } from '../../i18n';
 
 
 const PAGE = 50;
@@ -568,7 +569,9 @@ export interface MessageListHandle {
 
 export const MessageList = forwardRef<MessageListHandle, MessageListProps>(
 function MessageList({ chatId, onReply }, ref) {
+  const t = useT();
   const queryClient = useQueryClient();
+  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [forwardMsg, setForwardMsg] = useState<Message | null>(null);
@@ -576,10 +579,15 @@ function MessageList({ chatId, onReply }, ref) {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [jumped, setJumped] = useState(false);
+  const [hasNewer, setHasNewer] = useState(false);
+  const [loadingNewer, setLoadingNewer] = useState(false);
 
   useEffect(() => {
     setOlderMessages([]);
     setHasMore(true);
+    setHasNewer(false);
+    setJumped(false);
   }, [chatId]);
 
   const { data: latest = [], isLoading } = useQuery({
@@ -589,23 +597,63 @@ function MessageList({ chatId, onReply }, ref) {
   });
 
   const messages = useMemo(() => {
+    if (jumped) return olderMessages;
     const latestIds = new Set(latest.map((m) => m.id));
     return [...olderMessages.filter((m) => !latestIds.has(m.id)), ...latest];
-  }, [olderMessages, latest]);
+  }, [olderMessages, latest, jumped]);
 
   const oldestCursor = messages[0]?.created_at;
+  const newestCursor = jumped ? messages[messages.length - 1]?.created_at : null;
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
     if (!oldestCursor || loadingMore || !hasMore) return;
+    const el = scrollRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevTop = el?.scrollTop ?? 0;
     setLoadingMore(true);
     try {
       const older = await messagesApi.list(chatId, oldestCursor, undefined, PAGE);
       if (older.length < PAGE) setHasMore(false);
       setOlderMessages((prev) => [...older, ...prev]);
+      // После рендера — восстановить позицию скролла
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop = el.scrollHeight - prevHeight + prevTop;
+      });
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [oldestCursor, loadingMore, hasMore, chatId]);
+
+  const loadNewer = useCallback(async () => {
+    if (!newestCursor || loadingNewer) return;
+    setLoadingNewer(true);
+    try {
+      const newer = await messagesApi.list(chatId, undefined, newestCursor, PAGE);
+      if (newer.length < PAGE) {
+        setJumped(false);
+        setHasNewer(false);
+      }
+      setOlderMessages((prev) => [...prev, ...newer]);
+    } finally {
+      setLoadingNewer(false);
+    }
+  }, [newestCursor, loadingNewer, chatId]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Подгрузка старых — скролл близко к верху
+    if (el.scrollTop < 100 && hasMore && !loadingMore) {
+      loadMore();
+    }
+    // Подгрузка новых — скролл близко к низу (только в jumped-режиме)
+    if (jumped && hasNewer && !loadingNewer) {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distFromBottom < 100) {
+        loadNewer();
+      }
+    }
+  }, [hasMore, loadingMore, loadMore, jumped, hasNewer, loadingNewer, loadNewer]);
 
   const prevLenRef = useRef(0);
   useEffect(() => {
@@ -620,7 +668,7 @@ function MessageList({ chatId, onReply }, ref) {
   }, [chatId]);
 
   const handleDelete = useCallback((msg: Message) => {
-    if (!confirm('Удалить сообщение?')) return;
+    if (!confirm(t('chat.deleteConfirm'))) return;
     messagesApi.delete(msg.chat_id, msg.id).then(() => {
       queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
       setOlderMessages((prev) => prev.filter((m) => m.id !== msg.id));
@@ -647,62 +695,64 @@ function MessageList({ chatId, onReply }, ref) {
     return true;
   }, []);
 
+  const jumpToLatest = useCallback(() => {
+    setOlderMessages([]);
+    setHasMore(true);
+    setJumped(false);
+    queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 150);
+  }, [chatId, queryClient]);
+
   useImperativeHandle(ref, () => ({
     jumpTo: async (msgId: string, createdAt: string) => {
       // Сообщение уже в DOM — просто скроллим
       if (scrollAndHighlight(msgId)) return;
 
-      // Не в DOM — грузим батч, в котором должно быть это сообщение.
-      // before = created_at + 1ms даёт PAGE сообщений, заканчивающихся на target.
-      const justAfter = new Date(new Date(createdAt).getTime() + 1).toISOString();
+      // Загружаем сообщения вокруг целевого: PAGE/2 до и PAGE/2 после
+      const targetTime = new Date(createdAt).getTime();
+      const justAfter = new Date(targetTime + 1).toISOString();
       try {
-        const batch = await messagesApi.list(chatId, justAfter, undefined, PAGE);
-        setOlderMessages(batch);
-        setHasMore(batch.length >= PAGE);
+        const before = await messagesApi.list(chatId, justAfter, undefined, PAGE);
+        const after = await messagesApi.list(chatId, undefined, createdAt, PAGE);
+        // before возвращает в хронологическом порядке, after тоже
+        const combined = [...before, ...after.filter((m) => !before.some((b) => b.id === m.id))];
+        setOlderMessages(combined);
+        setHasMore(before.length >= PAGE);
+        setHasNewer(true);
+        setJumped(true);
       } catch {
         return;
       }
 
-      // Ждём рендер, потом скроллим
-      setTimeout(() => scrollAndHighlight(msgId), 120);
+      setTimeout(() => scrollAndHighlight(msgId), 150);
     },
   }), [chatId, scrollAndHighlight]);
 
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
-        Загрузка сообщений…
+        {t('chat.loading')}
       </div>
     );
   }
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto py-2">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto py-2">
         {messages.length > 0 && (
           <div className="flex justify-center my-2">
-            {hasMore ? (
-              <button
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="px-4 py-1.5 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {loadingMore ? (
-                  <><div className="w-3 h-3 rounded-full border border-[var(--text-muted)] border-t-transparent animate-spin" /> Загрузка…</>
-                ) : (
-                  <><CornerUpLeft size={12} /> Загрузить старые сообщения</>
-                )}
-              </button>
-            ) : (
-              <p className="text-xs text-[var(--text-muted)]">Начало истории</p>
-            )}
+            {loadingMore ? (
+              <div className="w-4 h-4 rounded-full border-2 border-[var(--text-muted)] border-t-transparent animate-spin" />
+            ) : !hasMore ? (
+              <p className="text-xs text-[var(--text-muted)]">{t('chat.historyStart')}</p>
+            ) : null}
           </div>
         )}
 
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-[var(--text-muted)]">
             <span className="text-4xl">💬</span>
-            <p className="text-sm">Здесь пока нет сообщений. Напиши первым!</p>
+            <p className="text-sm">{t('chat.empty')}</p>
           </div>
         )}
 
@@ -719,8 +769,23 @@ function MessageList({ chatId, onReply }, ref) {
             onScrollTo={handleScrollTo}
           />
         ))}
+        {loadingNewer && (
+          <div className="flex justify-center my-2">
+            <div className="w-4 h-4 rounded-full border-2 border-[var(--text-muted)] border-t-transparent animate-spin" />
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
+      {jumped && (
+        <div className="shrink-0 flex justify-center py-2 border-t border-[var(--border-color)]">
+          <button
+            onClick={jumpToLatest}
+            className="px-4 py-1.5 rounded-full text-xs font-medium bg-[var(--accent)] text-[var(--accent-text)] hover:opacity-90 transition-opacity"
+          >
+            ↓ {t('chat.jumpToLatest')}
+          </button>
+        </div>
+      )}
 
       {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
       {forwardMsg && <ForwardModal message={forwardMsg} onClose={() => setForwardMsg(null)} />}

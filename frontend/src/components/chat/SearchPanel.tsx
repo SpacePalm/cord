@@ -1,6 +1,6 @@
 // SearchPanel — боковая панель поиска по сообщениям канала
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X, Search, CornerDownRight } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
@@ -61,20 +61,50 @@ export function SearchPanel({ chatId, onClose, onJumpTo }: SearchPanelProps) {
   const t = useT();
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
+  const [allResults, setAllResults] = useState<Message[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const PAGE = 20;
 
   const handleChange = (value: string) => {
     setInput(value);
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setQuery(value.trim()), 400);
+    timerRef.current = setTimeout(() => {
+      const q = value.trim();
+      setQuery(q);
+      setAllResults([]);
+      setHasMore(true);
+    }, 400);
   };
 
-  const { data: results, isFetching } = useQuery({
+  const { isFetching } = useQuery({
     queryKey: ['search', chatId, query],
-    queryFn: () => messagesApi.search(chatId, query),
+    queryFn: async () => {
+      const res = await messagesApi.search(chatId, query, PAGE);
+      setAllResults(res);
+      setHasMore(res.length >= PAGE);
+      return res;
+    },
     enabled: query.length >= 2,
     staleTime: 10_000,
   });
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || allResults.length === 0) return;
+    setLoadingMore(true);
+    const oldest = allResults[allResults.length - 1];
+    const more = await messagesApi.search(chatId, query, PAGE, oldest.created_at);
+    setAllResults((prev) => [...prev, ...more]);
+    setHasMore(more.length >= PAGE);
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, allResults, chatId, query]);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 100) loadMore();
+  }, [loadMore]);
 
   return (
     <div className="w-80 flex flex-col bg-[var(--bg-secondary)] border-l border-[var(--border-color)] h-full">
@@ -104,18 +134,23 @@ export function SearchPanel({ chatId, onClose, onJumpTo }: SearchPanelProps) {
       </div>
 
       {/* Results */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" onScroll={handleScroll}>
         {query.length < 2 && (
           <p className="text-center text-sm text-[var(--text-muted)] mt-12">
             {t('search.minChars')}
           </p>
         )}
-        {query.length >= 2 && !isFetching && results?.length === 0 && (
+        {query.length >= 2 && !isFetching && allResults.length === 0 && (
           <p className="text-center text-sm text-[var(--text-muted)] mt-12">{t('search.noResults')}</p>
         )}
-        {results?.map((msg) => (
+        {allResults.map((msg) => (
           <SearchResult key={msg.id} msg={msg} q={query} onJump={() => onJumpTo(msg)} />
         ))}
+        {loadingMore && (
+          <div className="flex justify-center py-3">
+            <div className="w-4 h-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -149,17 +149,24 @@ export const ru: Record<string, string> = {
   'chat.noMic': 'Нет доступа к микрофону',
   'chat.forward': 'Переслать сообщение',
   'chat.forwardBtn': 'Переслать',
+  'chat.loading': 'Загрузка сообщений…',
+  'chat.historyStart': 'Начало истории',
+  'chat.empty': 'Здесь пока нет сообщений. Напиши первым!',
+  'chat.deleteConfirm': 'Удалить сообщение?',
+  'chat.jumpToLatest': 'К последним сообщениям',
 
   // ─── Поиск ────────────────────────────────────────────────────────
   'search.title': 'Поиск',
   'search.placeholder': 'Поиск сообщений…',
   'search.minChars': 'Введите минимум 2 символа',
   'search.noResults': 'Ничего не найдено',
+  'search.loadMore': 'Загрузить ещё',
   'search.jumpTo': 'Перейти',
   'search.attachments': 'вложение(й)',
 
   // ─── Медиа ────────────────────────────────────────────────────────
   'media.loading': 'Загрузка…',
+  'media.loadMore': 'Загрузить ещё',
   'media.empty': 'Вложений нет',
   'media.images': 'Изображения',
   'media.files': 'Файлы',

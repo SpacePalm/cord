@@ -21,7 +21,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -421,22 +421,34 @@ async def search_messages(
     chat_id: uuid.UUID,
     q: str = Query(..., min_length=2, description='Поисковый запрос'),
     limit: int = Query(20, ge=1, le=50),
+    before: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     await _require_chat_member(chat_id, user, db)
 
-    result = await db.execute(
+    stmt = (
         select(Message)
-        .where(Message.chat_id == chat_id, Message.content.ilike(f'%{q}%'))
+        .outerjoin(MessageAttachment, MessageAttachment.message_id == Message.id)
+        .where(
+            Message.chat_id == chat_id,
+            or_(
+                Message.content.ilike(f'%{q}%'),
+                MessageAttachment.file_path.ilike(f'%{q}%'),
+            ),
+        )
         .options(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
         )
         .order_by(Message.created_at.desc())
+        .distinct()
         .limit(limit)
     )
+    if before:
+        stmt = stmt.where(Message.created_at < before)
+    result = await db.execute(stmt)
     return [_to_out(m, user.id) for m in result.scalars().all()]
 
 

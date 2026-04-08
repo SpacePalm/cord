@@ -149,17 +149,24 @@ export const en: Record<string, string> = {
   'chat.noMic': 'No microphone access',
   'chat.forward': 'Forward message',
   'chat.forwardBtn': 'Forward',
+  'chat.loading': 'Loading messages…',
+  'chat.historyStart': 'Beginning of history',
+  'chat.empty': 'No messages yet. Be the first to write!',
+  'chat.deleteConfirm': 'Delete message?',
+  'chat.jumpToLatest': 'Jump to latest messages',
 
   // ─── Search ───────────────────────────────────────────────────────
   'search.title': 'Search',
   'search.placeholder': 'Search messages…',
   'search.minChars': 'Enter at least 2 characters',
   'search.noResults': 'Nothing found',
+  'search.loadMore': 'Load more',
   'search.jumpTo': 'Jump to',
   'search.attachments': 'attachment(s)',
 
   // ─── Media ────────────────────────────────────────────────────────
   'media.loading': 'Loading…',
+  'media.loadMore': 'Load more',
   'media.empty': 'No attachments',
   'media.images': 'Images',
   'media.files': 'Files',

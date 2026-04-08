@@ -1,7 +1,8 @@
 // MediaPanel — side panel for attachments and links
 
-import { useState, type ReactNode } from 'react';
+import { useState, useCallback, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { Message } from '../../types';
 import { X, Paperclip, Link, Image, FileText } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
 import { useProtectedUrl, toProtectedUrl } from '../../hooks/useProtectedUrl';
@@ -110,15 +111,60 @@ function FileDownloadItem({ url, date }: { url: string; date: string }) {
   );
 }
 
+// ─── Paginated fetch hook ───────────────────────────────────────────
+
+const PAGE = 50;
+
+function usePaginatedMessages(
+  queryKey: string,
+  chatId: string,
+  fetcher: (chatId: string, before?: string) => Promise<Message[]>,
+) {
+  const [extra, setExtra] = useState<Message[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const { data: firstPage = [], isLoading } = useQuery({
+    queryKey: [queryKey, chatId],
+    queryFn: async () => {
+      const res = await fetcher(chatId);
+      setExtra([]);
+      setHasMore(res.length >= PAGE);
+      return res;
+    },
+    staleTime: 30_000,
+  });
+
+  const all = [...firstPage, ...extra];
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || all.length === 0) return;
+    setLoadingMore(true);
+    const oldest = all[all.length - 1];
+    const more = await fetcher(chatId, oldest.created_at);
+    setExtra((prev) => [...prev, ...more]);
+    setHasMore(more.length >= PAGE);
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, all, chatId, fetcher]);
+
+  return { all, isLoading, loadMore, loadingMore, hasMore };
+}
+
+function LoadMoreButton({ hasMore, loading, count, onClick }: { hasMore: boolean; loading: boolean; count: number; onClick: () => void }) {
+  const t = useT();
+  if (!hasMore || count === 0) return null;
+  return (
+    <button onClick={onClick} disabled={loading} className="w-full py-3 text-sm text-[var(--accent)] hover:bg-white/5 transition-colors disabled:opacity-50">
+      {loading ? '...' : t('media.loadMore')}
+    </button>
+  );
+}
+
 // ─── Images tab ─────────────────────────────────────────────────────
 
 function ImagesTab({ chatId }: { chatId: string }) {
   const t = useT();
-  const { data: messages = [], isLoading } = useQuery({
-    queryKey: ['media', chatId],
-    queryFn: () => messagesApi.media(chatId),
-    staleTime: 30_000,
-  });
+  const { all: messages, isLoading, loadMore, loadingMore, hasMore } = usePaginatedMessages('media', chatId, messagesApi.media);
 
   const images = messages
     .flatMap((m) => m.attachments.map((url) => ({ url, msg: m })))
@@ -144,6 +190,7 @@ function ImagesTab({ chatId }: { chatId: string }) {
           </button>
         ))}
       </div>
+      <LoadMoreButton hasMore={hasMore} loading={loadingMore} count={images.length} onClick={loadMore} />
     </div>
   );
 }
@@ -152,11 +199,7 @@ function ImagesTab({ chatId }: { chatId: string }) {
 
 function FilesTab({ chatId }: { chatId: string }) {
   const t = useT();
-  const { data: messages = [], isLoading } = useQuery({
-    queryKey: ['media', chatId],
-    queryFn: () => messagesApi.media(chatId),
-    staleTime: 30_000,
-  });
+  const { all: messages, isLoading, loadMore, loadingMore, hasMore } = usePaginatedMessages('media', chatId, messagesApi.media);
 
   const files = messages
     .flatMap((m) => m.attachments.map((url) => ({ url, msg: m })))
@@ -170,6 +213,7 @@ function FilesTab({ chatId }: { chatId: string }) {
       {files.map(({ url, msg }) => (
         <FileDownloadItem key={url} url={url} date={msg.created_at} />
       ))}
+      <LoadMoreButton hasMore={hasMore} loading={loadingMore} count={files.length} onClick={loadMore} />
     </div>
   );
 }
@@ -178,11 +222,7 @@ function FilesTab({ chatId }: { chatId: string }) {
 
 function LinksTab({ chatId }: { chatId: string }) {
   const t = useT();
-  const { data: messages = [], isLoading } = useQuery({
-    queryKey: ['links', chatId],
-    queryFn: () => messagesApi.links(chatId),
-    staleTime: 30_000,
-  });
+  const { all: messages, isLoading, loadMore, loadingMore, hasMore } = usePaginatedMessages('links', chatId, messagesApi.links);
 
   const links = messages.flatMap((m) =>
     extractUrls(m.content ?? '').map((url) => ({ url, msg: m }))
@@ -207,6 +247,7 @@ function LinksTab({ chatId }: { chatId: string }) {
           </span>
         </a>
       ))}
+      <LoadMoreButton hasMore={hasMore} loading={loadingMore} count={links.length} onClick={loadMore} />
     </div>
   );
 }

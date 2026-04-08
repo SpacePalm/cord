@@ -43,8 +43,11 @@ export const messagesApi = {
   delete: (chatId: string, messageId: string): Promise<void> =>
     api.delete<void>(`/chats/${chatId}/messages/${messageId}`),
 
-  search: (chatId: string, q: string, limit = 20) =>
-    api.get<Message[]>(`/chats/${chatId}/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  search: (chatId: string, q: string, limit = 20, before?: string) => {
+    let url = `/chats/${chatId}/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`;
+    if (before) url += `&before=${encodeURIComponent(before)}`;
+    return api.get<Message[]>(url);
+  },
 
   media: (chatId: string, before?: string) => {
     const p = new URLSearchParams();
