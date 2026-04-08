@@ -2,6 +2,8 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
 import type { UnreadData } from '../api/notifications';
+import { useAuthStore } from '../store/authStore';
+import { useSessionStore } from '../store/sessionStore';
 
 interface WsMessageCreated {
   type: 'message_created';
@@ -55,20 +57,24 @@ export function useCordWebSocket() {
           if (old.some((m) => m.id === msg.id)) return old;
           return [...old, msg];
         });
-        // Increment unread count for this chat
-        queryClient.setQueryData<UnreadData>(['unread'], (old) => {
-          if (!old) return old;
-          const prev = old.unread[msg.chat_id];
-          return {
-            unread: {
-              ...old.unread,
-              [msg.chat_id]: {
-                count: (prev?.count ?? 0) + 1,
-                group_id: prev?.group_id ?? event.group_id,
+        // Increment unread count — skip own messages and active chat
+        const myId = useAuthStore.getState().user?.id;
+        const activeChat = useSessionStore.getState().lastChannelId;
+        if (msg.author_id !== myId && msg.chat_id !== activeChat) {
+          queryClient.setQueryData<UnreadData>(['unread'], (old) => {
+            if (!old) return old;
+            const prev = old.unread[msg.chat_id];
+            return {
+              unread: {
+                ...old.unread,
+                [msg.chat_id]: {
+                  count: (prev?.count ?? 0) + 1,
+                  group_id: prev?.group_id ?? event.group_id,
+                },
               },
-            },
-          };
-        });
+            };
+          });
+        }
       }
 
       if (event.type === 'message_edited') {
