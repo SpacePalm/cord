@@ -308,7 +308,7 @@ export function AppPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Колонка 1: Список серверов */}
-      <div className={isMobile && mobileView !== 'groups' ? 'hidden' : ''}>
+      {!(isMobile && mobileView !== 'groups') && (
         <GroupSidebar
           groups={groupList}
           selectedGroupId={selectedGroupId}
@@ -316,11 +316,11 @@ export function AppPage() {
           onCreateGroup={handleCreateGroup}
           unreadByGroup={unreadByGroup}
         />
-      </div>
+      )}
 
       {/* Колонка 2: Список каналов */}
-      <div className={`${isMobile && mobileView !== 'channels' ? 'hidden' : ''} ${isMobile ? 'flex-1' : ''}`}>
-        {selectedGroup ? (
+      {!(isMobile && mobileView !== 'channels') && (
+        selectedGroup ? (
           <ChannelSidebar
             groupName={selectedGroup.name}
             channels={channelList}
@@ -332,12 +332,13 @@ export function AppPage() {
             onBack={isMobile ? () => setMobileView('groups') : undefined}
           />
         ) : (
-          <div className={`${isMobile ? 'flex-1' : 'w-60'} bg-[var(--bg-secondary)]`} />
-        )}
-      </div>
+          <div className="w-60 bg-[var(--bg-secondary)]" />
+        )
+      )}
 
       {/* Колонка 3: Основная область + боковые панели */}
-      <div className={`flex-1 flex overflow-hidden ${isMobile && mobileView !== 'chat' ? 'hidden' : ''}`}>
+      {!(isMobile && mobileView !== 'chat') && (
+      <div className="flex-1 flex overflow-hidden">
         {/* Чат */}
         <div className="flex-1 flex flex-col bg-[var(--bg-tertiary)] overflow-hidden min-w-0">
           {selectedChannel ? (
@@ -466,6 +467,7 @@ export function AppPage() {
           />
         )}
       </div>
+      )}
 
       {createServerOpen && (
         <CreateServerModal
