@@ -1,6 +1,5 @@
 const CACHE_NAME = 'cord-v1';
 const PRECACHE = [
-  '/app',
   '/logo.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -33,7 +32,7 @@ self.addEventListener('fetch', (event) => {
   // Для навигации (HTML) — network first, fallback to cache
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('/app'))
+      fetch(request).catch(() => caches.match(request))
     );
     return;
   }
