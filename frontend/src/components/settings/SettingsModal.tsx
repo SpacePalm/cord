@@ -979,12 +979,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
+  const isMobile = window.innerWidth < 768;
   const tabList: { id: Tab; label: string }[] = [
     { id: 'profile',       label: t('settings.profile')       },
     { id: 'security',      label: t('settings.security')      },
     { id: 'audio',         label: t('settings.audio')         },
     { id: 'notifications', label: t('settings.notifications') },
-    { id: 'appearance',    label: t('appearance.title')       },
+    ...(!isMobile ? [{ id: 'appearance' as Tab, label: t('appearance.title') }] : []),
     { id: 'language',      label: t('settings.language')      },
   ];
 
