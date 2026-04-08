@@ -117,7 +117,7 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
 
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.focus();
+      if (window.innerWidth >= 768) textareaRef.current.focus();
       adjustHeight(textareaRef.current);
     }
   }, [channelId]);

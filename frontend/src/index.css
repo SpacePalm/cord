@@ -33,6 +33,12 @@ html, body {
   height: 100dvh;
 }
 
+#root {
+  height: 100%;
+  padding-bottom: env(safe-area-inset-bottom);
+  box-sizing: border-box;
+}
+
 body {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
