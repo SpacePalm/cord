@@ -203,6 +203,7 @@ async def send_message(
     user: User = Depends(get_current_user),
 ):
     chat = await _require_chat_member(chat_id, user, db)
+    group_id = chat.group_id
     if chat.type == 'voice':
         raise HTTPException(status_code=400, detail='Cannot send messages to a voice channel')
     has_poll = bool(poll_question and len(poll_options) >= 2)
@@ -269,7 +270,7 @@ async def send_message(
     await manager.broadcast(chat_id, {
         "type": "message_created",
         "message": _to_out(created_msg, None).model_dump(mode="json"),
-        "group_id": str(chat.group_id),
+        "group_id": str(group_id),
     })
     return msg_out
 
@@ -285,6 +286,7 @@ async def forward_message(
 ):
     # Цель — должен быть участником
     chat = await _require_chat_member(chat_id, user, db)
+    group_id = chat.group_id
 
     # Получаем оригинальное сообщение
     result = await db.execute(
@@ -337,7 +339,7 @@ async def forward_message(
     await manager.broadcast(chat_id, {
         "type": "message_created",
         "message": _to_out(fwd_msg, None).model_dump(mode="json"),
-        "group_id": str(chat.group_id),
+        "group_id": str(group_id),
     })
     return msg_out
 
