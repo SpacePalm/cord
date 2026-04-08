@@ -17,6 +17,7 @@ interface ChannelSidebarProps {
   canManage: boolean;
   onOpenSettings: () => void;
   unreadByChat?: Record<string, number>;
+  onBack?: () => void;
 }
 
 function TextChannelItem({ channel, selected, onClick, unreadCount = 0 }: {
@@ -181,6 +182,7 @@ export function ChannelSidebar({
   canManage,
   onOpenSettings,
   unreadByChat,
+  onBack,
 }: ChannelSidebarProps) {
   const t = useT();
   const user = useAuthStore((s) => s.user);
@@ -192,12 +194,19 @@ export function ChannelSidebar({
 
   return (
     <div
-      className="w-60 flex flex-col"
+      className={`${onBack ? 'w-full' : 'w-60'} flex flex-col`}
       style={{ background: 'var(--bg-secondary)' }}
     >
       {/* Шапка сервера */}
       <div className="group/header flex items-center justify-between px-4 py-3 font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-input)] border-b border-[var(--border-color)] transition-colors cursor-default">
-        <span className="truncate">{groupName}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          {onBack && (
+            <button onClick={onBack} className="p-1 -ml-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 shrink-0">
+              <ChevronDown size={18} className="rotate-90" />
+            </button>
+          )}
+          <span className="truncate">{groupName}</span>
+        </div>
         <div className="flex items-center gap-1 shrink-0">
           {canManage && (
             <button

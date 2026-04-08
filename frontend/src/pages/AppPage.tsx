@@ -12,7 +12,7 @@ import { useAuthStore } from '../store/authStore';
 import { groupsApi } from '../api/groups';
 import { messagesApi } from '../api/messages';
 import type { Group, Chat, Message } from '../types';
-import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus } from 'lucide-react';
+import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus, ArrowLeft, Menu } from 'lucide-react';
 import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
 import { useT } from '../i18n';
@@ -164,6 +164,15 @@ export function AppPage() {
   const voicePresence = useSessionStore((s) => s.voicePresence);
   const { reconnect: reconnectWs } = useCordWebSocket();
 
+  // Mobile responsive: show one panel at a time on small screens
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [mobileView, setMobileView] = useState<'groups' | 'channels' | 'chat'>('groups');
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const lastGroupId = useSessionStore((s) => s.lastGroupId);
   const lastChannelId = useSessionStore((s) => s.lastChannelId);
   const setLastGroup = useSessionStore((s) => s.setLastGroup);
@@ -277,6 +286,7 @@ export function AppPage() {
     setSelectedGroupId(id);
     setLastGroup(id);
     setSelectedChannelId(null);
+    if (isMobile) setMobileView('channels');
   };
 
   const handleCreateGroup = () => {
@@ -298,37 +308,47 @@ export function AppPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Колонка 1: Список серверов */}
-      <GroupSidebar
-        groups={groupList}
-        selectedGroupId={selectedGroupId}
-        onSelectGroup={handleSelectGroup}
-        onCreateGroup={handleCreateGroup}
-        unreadByGroup={unreadByGroup}
-      />
+      <div className={isMobile && mobileView !== 'groups' ? 'hidden' : ''}>
+        <GroupSidebar
+          groups={groupList}
+          selectedGroupId={selectedGroupId}
+          onSelectGroup={handleSelectGroup}
+          onCreateGroup={handleCreateGroup}
+          unreadByGroup={unreadByGroup}
+        />
+      </div>
 
       {/* Колонка 2: Список каналов */}
-      {selectedGroup ? (
-        <ChannelSidebar
-          groupName={selectedGroup.name}
-          channels={channelList}
-          selectedChannelId={selectedChannelId}
-          onSelectChannel={(id) => { setSelectedChannelId(id); setLastChannel(id); markRead(id); }}
-          unreadByChat={unreadByChat}
-          canManage={canEdit}
-          onOpenSettings={() => setGroupSettingsOpen(true)}
-        />
-      ) : (
-        <div className="w-60 bg-[var(--bg-secondary)]" />
-      )}
+      <div className={`${isMobile && mobileView !== 'channels' ? 'hidden' : ''} ${isMobile ? 'flex-1' : ''}`}>
+        {selectedGroup ? (
+          <ChannelSidebar
+            groupName={selectedGroup.name}
+            channels={channelList}
+            selectedChannelId={selectedChannelId}
+            onSelectChannel={(id) => { setSelectedChannelId(id); setLastChannel(id); markRead(id); if (isMobile) setMobileView('chat'); }}
+            unreadByChat={unreadByChat}
+            canManage={canEdit}
+            onOpenSettings={() => setGroupSettingsOpen(true)}
+            onBack={isMobile ? () => setMobileView('groups') : undefined}
+          />
+        ) : (
+          <div className={`${isMobile ? 'flex-1' : 'w-60'} bg-[var(--bg-secondary)]`} />
+        )}
+      </div>
 
       {/* Колонка 3: Основная область + боковые панели */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className={`flex-1 flex overflow-hidden ${isMobile && mobileView !== 'chat' ? 'hidden' : ''}`}>
         {/* Чат */}
         <div className="flex-1 flex flex-col bg-[var(--bg-tertiary)] overflow-hidden min-w-0">
           {selectedChannel ? (
             <>
               {/* Шапка канала */}
               <div className="h-12 flex items-center px-4 gap-2 border-b border-[var(--border-color)] shadow-sm shrink-0">
+                {isMobile && (
+                  <button onClick={() => setMobileView('channels')} className="p-1 -ml-1 mr-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5">
+                    <ArrowLeft size={20} />
+                  </button>
+                )}
                 {selectedChannel.type === 'voice' ? (
                   <Volume2 size={20} className="text-[var(--text-muted)]" />
                 ) : (
