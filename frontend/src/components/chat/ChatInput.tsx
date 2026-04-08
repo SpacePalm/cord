@@ -157,12 +157,20 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+          ? 'audio/mp4'
+          : '';
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+      const ext = recorder.mimeType.includes('mp4') ? 'mp4' : 'webm';
       chunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
+        const file = new File([blob], `voice_${Date.now()}.${ext}`, { type: recorder.mimeType });
         addAttachments(channelId, [file]);
         stream.getTracks().forEach((t) => t.stop());
       };

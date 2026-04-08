@@ -8,7 +8,7 @@ import { useProtectedUrl, toProtectedUrl } from '../../hooks/useProtectedUrl';
 import { useT } from '../../i18n';
 
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
-const AUDIO_RE = /\.(webm|ogg|mp3|wav|m4a|aac|flac)$/i;
+const AUDIO_RE = /\.(webm|ogg|mp3|wav|m4a|mp4|aac|flac)$/i;
 
 function stripUuid(url: string): string {
   const raw = decodeURIComponent(url.split('/').pop() ?? 'file');

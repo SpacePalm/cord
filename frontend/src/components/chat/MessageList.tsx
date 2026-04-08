@@ -60,9 +60,27 @@ function VoicePlayer({ url }: { url: string }) {
 
   const handleTimeUpdate = () => {
     const el = audioRef.current;
-    if (!el || !el.duration) return;
+    if (!el || !el.duration || !isFinite(el.duration)) return;
     setCurrentTime(el.currentTime);
     setProgress((el.currentTime / el.duration) * 100);
+  };
+
+  const handleLoadedMetadata = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (isFinite(el.duration)) {
+      setDuration(el.duration);
+    } else {
+      // WebM на некоторых браузерах возвращает Infinity — прокручиваем до конца чтобы узнать длину
+      el.currentTime = 1e10;
+      el.addEventListener('timeupdate', function fix() {
+        if (isFinite(el.duration)) {
+          setDuration(el.duration);
+          el.currentTime = 0;
+          el.removeEventListener('timeupdate', fix);
+        }
+      });
+    }
   };
 
   const handleEnded = () => { setPlaying(false); setProgress(0); setCurrentTime(0); };
@@ -94,9 +112,10 @@ function VoicePlayer({ url }: { url: string }) {
       <audio
         ref={audioRef}
         src={protectedUrl}
+        preload="metadata"
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleEnded}
-        onLoadedMetadata={(e) => setDuration((e.target as HTMLAudioElement).duration)}
+        onLoadedMetadata={handleLoadedMetadata}
       />
       <button
         onClick={toggle}
@@ -126,7 +145,7 @@ function VoicePlayer({ url }: { url: string }) {
 // ---------------------------------------------------------------------------
 // AttachmentView
 // ---------------------------------------------------------------------------
-const AUDIO_RE = /\.(webm|ogg|mp3|wav|m4a|aac|opus)$/i;
+const AUDIO_RE = /\.(webm|ogg|mp3|wav|m4a|mp4|aac|opus)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg)$/i;
 
 function ProtectedImage({ url, onZoom }: { url: string; onZoom: (u: string) => void }) {
