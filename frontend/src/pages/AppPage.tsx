@@ -12,7 +12,7 @@ import { useAuthStore } from '../store/authStore';
 import { groupsApi } from '../api/groups';
 import { messagesApi } from '../api/messages';
 import type { Group, Chat, Message } from '../types';
-import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus, ArrowLeft, Menu } from 'lucide-react';
+import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus, ArrowLeft } from 'lucide-react';
 import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
 import { useT } from '../i18n';
@@ -164,9 +164,9 @@ export function AppPage() {
   const voicePresence = useSessionStore((s) => s.voicePresence);
   const { reconnect: reconnectWs } = useCordWebSocket();
 
-  // Mobile responsive: show one panel at a time on small screens
+  // Mobile responsive: sidebar (groups+channels) or chat
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  const [mobileView, setMobileView] = useState<'groups' | 'channels' | 'chat'>('groups');
+  const [mobileView, setMobileView] = useState<'sidebar' | 'chat'>('sidebar');
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', onResize);
@@ -286,7 +286,6 @@ export function AppPage() {
     setSelectedGroupId(id);
     setLastGroup(id);
     setSelectedChannelId(null);
-    if (isMobile) setMobileView('channels');
   };
 
   const handleCreateGroup = () => {
@@ -306,38 +305,35 @@ export function AppPage() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Колонка 1: Список серверов */}
-      {!(isMobile && mobileView !== 'groups') && (
-        <GroupSidebar
-          groups={groupList}
-          selectedGroupId={selectedGroupId}
-          onSelectGroup={handleSelectGroup}
-          onCreateGroup={handleCreateGroup}
-          unreadByGroup={unreadByGroup}
-        />
-      )}
-
-      {/* Колонка 2: Список каналов */}
-      {!(isMobile && mobileView !== 'channels') && (
-        selectedGroup ? (
-          <ChannelSidebar
-            groupName={selectedGroup.name}
-            channels={channelList}
-            selectedChannelId={selectedChannelId}
-            onSelectChannel={(id) => { setSelectedChannelId(id); setLastChannel(id); markRead(id); if (isMobile) setMobileView('chat'); }}
-            unreadByChat={unreadByChat}
-            canManage={canEdit}
-            onOpenSettings={() => setGroupSettingsOpen(true)}
-            onBack={isMobile ? () => setMobileView('groups') : undefined}
+    <div className="flex h-[100dvh] overflow-hidden fixed inset-0">
+      {/* Сайдбар: группы + каналы (на мобильных скрывается при открытом чате) */}
+      {!(isMobile && mobileView === 'chat') && (
+        <>
+          <GroupSidebar
+            groups={groupList}
+            selectedGroupId={selectedGroupId}
+            onSelectGroup={handleSelectGroup}
+            onCreateGroup={handleCreateGroup}
+            unreadByGroup={unreadByGroup}
           />
-        ) : (
-          <div className="w-60 bg-[var(--bg-secondary)]" />
-        )
+          {selectedGroup ? (
+            <ChannelSidebar
+              groupName={selectedGroup.name}
+              channels={channelList}
+              selectedChannelId={selectedChannelId}
+              onSelectChannel={(id) => { setSelectedChannelId(id); setLastChannel(id); markRead(id); if (isMobile) setMobileView('chat'); }}
+              unreadByChat={unreadByChat}
+              canManage={canEdit}
+              onOpenSettings={() => setGroupSettingsOpen(true)}
+            />
+          ) : (
+            <div className={`${isMobile ? 'flex-1' : 'w-60'} bg-[var(--bg-secondary)]`} />
+          )}
+        </>
       )}
 
-      {/* Колонка 3: Основная область + боковые панели */}
-      {!(isMobile && mobileView !== 'chat') && (
+      {/* Основная область + боковые панели (на мобильных скрывается при открытом сайдбаре) */}
+      {!(isMobile && mobileView === 'sidebar') && (
       <div className="flex-1 flex overflow-hidden">
         {/* Чат */}
         <div className="flex-1 flex flex-col bg-[var(--bg-tertiary)] overflow-hidden min-w-0">
@@ -346,7 +342,7 @@ export function AppPage() {
               {/* Шапка канала */}
               <div className="h-12 flex items-center px-4 gap-2 border-b border-[var(--border-color)] shadow-sm shrink-0">
                 {isMobile && (
-                  <button onClick={() => setMobileView('channels')} className="p-1 -ml-1 mr-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5">
+                  <button onClick={() => setMobileView('sidebar')} className="p-1 -ml-1 mr-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5">
                     <ArrowLeft size={20} />
                   </button>
                 )}
