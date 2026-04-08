@@ -948,10 +948,12 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
           {deafened ? <HeadphoneOff size={20} /> : <Headphones size={20} />}
         </button>
 
-        <button onClick={handleScreenShareClick} title={isScreenSharing ? t('voice.screenShareStop') : t('voice.screenShare')}
-          className={`p-3 rounded-full transition-colors ${isScreenSharing ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-white/10 text-[var(--text-secondary)] hover:bg-white/20'}`}>
-          {isScreenSharing ? <MonitorOff size={20} /> : <MonitorUp size={20} />}
-        </button>
+        {window.innerWidth >= 768 && (
+          <button onClick={handleScreenShareClick} title={isScreenSharing ? t('voice.screenShareStop') : t('voice.screenShare')}
+            className={`p-3 rounded-full transition-colors ${isScreenSharing ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-white/10 text-[var(--text-secondary)] hover:bg-white/20'}`}>
+            {isScreenSharing ? <MonitorOff size={20} /> : <MonitorUp size={20} />}
+          </button>
+        )}
 
         <button onClick={() => setShowStats((v) => !v)} title={t('stats.connection')}
           className={`p-3 rounded-full transition-colors ${showStats ? 'bg-[var(--accent)] text-white' : 'bg-white/10 text-[var(--text-secondary)] hover:bg-white/20'}`}>
