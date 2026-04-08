@@ -35,7 +35,8 @@ html, body {
 
 #root {
   height: 100%;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: calc(env(safe-area-inset-bottom) / 2);
   box-sizing: border-box;
 }
 
