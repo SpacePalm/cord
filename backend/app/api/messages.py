@@ -269,6 +269,7 @@ async def send_message(
     await manager.broadcast(chat_id, {
         "type": "message_created",
         "message": _to_out(created_msg, None).model_dump(mode="json"),
+        "group_id": str(chat.group_id),
     })
     return msg_out
 
@@ -283,7 +284,7 @@ async def forward_message(
     user: User = Depends(get_current_user),
 ):
     # Цель — должен быть участником
-    await _require_chat_member(chat_id, user, db)
+    chat = await _require_chat_member(chat_id, user, db)
 
     # Получаем оригинальное сообщение
     result = await db.execute(
@@ -336,6 +337,7 @@ async def forward_message(
     await manager.broadcast(chat_id, {
         "type": "message_created",
         "message": _to_out(fwd_msg, None).model_dump(mode="json"),
+        "group_id": str(chat.group_id),
     })
     return msg_out
 

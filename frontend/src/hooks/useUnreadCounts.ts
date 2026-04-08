@@ -15,8 +15,7 @@ export function useUnreadCounts() {
   const { data } = useQuery({
     queryKey: ['unread'],
     queryFn: notificationsApi.getUnread,
-    refetchInterval: 5_000,
-    staleTime: 3_000,
+    staleTime: 60_000,
   });
 
   const prevDataRef = useRef<string>('');

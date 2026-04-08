@@ -1,10 +1,12 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
+import type { UnreadData } from '../api/notifications';
 
 interface WsMessageCreated {
   type: 'message_created';
   message: Message;
+  group_id: string;
 }
 
 interface WsMessageEdited {
@@ -52,6 +54,20 @@ export function useCordWebSocket() {
           if (!old) return old;
           if (old.some((m) => m.id === msg.id)) return old;
           return [...old, msg];
+        });
+        // Increment unread count for this chat
+        queryClient.setQueryData<UnreadData>(['unread'], (old) => {
+          if (!old) return old;
+          const prev = old.unread[msg.chat_id];
+          return {
+            unread: {
+              ...old.unread,
+              [msg.chat_id]: {
+                count: (prev?.count ?? 0) + 1,
+                group_id: prev?.group_id ?? event.group_id,
+              },
+            },
+          };
         });
       }
 
