@@ -104,11 +104,14 @@ function applyTheme(theme: Theme) {
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 
-function syncToServer(theme: Theme) {
+function syncToServer(theme: Theme, customThemes?: Theme[]) {
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
+    const payload = customThemes !== undefined
+      ? { ...theme, customThemes }
+      : { ...theme, customThemes: useThemeStore.getState().customThemes };
     import('../api/auth').then(({ authApi }) => {
-      authApi.saveTheme(theme).catch(() => {});
+      authApi.saveTheme(payload).catch(() => {});
     });
   }, 1500);
 }
@@ -184,6 +187,7 @@ export const useThemeStore = create<ThemeState>()(
       deleteCustomTheme: (name: string) => {
         const customs = get().customThemes.filter((t: Theme) => t.name !== name);
         set({ customThemes: customs });
+        syncToServer(get().current, customs);
       },
 
       initTheme: () => {
@@ -204,12 +208,14 @@ export const useThemeStore = create<ThemeState>()(
       loadFromServer: (themeJson: string | null) => {
         if (!themeJson) return;
         try {
-          const theme = JSON.parse(themeJson) as Theme;
-          if (!theme.colors || !theme.name) return;
-          if (!theme.shape) theme.shape = defaultShape;
-          if (!theme.shape.fontFamily) theme.shape.fontFamily = 'system';
+          const data = JSON.parse(themeJson) as Theme & { customThemes?: Theme[] };
+          if (!data.colors || !data.name) return;
+          if (!data.shape) data.shape = defaultShape;
+          if (!data.shape.fontFamily) data.shape.fontFamily = 'system';
+          const serverCustoms = Array.isArray(data.customThemes) ? data.customThemes : [];
+          const { customThemes: _, ...theme } = data as Theme & { customThemes?: Theme[] };
           applyTheme(theme);
-          set({ current: theme });
+          set({ current: theme, customThemes: serverCustoms });
         } catch { /* invalid JSON */ }
       },
     }),
