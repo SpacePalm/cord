@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Pencil, Trash2, Forward, Check, CornerUpLeft, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal } from 'lucide-react';
+import { X, Pencil, Trash2, Forward, Check, CornerUpLeft, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
 import { pollsApi } from '../../api/polls';
 import { useAuthStore } from '../../store/authStore';
 import { ForwardModal } from './ForwardModal';
 import { renderContent, Spoiler as _Spoiler } from '../../utils/renderContent';
+import { EMOJI_TABS } from './ChatInput';
 import { useProtectedUrl, toProtectedUrl } from '../../hooks/useProtectedUrl';
 import type { Message, ReplyTo, Poll } from '../../types';
 import { useT } from '../../i18n';
@@ -156,7 +158,7 @@ function ProtectedImage({ url, onZoom }: { url: string; onZoom: (u: string) => v
   }
   return (
     <button onClick={() => onZoom(src)} className="block mt-1 rounded overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
-      <img src={src} alt="вложение" className="max-h-64 max-w-sm rounded object-cover hover:brightness-90 transition-[filter] cursor-zoom-in" />
+      <img src={src} alt="вложение" loading="lazy" className="max-h-64 max-w-sm rounded object-cover hover:brightness-90 transition-[filter] cursor-zoom-in" />
     </button>
   );
 }
@@ -421,37 +423,150 @@ function LinkEmbed({ embed }: { embed: { url: string; title: string; description
         )}
       </div>
       {embed.image && (
-        <img src={embed.image} alt="" className="w-16 h-16 rounded object-cover shrink-0" />
+        <img src={embed.image} alt="" loading="lazy" className="w-16 h-16 rounded object-cover shrink-0" />
       )}
     </a>
   );
 }
 
 // ---------------------------------------------------------------------------
-// (reactions removed)
+// Popup — portal-based dropdown that auto-flips up/down
+function Popup({ anchorRef, children, onClose, width = 280 }: {
+  anchorRef: React.RefObject<HTMLElement | null>;
+  children: React.ReactNode;
+  onClose: () => void;
+  width?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({ position: 'fixed', opacity: 0 });
+
+  useEffect(() => {
+    if (!anchorRef.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const popupH = 220; // approximate height
+    const openUp = spaceBelow < popupH && rect.top > popupH;
+
+    setStyle({
+      position: 'fixed',
+      right: Math.max(4, window.innerWidth - rect.right),
+      ...(openUp ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }),
+      width,
+      opacity: 1,
+    });
+  }, [anchorRef, width]);
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [onClose]);
+
+  return createPortal(
+    <div ref={ref} style={style}
+      className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-50">
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+// ReactionPicker — tabbed emoji picker (same layout as ChatInput)
+function ReactionPicker({ anchorRef, onSelect, onClose }: {
+  anchorRef: React.RefObject<HTMLElement | null>;
+  onSelect: (emoji: string) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState(0);
+
+  return (
+    <Popup anchorRef={anchorRef} onClose={onClose} width={280}>
+      <div className="flex border-b border-[var(--border-color)]">
+        {EMOJI_TABS.map((t, i) => (
+          <button key={i} onClick={() => setTab(i)}
+            className={`flex-1 py-1.5 text-sm transition-colors ${tab === i ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+            {t.icon}
+          </button>
+        ))}
+      </div>
+      <div className="h-40 overflow-y-auto p-1.5">
+        <div className="grid grid-cols-8 gap-0.5">
+          {EMOJI_TABS[tab].emojis.map((e) => (
+            <button key={e} onClick={() => { onSelect(e); onClose(); }}
+              className="w-8 h-8 rounded hover:bg-white/10 text-lg flex items-center justify-center">
+              {e}
+            </button>
+          ))}
+        </div>
+      </div>
+    </Popup>
+  );
+}
+
+// ReactionBar — grouped reactions below a message
+function ReactionBar({ msg, onReact }: { msg: Message; onReact: (emoji: string) => void }) {
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  if (!msg.reactions || msg.reactions.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {msg.reactions.map((group) => {
+        const isMine = group.users.some((u) => u.user_id === currentUserId);
+        return (
+          <button
+            key={group.emoji}
+            onClick={() => onReact(group.emoji)}
+            className={`group/reaction relative flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs border transition-colors ${
+              isMine
+                ? 'bg-[var(--accent)]/15 border-[var(--accent)]/40 text-[var(--accent)]'
+                : 'bg-white/5 border-[var(--border-color)] text-[var(--text-muted)] hover:border-[var(--accent)]/40'
+            }`}
+          >
+            <span>{group.emoji}</span>
+            <span className="font-medium">{group.users.length}</span>
+            {/* Avatars tooltip on hover */}
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/reaction:flex flex-col items-center pointer-events-none z-40">
+              <div className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] shadow-lg">
+                {group.users.slice(0, 8).map((u) => (
+                  u.image_path ? (
+                    <img key={u.user_id} src={u.image_path} alt={u.display_name}
+                      className="w-5 h-5 rounded-full object-cover" title={u.display_name} />
+                  ) : (
+                    <div key={u.user_id} title={u.display_name}
+                      className="w-5 h-5 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-[8px] font-bold">
+                      {u.display_name.slice(0, 1).toUpperCase()}
+                    </div>
+                  )
+                ))}
+                {group.users.length > 8 && (
+                  <span className="text-[10px] text-[var(--text-muted)] ml-0.5">+{group.users.length - 8}</span>
+                )}
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // MessageActions
 // ---------------------------------------------------------------------------
 function MessageActions({
-  msg, isOwn, onEdit, onDelete, onForward, onReply, onPin, onSelect,
+  msg, isOwn, onEdit, onDelete, onForward, onReply, onPin, onSelect, onReact,
 }: {
   msg: Message; isOwn: boolean;
   onEdit: () => void; onDelete: () => void; onForward: () => void; onReply: () => void; onPin: () => void;
-  onSelect: () => void;
+  onSelect: () => void; onReact: (emoji: string) => void;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handle = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
-  }, [menuOpen]);
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const reactBtnRef = useRef<HTMLButtonElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(msg.content ?? '').catch(() => {});
@@ -462,6 +577,17 @@ function MessageActions({
 
   return (
     <div className="absolute right-4 -top-4 hidden group-hover:flex items-center gap-1 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-md px-1 py-0.5 z-10">
+      <button ref={reactBtnRef} onClick={() => setReactionPickerOpen((v) => !v)} title={t('chat.react')}
+        className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+        <Smile size={14} />
+      </button>
+      {reactionPickerOpen && (
+        <ReactionPicker
+          anchorRef={reactBtnRef}
+          onSelect={(emoji) => { onReact(emoji); setReactionPickerOpen(false); }}
+          onClose={() => setReactionPickerOpen(false)}
+        />
+      )}
       <button onClick={onReply} title={t('chat.reply')}
         className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
         <Reply size={14} />
@@ -476,13 +602,13 @@ function MessageActions({
         className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-red-400 transition-colors">
         <Trash2 size={14} />
       </button>
-      <div className="relative" ref={menuRef}>
-        <button onClick={() => setMenuOpen((v) => !v)} title={t('chat.more')}
-          className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
-          <MoreHorizontal size={14} />
-        </button>
-        {menuOpen && (
-          <div className="absolute right-0 top-full mt-1 w-44 py-1 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-20">
+      <button ref={moreBtnRef} onClick={() => setMenuOpen((v) => !v)} title={t('chat.more')}
+        className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+        <MoreHorizontal size={14} />
+      </button>
+      {menuOpen && (
+        <Popup anchorRef={moreBtnRef} onClose={() => setMenuOpen(false)} width={176}>
+          <div className="py-1">
             <button onClick={handleCopy} className={menuItem}>
               <Copy size={14} /> {t('chat.copy')}
             </button>
@@ -497,8 +623,8 @@ function MessageActions({
               <CheckSquare size={14} /> {t('chat.select')}
             </button>
           </div>
-        )}
-      </div>
+        </Popup>
+      )}
     </div>
   );
 }
@@ -508,13 +634,14 @@ function MessageActions({
 // ---------------------------------------------------------------------------
 function MessageItem({
   msg, prevMsg, highlighted, onZoom, onForward, onDelete, onReply, onScrollTo, onPin,
-  selecting, selected, onToggleSelect,
+  selecting, selected, onToggleSelect, onReact,
 }: {
   msg: Message; prevMsg?: Message; highlighted: boolean;
   onZoom: (url: string) => void; onForward: (msg: Message) => void;
   onDelete: (msg: Message) => void; onReply: (msg: Message) => void;
   onScrollTo: (messageId: string) => void; onPin: (msg: Message) => void;
   selecting: boolean; selected: boolean; onToggleSelect: (msg: Message) => void;
+  onReact: (msg: Message, emoji: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const queryClient = useQueryClient();
@@ -563,6 +690,7 @@ function MessageItem({
             onReply={() => onReply(msg)}
             onPin={() => onPin(msg)}
             onSelect={() => onToggleSelect(msg)}
+            onReact={(emoji) => onReact(msg, emoji)}
           />
         )}
 
@@ -623,6 +751,7 @@ function MessageItem({
                   ))}
                 </div>
               )}
+              <ReactionBar msg={msg} onReact={(emoji) => onReact(msg, emoji)} />
             </>
           )}
         </div>
@@ -788,6 +917,12 @@ function MessageList({ chatId, onReply }, ref) {
     const selected = messages.filter((m) => selectedIds.has(m.id));
     setForwardMsgs(selected);
   }, [selectedIds, messages]);
+  const handleReact = useCallback((msg: Message, emoji: string) => {
+    messagesApi.react(msg.chat_id, msg.id, emoji).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+    });
+  }, [chatId, queryClient]);
+
   const handlePin = useCallback((msg: Message) => {
     const fn = msg.is_pinned ? messagesApi.unpin : messagesApi.pin;
     fn(msg.chat_id, msg.id).then(() => {
@@ -888,6 +1023,7 @@ function MessageList({ chatId, onReply }, ref) {
             selecting={selecting}
             selected={selectedIds.has(msg.id)}
             onToggleSelect={handleToggleSelect}
+            onReact={handleReact}
           />
         ))}
         {loadingNewer && (

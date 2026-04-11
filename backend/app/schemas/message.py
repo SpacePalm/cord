@@ -39,6 +39,17 @@ class EmbedOut(BaseModel):
     site_name: str | None = None
 
 
+class ReactionUserOut(BaseModel):
+    user_id: UUID
+    display_name: str
+    image_path: str
+
+
+class ReactionGroupOut(BaseModel):
+    emoji: str
+    users: list[ReactionUserOut]
+
+
 class MessageOut(BaseModel):
     id: UUID
     content: str | None
@@ -56,6 +67,7 @@ class MessageOut(BaseModel):
     reply_to: ReplyTo | None = None
     forwarded_from: ForwardedFrom | None = None
     poll: PollOut | None = None
+    reactions: list[ReactionGroupOut] = []
 
 
 class MessageEdit(BaseModel):

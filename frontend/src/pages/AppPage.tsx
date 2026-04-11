@@ -17,7 +17,7 @@ import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
 import { useT } from '../i18n';
 import { useUnreadCounts } from '../hooks/useUnreadCounts';
-import { useCordWebSocket, useTypingUsers } from '../hooks/useWebSocket';
+import { useWs, useTypingUsers } from '../hooks/useWebSocket';
 import { ToastContainer } from '../components/ui/ToastContainer';
 
 type SidePanel = 'search' | 'media' | 'members' | null;
@@ -232,7 +232,10 @@ export function AppPage() {
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
   const voicePresence = useSessionStore((s) => s.voicePresence);
-  const { reconnect: reconnectWs, sendTyping } = useCordWebSocket();
+  const addAttachments = useSessionStore((s) => s.addAttachments);
+  const { reconnect: reconnectWs, sendTyping } = useWs();
+  const [dragOver, setDragOver] = useState(false);
+  const dragCounter = useRef(0);
 
   // Mobile responsive: sidebar (groups+channels) or chat
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -395,6 +398,7 @@ export function AppPage() {
               unreadByChat={unreadByChat}
               canManage={canEdit}
               onOpenSettings={() => setGroupSettingsOpen(true)}
+              isPersonal={selectedGroup.is_personal}
             />
           ) : (
             <div className={`${isMobile ? 'flex-1' : 'w-60'} bg-[var(--bg-secondary)]`} />
@@ -484,7 +488,37 @@ export function AppPage() {
 
               {/* Text chat */}
               {selectedChannel.type === 'text' && (
-                <>
+                <div
+                  className="flex-1 flex flex-col min-h-0 relative"
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    dragCounter.current++;
+                    setDragOver(true);
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    dragCounter.current--;
+                    if (dragCounter.current <= 0) {
+                      dragCounter.current = 0;
+                      setDragOver(false);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    dragCounter.current = 0;
+                    setDragOver(false);
+                    const files = Array.from(e.dataTransfer.files);
+                    if (files.length > 0) {
+                      addAttachments(selectedChannel.id, files);
+                    }
+                  }}
+                >
+                  {dragOver && (
+                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-[var(--bg-primary)]/80 border-2 border-dashed border-[var(--accent)] rounded-lg pointer-events-none">
+                      <p className="text-lg font-medium text-[var(--accent)]">{t('chat.dropFiles')}</p>
+                    </div>
+                  )}
                   <MessageList ref={messageListRef} chatId={selectedChannel.id} onReply={setReplyTo} />
                   <TypingIndicator chatId={selectedChannel.id} />
                   <ChatInput
@@ -496,7 +530,7 @@ export function AppPage() {
                     onFocus={() => selectedChannel && markRead(selectedChannel.id)}
                     onTyping={() => sendTyping(selectedChannel.id)}
                   />
-                </>
+                </div>
               )}
             </>
           ) : (

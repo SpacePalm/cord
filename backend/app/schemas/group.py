@@ -22,6 +22,7 @@ class GroupOut(BaseModel):
     name: str
     owner_id: UUID
     image_path: str
+    is_personal: bool = False
     created_at: datetime
 
 

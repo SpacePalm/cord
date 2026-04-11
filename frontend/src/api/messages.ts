@@ -47,6 +47,9 @@ export const messagesApi = {
       message_ids: messageIds,
     }),
 
+  react: (chatId: string, messageId: string, emoji: string): Promise<Message> =>
+    api.put<Message>(`/chats/${chatId}/messages/${messageId}/reactions`, { emoji }),
+
   edit: (chatId: string, messageId: string, content: string): Promise<Message> =>
     api.patch<Message>(`/chats/${chatId}/messages/${messageId}`, { content }),
 

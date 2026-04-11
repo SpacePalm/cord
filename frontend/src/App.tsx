@@ -11,6 +11,7 @@ import { useThemeStore } from './store/themeStore';
 import { useAuthStore } from './store/authStore';
 import { authApi } from './api/auth';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { CordWebSocketProvider } from './hooks/useWebSocket';
 
 // React Query client — caches API requests
 const queryClient = new QueryClient({
@@ -55,6 +56,7 @@ export default function App() {
       <BrowserRouter>
         <ThemeInit />
         <Heartbeat />
+        <CordWebSocketProvider>
         <Routes>
           {/* Public pages */}
           <Route path="/login" element={<LoginPage />} />
@@ -71,6 +73,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/app" replace />} />
           <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
+        </CordWebSocketProvider>
       </BrowserRouter>
     </QueryClientProvider>
     </ErrorBoundary>

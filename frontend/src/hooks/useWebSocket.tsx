@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, createContext, useContext, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
 import type { UnreadData } from '../api/notifications';
@@ -185,4 +185,30 @@ export function useCordWebSocket() {
   }, [connect]);
 
   return { reconnect, sendTyping };
+}
+
+// ─── Context so WS lives at App level, pages consume via hook ──────
+
+interface WsContextValue {
+  reconnect: () => void;
+  sendTyping: (chatId: string) => void;
+}
+
+const WsContext = createContext<WsContextValue>({
+  reconnect: () => {},
+  sendTyping: () => {},
+});
+
+export function CordWebSocketProvider({ children }: { children: ReactNode }) {
+  const token = useAuthStore((s) => s.token);
+  const value = useCordWebSocket();
+
+  // Don't connect if not authenticated
+  if (!token) return <>{children}</>;
+
+  return <WsContext.Provider value={value}>{children}</WsContext.Provider>;
+}
+
+export function useWs() {
+  return useContext(WsContext);
 }

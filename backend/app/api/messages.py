@@ -28,8 +28,8 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models.user import User
 from app.models.group import Chat, GroupMember, Group
-from app.models.message import Message, MessageAttachment
-from app.schemas.message import MessageOut, MessageEdit, MessageForward, MessageBulkForward, MessageBulkDelete, ForwardedFrom, ReplyTo, PollOut, PollOptionOut, EmbedOut
+from app.models.message import Message, MessageAttachment, MessageReaction
+from app.schemas.message import MessageOut, MessageEdit, MessageForward, MessageBulkForward, MessageBulkDelete, ForwardedFrom, ReplyTo, PollOut, PollOptionOut, EmbedOut, ReactionGroupOut, ReactionUserOut
 from app.models.poll import Poll, PollOption, PollVote
 from app.cache import get_cached_messages, set_cached_messages, invalidate_messages
 from app.ws_manager import manager
@@ -104,6 +104,21 @@ def _to_out(msg: Message, user_id: uuid.UUID | None = None) -> MessageOut:
         except Exception:
             pass
 
+    # Группируем реакции по emoji
+    reactions_out: list[ReactionGroupOut] = []
+    from sqlalchemy import inspect as sa_inspect
+    reactions_loaded = 'reactions' not in sa_inspect(msg).unloaded
+    if reactions_loaded and msg.reactions:
+        grouped: dict[str, list[ReactionUserOut]] = {}
+        for r in msg.reactions:
+            u = ReactionUserOut(
+                user_id=r.user_id,
+                display_name=r.user.display_name or r.user.username,
+                image_path=r.user.image_path or '',
+            )
+            grouped.setdefault(r.emoji, []).append(u)
+        reactions_out = [ReactionGroupOut(emoji=e, users=users) for e, users in grouped.items()]
+
     return MessageOut(
         id=msg.id,
         content=msg.content,
@@ -121,6 +136,7 @@ def _to_out(msg: Message, user_id: uuid.UUID | None = None) -> MessageOut:
         reply_to=reply,
         forwarded_from=fwd,
         poll=poll_out,
+        reactions=reactions_out,
     )
 
 
@@ -151,6 +167,7 @@ async def _load_messages_from_db(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
     )
     if before:
@@ -274,6 +291,7 @@ async def send_message(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
     )
     created_msg = result.scalar_one()
@@ -366,6 +384,11 @@ async def forward_message(
     db.add(fwd)
     await db.flush()
     fwd_id = fwd.id
+
+    # Копируем вложения из оригинала
+    for att in src.attachments:
+        db.add(MessageAttachment(message_id=fwd_id, file_path=att.file_path))
+
     await db.commit()
     await invalidate_messages(str(chat_id))
 
@@ -376,6 +399,7 @@ async def forward_message(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
     )
     fwd_msg = result.scalar_one()
@@ -407,7 +431,7 @@ async def forward_messages_bulk(
     result = await db.execute(
         select(Message)
         .where(Message.id.in_(body.source_message_ids))
-        .options(selectinload(Message.author))
+        .options(selectinload(Message.author), selectinload(Message.attachments))
         .order_by(Message.created_at.asc())
     )
     sources = result.scalars().all()
@@ -444,6 +468,10 @@ async def forward_messages_bulk(
         await db.flush()
         fwd_ids.append(fwd.id)
 
+        # Копируем вложения из оригинала
+        for att in src.attachments:
+            db.add(MessageAttachment(message_id=fwd.id, file_path=att.file_path))
+
     await db.commit()
     await invalidate_messages(str(chat_id))
 
@@ -454,6 +482,7 @@ async def forward_messages_bulk(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
         .order_by(Message.created_at.asc())
     )
@@ -532,6 +561,7 @@ async def edit_message(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
     )
     msg = result.scalar_one_or_none()
@@ -614,6 +644,7 @@ async def pin_message(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
     )
     msg = result.scalar_one()
@@ -649,6 +680,7 @@ async def unpin_message(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
     )
     msg = result.scalar_one()
@@ -674,12 +706,81 @@ async def get_pinned_messages(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
         .order_by(Message.created_at.desc())
     )
     return [_to_out(m, user.id) for m in result.scalars().all()]
 
 
+
+# PUT / DELETE reaction
+
+from pydantic import BaseModel as _BaseModel, Field as _Field
+
+class ReactionBody(_BaseModel):
+    emoji: str = _Field(..., max_length=32)
+
+
+@router.put('/{chat_id}/messages/{message_id}/reactions', response_model=MessageOut)
+async def toggle_reaction(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    body: ReactionBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Toggle reaction: if user already reacted with same emoji — remove, otherwise set (replacing previous)."""
+    await _require_chat_member(chat_id, user, db)
+
+    # Проверяем что сообщение существует
+    msg_result = await db.execute(
+        select(Message).where(Message.id == message_id, Message.chat_id == chat_id)
+    )
+    if not msg_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail='Message not found')
+
+    # Ищем существующую реакцию пользователя
+    existing = await db.execute(
+        select(MessageReaction).where(
+            MessageReaction.message_id == message_id,
+            MessageReaction.user_id == user.id,
+        )
+    )
+    existing_reaction = existing.scalar_one_or_none()
+
+    if existing_reaction:
+        if existing_reaction.emoji == body.emoji:
+            # Тот же эмодзи — убираем реакцию
+            await db.delete(existing_reaction)
+        else:
+            # Другой эмодзи — меняем
+            existing_reaction.emoji = body.emoji
+    else:
+        # Новая реакция
+        db.add(MessageReaction(message_id=message_id, user_id=user.id, emoji=body.emoji))
+
+    await db.commit()
+    await invalidate_messages(str(chat_id))
+
+    # Перезагружаем сообщение с relations
+    result = await db.execute(
+        select(Message).where(Message.id == message_id)
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.attachments),
+            selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
+        )
+    )
+    msg = result.scalar_one()
+    msg_out = _to_out(msg, user.id)
+
+    await manager.broadcast(chat_id, {
+        "type": "message_edited",
+        "message": _to_out(msg, None).model_dump(mode="json"),
+    })
+    return msg_out
 
 
 # GET search
@@ -709,6 +810,7 @@ async def search_messages(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
         .order_by(Message.created_at.desc())
         .distinct()
@@ -741,6 +843,7 @@ async def get_media(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
         .order_by(Message.created_at.desc())
         .distinct()
@@ -773,6 +876,7 @@ async def get_links(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+            selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
         .order_by(Message.created_at.desc())
         .limit(limit)

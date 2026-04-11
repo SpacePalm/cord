@@ -151,6 +151,8 @@ async def delete_group(
     user: User = Depends(get_current_user),
 ):
     group = await _get_group_or_404(group_id, db)
+    if group.is_personal:
+        raise HTTPException(status_code=400, detail='Cannot delete personal group')
     _require_owner_or_admin(group, user)
     await db.delete(group)
     await db.commit()
@@ -172,6 +174,9 @@ async def leave_group(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    group = await _get_group_or_404(group_id, db)
+    if group.is_personal:
+        raise HTTPException(status_code=400, detail='Cannot leave personal group')
     result = await db.execute(
         select(GroupMember).where(
             GroupMember.group_id == group_id,

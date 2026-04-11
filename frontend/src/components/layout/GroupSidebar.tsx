@@ -1,6 +1,6 @@
 // Левый сайдбар: список серверов (групп) в виде кружочков, как в Discord
 
-import { Plus, Shield, LogOut } from 'lucide-react';
+import { Plus, Shield, LogOut, Bookmark } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
@@ -87,10 +87,40 @@ export function GroupSidebar({
         <img src="/logo.png" alt="Cord" className="w-full h-full object-contain" />
       </button>
 
+      {/* Saved Messages */}
+      {(() => {
+        const saved = groups.find((g) => g.is_personal);
+        if (!saved) return null;
+        const isSel = selectedGroupId === saved.id;
+        const unread = unreadByGroup?.[saved.id] ?? 0;
+        return (
+          <button
+            onClick={() => onSelectGroup(saved.id)}
+            title={t('saved.title')}
+            className={`
+              relative w-12 h-12 rounded-full flex items-center justify-center
+              transition-all duration-150 hover:rounded-2xl
+              ${isSel
+                ? 'rounded-2xl bg-[var(--accent)] text-white'
+                : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white'
+              }
+            `}
+          >
+            <Bookmark size={22} />
+            {isSel && <span className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded-r-full" />}
+            {unread > 0 && (
+              <span className="absolute -bottom-0.5 -right-0.5 bg-[var(--danger)] text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </button>
+        );
+      })()}
+
       <div className="w-8 h-px bg-[var(--bg-secondary)] my-1" />
 
       {/* Список групп */}
-      {groups.map((group) => (
+      {groups.filter((g) => !g.is_personal).map((group) => (
         <GroupIcon
           key={group.id}
           group={group}

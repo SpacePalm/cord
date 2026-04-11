@@ -15,6 +15,7 @@ export interface Group {
   name: string;
   owner_id: string;
   image_path: string;
+  is_personal?: boolean;
   created_at: string;
 }
 
@@ -71,6 +72,18 @@ export interface Message {
   forwarded_from: ForwardedFrom | null;
   reply_to: ReplyTo | null;
   poll: Poll | null;
+  reactions: ReactionGroup[];
+}
+
+export interface ReactionUser {
+  user_id: string;
+  display_name: string;
+  image_path: string;
+}
+
+export interface ReactionGroup {
+  emoji: string;
+  users: ReactionUser[];
 }
 
 export interface AuthTokens {

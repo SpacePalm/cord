@@ -159,6 +159,7 @@ export const ru: Record<string, string> = {
   'chat.edit': 'Редактировать',
   'chat.delete': 'Удалить',
   'chat.more': 'Ещё',
+  'chat.react': 'Реакция',
   'chat.copy': 'Копировать',
   'chat.pin': 'Закрепить',
   'chat.unpin': 'Открепить',
@@ -167,6 +168,7 @@ export const ru: Record<string, string> = {
   'chat.deleteSelected': 'Удалить выбранные',
   'chat.forwardSelected': 'Переслать выбранные',
   'chat.deleteSelectedConfirm': 'Удалить сообщения ({count})?',
+  'chat.dropFiles': 'Перетащите файлы для загрузки',
   'chat.jumpToLatest': 'К последним сообщениям',
   'chat.pinned': 'Закреплённые',
   'chat.typingOne': '{name} печатает...',
@@ -243,6 +245,9 @@ export const ru: Record<string, string> = {
   'sidebar.adminInCall': 'Недоступно во время звонка',
   'sidebar.logout': 'Выйти из аккаунта',
 
+  // ─── Сохранённые сообщения ──────────────────────────────────────
+  'saved.title': 'Сохранённые',
+
   // ─── Админка ──────────────────────────────────────────────────────
   'admin.title': 'Cord Admin',
   'admin.toApp': 'В приложение',
@@ -282,6 +287,17 @@ export const ru: Record<string, string> = {
   'admin.deleteUnusedHint': 'Файлы на диске без соответствующей записи в базе',
   'admin.cleaning': 'Очистка…',
   'admin.clean': 'Очистить',
+  'admin.deleteUserConfirm': 'Удалить пользователя @{username}? Это действие необратимо.',
+  'admin.deleteServerConfirm': 'Удалить сервер «{name}»? Все каналы и сообщения будут уничтожены.',
+  'admin.deleteMessagesConfirm': 'Удалить все сообщения старше {days} дней?',
+  'admin.deleteAttachmentsConfirm': 'Удалить все неиспользуемые файлы вложений?',
+  'admin.deletedMessages': 'Удалено сообщений: {count}',
+  'admin.deletedFiles': 'Удалено файлов: {count}',
+  'admin.members': 'Участники',
+  'admin.itsYou': 'это вы',
+  'admin.owner': 'владелец @{username}',
+  'admin.memberCount': '{count} участников',
+  'admin.channelCount': '{count} каналов',
 
   // ─── Язык ─────────────────────────────────────────────────────────
   'lang.title': 'Язык интерфейса',

@@ -9,6 +9,7 @@ import {
 import { adminApi } from '../api/admin';
 import type { AdminUser, AdminGroup, AdminMember } from '../api/admin';
 import { useAuthStore } from '../store/authStore';
+import { useT } from '../i18n';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,6 +47,7 @@ function Avatar({ name, src, size = 8 }: { name: string; src?: string; size?: nu
 // UsersTab
 // ---------------------------------------------------------------------------
 function UsersTab() {
+  const t = useT();
   const qc = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
   const [search, setSearch] = useState('');
@@ -68,7 +70,7 @@ function UsersTab() {
   });
 
   const handleDelete = (u: AdminUser) => {
-    if (!confirm(`Удалить пользователя @${u.username}? Это действие необратимо.`)) return;
+    if (!confirm(t('admin.deleteUserConfirm', { username: u.username }))) return;
     deleteMutation.mutate(u.id);
   };
 
@@ -80,11 +82,11 @@ function UsersTab() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по имени или email…"
+            placeholder={t('admin.searchUsers')}
             className="w-full pl-9 pr-3 py-2 rounded bg-[var(--bg-input)] border border-[var(--border-color)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
           />
         </div>
-        <span className="text-sm text-[var(--text-muted)]">{users.length} пользователей</span>
+        <span className="text-sm text-[var(--text-muted)]">{users.length} {t('admin.userCount')}</span>
       </div>
 
       {isLoading ? (
@@ -106,11 +108,11 @@ function UsersTab() {
                     <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
                       u.role === 'admin' ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/5 text-[var(--text-muted)]'
                     }`}>
-                      {u.role === 'admin' ? 'Администратор' : 'Пользователь'}
+                      {u.role === 'admin' ? t('admin.admin') : t('admin.user')}
                     </span>
                     {!u.is_active && (
                       <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--danger)]/20 text-[var(--danger)] font-medium">
-                        Заблокирован
+                        {t('admin.blocked')}
                       </span>
                     )}
                   </div>
@@ -122,31 +124,31 @@ function UsersTab() {
                     <button
                       onClick={() => updateMutation.mutate({ userId: u.id, data: { role: u.role === 'admin' ? 'user' : 'admin' } })}
                       disabled={updateMutation.isPending}
-                      title={u.role === 'admin' ? 'Снять права' : 'Сделать админом'}
+                      title={u.role === 'admin' ? t('admin.revokeAdmin') : t('admin.makeAdmin')}
                       className={`px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
                         u.role === 'admin'
                           ? 'bg-white/5 text-[var(--text-muted)] hover:bg-white/10'
                           : 'bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20'
                       }`}
                     >
-                      {u.role === 'admin' ? 'Снять права' : 'Админ'}
+                      {u.role === 'admin' ? t('admin.revokeAdmin') : t('admin.admin')}
                     </button>
                     <button
                       onClick={() => updateMutation.mutate({ userId: u.id, data: { is_active: !u.is_active } })}
                       disabled={updateMutation.isPending}
-                      title={u.is_active ? 'Заблокировать' : 'Разблокировать'}
+                      title={u.is_active ? t('admin.block') : t('admin.unblock')}
                       className={`px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
                         u.is_active
                           ? 'bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20'
                           : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
                       }`}
                     >
-                      {u.is_active ? 'Блок' : 'Разблок'}
+                      {u.is_active ? t('admin.block') : t('admin.unblock')}
                     </button>
                     <button
                       onClick={() => handleDelete(u)}
                       disabled={deleteMutation.isPending}
-                      title="Удалить"
+                      title={t('delete')}
                       className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
                     >
                       <Trash2 size={14} />
@@ -154,7 +156,7 @@ function UsersTab() {
                   </div>
                 )}
                 {isSelf && (
-                  <span className="text-xs text-[var(--text-muted)] shrink-0">это вы</span>
+                  <span className="text-xs text-[var(--text-muted)] shrink-0">{t('admin.itsYou')}</span>
                 )}
               </div>
             );
@@ -169,6 +171,7 @@ function UsersTab() {
 // GroupsTab
 // ---------------------------------------------------------------------------
 function GroupMembersList({ groupId, ownerId }: { groupId: string; ownerId: string }) {
+  const t = useT();
   const qc = useQueryClient();
 
   const { data: members = [], isLoading } = useQuery({
@@ -203,7 +206,7 @@ function GroupMembersList({ groupId, ownerId }: { groupId: string; ownerId: stri
             <button
               onClick={() => kickMutation.mutate(m.user_id)}
               disabled={kickMutation.isPending}
-              title="Кикнуть"
+              title={t('admin.kick')}
               className="opacity-0 group-hover/row:opacity-100 p-1 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-all"
             >
               <UserX size={13} />
@@ -216,6 +219,7 @@ function GroupMembersList({ groupId, ownerId }: { groupId: string; ownerId: stri
 }
 
 function GroupsTab() {
+  const t = useT();
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -261,7 +265,7 @@ function GroupsTab() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-[var(--text-primary)] text-sm truncate">{g.name}</p>
                 <p className="text-xs text-[var(--text-muted)]">
-                  владелец @{g.owner_username} · {g.member_count} участников · {g.channel_count} каналов
+                  {t('admin.owner', { username: g.owner_username })} · {t('admin.memberCount', { count: String(g.member_count) })} · {t('admin.channelCount', { count: String(g.channel_count) })}
                 </p>
               </div>
 
@@ -271,15 +275,15 @@ function GroupsTab() {
                   className="flex items-center gap-1 px-2.5 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors"
                 >
                   {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  Участники
+                  {t('admin.members')}
                 </button>
                 <button
                   onClick={() => {
-                    if (!confirm(`Удалить сервер «${g.name}»? Все каналы и сообщения будут уничтожены.`)) return;
+                    if (!confirm(t('admin.deleteServerConfirm', { name: g.name }))) return;
                     deleteMutation.mutate(g.id);
                   }}
                   disabled={deleteMutation.isPending}
-                  title="Удалить сервер"
+                  title={t('delete')}
                   className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
                 >
                   <Trash2 size={14} />
@@ -293,7 +297,7 @@ function GroupsTab() {
       })}
 
       {!isLoading && groups.length === 0 && (
-        <p className="text-center text-sm text-[var(--text-muted)] py-12">Серверов нет</p>
+        <p className="text-center text-sm text-[var(--text-muted)] py-12">{t('admin.noServers')}</p>
       )}
     </div>
   );
@@ -303,6 +307,7 @@ function GroupsTab() {
 // SystemTab
 // ---------------------------------------------------------------------------
 function SystemTab() {
+  const t = useT();
   const qc = useQueryClient();
   const [cleanupDays, setCleanupDays] = useState(90);
   const [cleanupMsgResult, setCleanupMsgResult] = useState<number | null>(null);
@@ -344,8 +349,8 @@ function SystemTab() {
 
       {/* Registration toggle */}
       <section className="p-5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-        <h3 className="font-semibold text-[var(--text-primary)] mb-1">Регистрация</h3>
-        <p className="text-sm text-[var(--text-muted)] mb-4">Разрешить новым пользователям создавать аккаунты.</p>
+        <h3 className="font-semibold text-[var(--text-primary)] mb-1">{t('admin.registration')}</h3>
+        <p className="text-sm text-[var(--text-muted)] mb-4">{t('admin.registrationHint')}</p>
         {settingsLoading ? (
           <div className="w-5 h-5 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
         ) : (
@@ -361,7 +366,7 @@ function SystemTab() {
               }`} />
             </div>
             <span className="text-sm text-[var(--text-primary)]">
-              {settings?.registration_enabled ? 'Регистрация открыта' : 'Регистрация закрыта'}
+              {settings?.registration_enabled ? t('admin.regOpen') : t('admin.regClosed')}
             </span>
           </label>
         )}
@@ -370,11 +375,11 @@ function SystemTab() {
       {/* Stats */}
       <section className="p-5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-[var(--text-primary)]">Статистика</h3>
+          <h3 className="font-semibold text-[var(--text-primary)]">{t('admin.statistics')}</h3>
           <button
             onClick={() => refetchStats()}
             className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors"
-            title="Обновить"
+            title={t('admin.refresh')}
           >
             <RefreshCw size={14} className={statsLoading ? 'animate-spin' : ''} />
           </button>
@@ -384,10 +389,10 @@ function SystemTab() {
           <>
             <div className="grid grid-cols-2 gap-3 mb-4">
               {[
-                { icon: Users, label: 'Пользователи', value: stats.db.users },
-                { icon: Server, label: 'Серверы', value: stats.db.groups },
-                { icon: MessageSquare, label: 'Сообщения', value: stats.db.messages.toLocaleString() },
-                { icon: Paperclip, label: 'Вложения', value: stats.db.attachments.toLocaleString() },
+                { icon: Users, label: t('admin.users'), value: stats.db.users },
+                { icon: Server, label: t('admin.servers'), value: stats.db.groups },
+                { icon: MessageSquare, label: t('admin.messages'), value: stats.db.messages.toLocaleString() },
+                { icon: Paperclip, label: t('admin.attachments'), value: stats.db.attachments.toLocaleString() },
               ].map(({ icon: Icon, label, value }) => (
                 <div key={label} className="flex items-center gap-3 px-4 py-3 rounded-lg bg-[var(--bg-input)]">
                   <Icon size={18} className="text-[var(--accent)] shrink-0" />
@@ -402,13 +407,13 @@ function SystemTab() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <HardDrive size={15} className="text-[var(--text-muted)]" />
-                <span className="text-sm text-[var(--text-primary)] font-medium">Диск: {formatBytes(stats.disk.total_bytes)}</span>
+                <span className="text-sm text-[var(--text-primary)] font-medium">{t('admin.disk')}{formatBytes(stats.disk.total_bytes)}</span>
               </div>
               <div className="flex flex-col gap-1 pl-5">
                 {[
-                  { label: 'Аватары пользователей', bytes: stats.disk.avatars_bytes },
-                  { label: 'Аватары серверов', bytes: stats.disk.group_avatars_bytes },
-                  { label: 'Файлы сообщений', bytes: stats.disk.message_files_bytes },
+                  { label: t('admin.userAvatars'), bytes: stats.disk.avatars_bytes },
+                  { label: t('admin.serverAvatars'), bytes: stats.disk.group_avatars_bytes },
+                  { label: t('admin.messageFiles'), bytes: stats.disk.message_files_bytes },
                 ].map(({ label, bytes }) => (
                   <div key={label} className="flex items-center justify-between text-xs">
                     <span className="text-[var(--text-muted)]">{label}</span>
@@ -425,16 +430,16 @@ function SystemTab() {
       <section className="p-5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
         <div className="flex items-center gap-2 mb-1">
           <AlertTriangle size={16} className="text-yellow-500" />
-          <h3 className="font-semibold text-[var(--text-primary)]">Очистка</h3>
+          <h3 className="font-semibold text-[var(--text-primary)]">{t('admin.cleanup')}</h3>
         </div>
-        <p className="text-sm text-[var(--text-muted)] mb-5">Необратимые операции. Данные нельзя восстановить.</p>
+        <p className="text-sm text-[var(--text-muted)] mb-5">{t('admin.cleanupWarning')}</p>
 
         <div className="flex flex-col gap-4">
           {/* Old messages */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[var(--text-primary)]">Удалить старые сообщения</p>
-              <p className="text-xs text-[var(--text-muted)]">Удалить сообщения старше N дней</p>
+              <p className="text-sm font-medium text-[var(--text-primary)]">{t('admin.deleteOldMessages')}</p>
+              <p className="text-xs text-[var(--text-muted)]">{t('admin.deleteOldMessagesHint')}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <input
@@ -444,22 +449,22 @@ function SystemTab() {
                 min={1}
                 className="w-16 px-2 py-1.5 rounded bg-[var(--bg-input)] border border-[var(--border-color)] text-sm text-[var(--text-primary)] text-center focus:outline-none focus:border-[var(--accent)]"
               />
-              <span className="text-sm text-[var(--text-muted)]">дней</span>
+              <span className="text-sm text-[var(--text-muted)]">{t('admin.days')}</span>
               <button
                 onClick={() => {
-                  if (!confirm(`Удалить все сообщения старше ${cleanupDays} дней?`)) return;
+                  if (!confirm(t('admin.deleteMessagesConfirm', { days: String(cleanupDays) }))) return;
                   setCleanupMsgResult(null);
                   cleanupMsgMutation.mutate();
                 }}
                 disabled={cleanupMsgMutation.isPending}
                 className="px-3 py-1.5 rounded bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 text-sm font-medium transition-colors disabled:opacity-50"
               >
-                {cleanupMsgMutation.isPending ? 'Удаление…' : 'Удалить'}
+                {cleanupMsgMutation.isPending ? t('admin.deleting') : t('delete')}
               </button>
             </div>
             {cleanupMsgResult !== null && (
               <div className="w-full flex items-center gap-1 text-xs text-green-400">
-                <Check size={12} /> Удалено сообщений: {cleanupMsgResult}
+                <Check size={12} /> {t('admin.deletedMessages', { count: String(cleanupMsgResult) })}
               </div>
             )}
           </div>
@@ -469,23 +474,23 @@ function SystemTab() {
           {/* Orphaned attachments */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[var(--text-primary)]">Удалить неиспользуемые вложения</p>
-              <p className="text-xs text-[var(--text-muted)]">Файлы на диске без соответствующей записи в базе</p>
+              <p className="text-sm font-medium text-[var(--text-primary)]">{t('admin.deleteUnused')}</p>
+              <p className="text-xs text-[var(--text-muted)]">{t('admin.deleteUnusedHint')}</p>
             </div>
             <button
               onClick={() => {
-                if (!confirm('Удалить все неиспользуемые файлы вложений?')) return;
+                if (!confirm(t('admin.deleteAttachmentsConfirm'))) return;
                 setCleanupAttResult(null);
                 cleanupAttMutation.mutate();
               }}
               disabled={cleanupAttMutation.isPending}
               className="px-3 py-1.5 rounded bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 text-sm font-medium transition-colors disabled:opacity-50 shrink-0"
             >
-              {cleanupAttMutation.isPending ? 'Очистка…' : 'Очистить'}
+              {cleanupAttMutation.isPending ? t('admin.cleaning') : t('admin.clean')}
             </button>
             {cleanupAttResult !== null && (
               <div className="w-full flex items-center gap-1 text-xs text-green-400">
-                <Check size={12} /> Удалено файлов: {cleanupAttResult}
+                <Check size={12} /> {t('admin.deletedFiles', { count: String(cleanupAttResult) })}
               </div>
             )}
           </div>
@@ -501,6 +506,7 @@ function SystemTab() {
 type Tab = 'users' | 'groups' | 'system';
 
 export function AdminPage() {
+  const t = useT();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<Tab>('users');
@@ -510,9 +516,9 @@ export function AdminPage() {
   }, [user, navigate]);
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: 'users', label: 'Пользователи', icon: Users },
-    { id: 'groups', label: 'Серверы', icon: Server },
-    { id: 'system', label: 'Система', icon: Settings },
+    { id: 'users', label: t('admin.users'), icon: Users },
+    { id: 'groups', label: t('admin.servers'), icon: Server },
+    { id: 'system', label: t('admin.system'), icon: Settings },
   ];
 
   return (
@@ -524,13 +530,13 @@ export function AdminPage() {
       >
         <div className="flex items-center gap-2">
           <Shield size={20} className="text-[var(--accent)]" />
-          <span className="font-bold text-[var(--text-primary)]">Cord Admin</span>
+          <span className="font-bold text-[var(--text-primary)]">{t('admin.title')}</span>
         </div>
         <button
           onClick={() => navigate('/app')}
           className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
         >
-          <ArrowLeft size={16} /> В приложение
+          <ArrowLeft size={16} /> {t('admin.toApp')}
         </button>
       </div>
 

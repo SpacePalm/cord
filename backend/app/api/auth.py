@@ -187,9 +187,19 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         hashed_password=hash_password(request.password)
     )
     db.add(new_user)
+    await db.flush()
+
+    # Создаём персональную группу "Saved Messages"
+    from app.models.group import Group, GroupMember, Chat
+    saved_group = Group(name='Saved Messages', owner_id=new_user.id, image_path='', is_personal=True)
+    db.add(saved_group)
+    await db.flush()
+    db.add(GroupMember(group_id=saved_group.id, user_id=new_user.id, role='owner'))
+    db.add(Chat(name='Saved Messages', group_id=saved_group.id, type='text'))
+
     await db.commit()
     await db.refresh(new_user)
-    
+
     return {"id": new_user.id, "username": new_user.username, "email": new_user.email}
 
 @router.post("/login")
@@ -202,5 +212,18 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
     
+    # Создаём "Saved Messages" если нет (для старых пользователей)
+    from app.models.group import Group, GroupMember, Chat
+    existing_saved = await db.execute(
+        select(Group).where(Group.owner_id == user.id, Group.is_personal == True)
+    )
+    if not existing_saved.scalar_one_or_none():
+        saved_group = Group(name='Saved Messages', owner_id=user.id, image_path='', is_personal=True)
+        db.add(saved_group)
+        await db.flush()
+        db.add(GroupMember(group_id=saved_group.id, user_id=user.id, role='owner'))
+        db.add(Chat(name='Saved Messages', group_id=saved_group.id, type='text'))
+        await db.commit()
+
     token = create_access_token(user.id, user.username, user.role)
     return {"access_token": token, "token_type": "bearer", "user": _user_info(user).model_dump()}

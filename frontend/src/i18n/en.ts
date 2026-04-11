@@ -159,6 +159,7 @@ export const en: Record<string, string> = {
   'chat.edit': 'Edit',
   'chat.delete': 'Delete',
   'chat.more': 'More',
+  'chat.react': 'React',
   'chat.copy': 'Copy',
   'chat.pin': 'Pin',
   'chat.unpin': 'Unpin',
@@ -167,6 +168,7 @@ export const en: Record<string, string> = {
   'chat.deleteSelected': 'Delete selected',
   'chat.forwardSelected': 'Forward selected',
   'chat.deleteSelectedConfirm': 'Delete {count} messages?',
+  'chat.dropFiles': 'Drop files to upload',
   'chat.jumpToLatest': 'Jump to latest messages',
   'chat.pinned': 'Pinned Messages',
   'chat.typingOne': '{name} is typing...',
@@ -243,6 +245,9 @@ export const en: Record<string, string> = {
   'sidebar.adminInCall': 'Unavailable during call',
   'sidebar.logout': 'Log out',
 
+  // ─── Saved Messages ─────────────────────────────────────────────
+  'saved.title': 'Saved Messages',
+
   // ─── Admin ────────────────────────────────────────────────────────
   'admin.title': 'Cord Admin',
   'admin.toApp': 'To App',
@@ -282,6 +287,17 @@ export const en: Record<string, string> = {
   'admin.deleteUnusedHint': 'Files on disk without matching database entry',
   'admin.cleaning': 'Cleaning…',
   'admin.clean': 'Clean',
+  'admin.deleteUserConfirm': 'Delete user @{username}? This action is irreversible.',
+  'admin.deleteServerConfirm': 'Delete server "{name}"? All channels and messages will be destroyed.',
+  'admin.deleteMessagesConfirm': 'Delete all messages older than {days} days?',
+  'admin.deleteAttachmentsConfirm': 'Delete all unused attachment files?',
+  'admin.deletedMessages': 'Messages deleted: {count}',
+  'admin.deletedFiles': 'Files deleted: {count}',
+  'admin.members': 'Members',
+  'admin.itsYou': 'this is you',
+  'admin.owner': 'owner @{username}',
+  'admin.memberCount': '{count} members',
+  'admin.channelCount': '{count} channels',
 
   // ─── Language ─────────────────────────────────────────────────────
   'lang.title': 'Interface Language',

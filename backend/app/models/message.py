@@ -1,4 +1,4 @@
-from sqlalchemy import Text, DateTime, func, ForeignKey, Boolean, String
+from sqlalchemy import Text, DateTime, func, ForeignKey, Boolean, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -43,6 +43,9 @@ class Message(Base):
     )
     author: Mapped['User'] = relationship('User', foreign_keys=[user_id])  # type: ignore[name-defined]
     poll: Mapped['Poll | None'] = relationship('Poll', back_populates='message', uselist=False)  # type: ignore[name-defined]
+    reactions: Mapped[list['MessageReaction']] = relationship(
+        back_populates='message', cascade='all, delete-orphan'
+    )
 
 
 class MessageAttachment(Base):
@@ -55,3 +58,23 @@ class MessageAttachment(Base):
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
 
     message: Mapped['Message'] = relationship(back_populates='attachments')
+
+
+class MessageReaction(Base):
+    __tablename__ = 'message_reaction'
+    __table_args__ = (
+        # Один пользователь — одна реакция на сообщение
+        UniqueConstraint('message_id', 'user_id', name='uq_reaction_message_user'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('message.id', ondelete='CASCADE'), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('user.id', ondelete='CASCADE'), nullable=False
+    )
+    emoji: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    message: Mapped['Message'] = relationship(back_populates='reactions')
+    user: Mapped['User'] = relationship('User')  # type: ignore[name-defined]

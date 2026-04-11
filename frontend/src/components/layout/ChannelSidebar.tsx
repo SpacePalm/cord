@@ -29,6 +29,7 @@ interface ChannelSidebarProps {
   canManage: boolean;
   onOpenSettings: () => void;
   unreadByChat?: Record<string, number>;
+  isPersonal?: boolean;
 }
 
 function TextChannelItem({ channel, selected, onClick, unreadCount = 0 }: {
@@ -250,6 +251,7 @@ export function ChannelSidebar({
   canManage,
   onOpenSettings,
   unreadByChat,
+  isPersonal,
 }: ChannelSidebarProps) {
   const t = useT();
   const user = useAuthStore((s) => s.user);
@@ -266,28 +268,32 @@ export function ChannelSidebar({
     >
       {/* Шапка сервера */}
       <div className="group/header flex items-center justify-between px-4 py-3 font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-input)] border-b border-[var(--border-color)] transition-colors cursor-default">
-        <span className="truncate">{groupName}</span>
-        <div className="flex items-center gap-1 shrink-0">
-          {canManage && (
-            <button
-              onClick={onOpenSettings}
-              title={t('server.settings')}
-              className="opacity-0 group-hover/header:opacity-100 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all"
-            >
-              <Cog size={16} />
-            </button>
-          )}
-          <ChevronDown size={16} className="text-[var(--text-muted)]" />
-        </div>
+        <span className="truncate">{isPersonal ? t('saved.title') : groupName}</span>
+        {!isPersonal && (
+          <div className="flex items-center gap-1 shrink-0">
+            {canManage && (
+              <button
+                onClick={onOpenSettings}
+                title={t('server.settings')}
+                className="opacity-0 group-hover/header:opacity-100 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all"
+              >
+                <Cog size={16} />
+              </button>
+            )}
+            <ChevronDown size={16} className="text-[var(--text-muted)]" />
+          </div>
+        )}
       </div>
 
       {/* Каналы */}
       <div className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-4">
         {textChannels.length > 0 && (
           <section>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] px-2 mb-1">
-              {t('group.text')}
-            </p>
+            {!isPersonal && (
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] px-2 mb-1">
+                {t('group.text')}
+              </p>
+            )}
             {textChannels.map((ch) => (
               <TextChannelItem
                 key={ch.id}
