@@ -134,7 +134,7 @@ export function GroupSidebar({
       <button
         onClick={onCreateGroup}
         title={t('server.create')}
-        className="w-12 h-12 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center text-green-400 hover:bg-green-500 hover:text-white hover:rounded-2xl transition-all"
+        className="w-12 h-12 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center text-[var(--accent)] hover:bg-[var(--accent)] hover:text-[var(--accent-text)] hover:rounded-2xl transition-all"
       >
         <Plus size={24} />
       </button>
