@@ -212,7 +212,7 @@ async def list_groups(
     db: AsyncSession = Depends(get_db),
 ):
     # Get all groups with owner username, member count, channel count
-    result = await db.execute(select(Group))
+    result = await db.execute(select(Group).where(Group.is_personal == False))
     groups = result.scalars().all()
 
     out = []
