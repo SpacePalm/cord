@@ -31,6 +31,14 @@ class PollOut(BaseModel):
     total_votes: int
 
 
+class EmbedOut(BaseModel):
+    url: str
+    title: str
+    description: str = ''
+    image: str | None = None
+    site_name: str | None = None
+
+
 class MessageOut(BaseModel):
     id: UUID
     content: str | None
@@ -40,9 +48,11 @@ class MessageOut(BaseModel):
     author_image_path: str
     chat_id: UUID
     is_edited: bool
+    is_pinned: bool
     created_at: datetime
     updated_at: datetime
     attachments: list[str]
+    embeds: list[EmbedOut] = []
     reply_to: ReplyTo | None = None
     forwarded_from: ForwardedFrom | None = None
     poll: PollOut | None = None
@@ -54,3 +64,11 @@ class MessageEdit(BaseModel):
 
 class MessageForward(BaseModel):
     source_message_id: UUID
+
+
+class MessageBulkForward(BaseModel):
+    source_message_ids: list[UUID]
+
+
+class MessageBulkDelete(BaseModel):
+    message_ids: list[UUID]

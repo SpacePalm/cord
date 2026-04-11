@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     admin_email: str = "admin@admin.com"
     admin_password: str = "admin123"
 
+    cors_origins: str = "*"  # comma-separated origins, e.g. "https://example.com,https://app.example.com"
+
     redis_url: str = "redis://redis:6379"
 
     livekit_url: str = "http://livekit:7880"

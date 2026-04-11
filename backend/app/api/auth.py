@@ -43,6 +43,8 @@ class UserInfo(BaseModel):
     email: str
     role: str
     image_path: str = ''
+    status: str = 'online'
+    status_text: str | None = None
     theme_json: str | None = None
 
     model_config = {"from_attributes": True}
@@ -57,12 +59,32 @@ def _user_info(u: User) -> UserInfo:
         email=u.email,
         role=u.role,
         image_path=u.image_path or '',
+        status=u.status or 'online',
+        status_text=u.status_text,
         theme_json=u.theme_json,
     )
 
 
 @router.get("/me", response_model=UserInfo)
 async def get_profile(current_user: User = Depends(get_current_user)):
+    return _user_info(current_user)
+
+
+class StatusUpdate(BaseModel):
+    status: str = Field(..., pattern=r'^(online|idle|dnd|invisible)$')
+    status_text: str | None = Field(None, max_length=128)
+
+
+@router.put("/status", response_model=UserInfo)
+async def update_status(
+    body: StatusUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current_user.status = body.status
+    current_user.status_text = body.status_text
+    await db.commit()
+    await db.refresh(current_user)
     return _user_info(current_user)
 
 
@@ -99,7 +121,14 @@ async def update_profile(
         current_user.display_name = body.display_name.strip() or current_user.display_name
 
     if body.email is not None:
-        current_user.email = body.email.strip() or current_user.email
+        new_email = body.email.strip()
+        if new_email and new_email != current_user.email:
+            existing = await db.execute(
+                select(User).where(User.email == new_email, User.id != current_user.id)
+            )
+            if existing.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail='Email already taken')
+            current_user.email = new_email
 
     if body.new_password:
         if not body.current_password:
@@ -174,4 +203,4 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
     
     token = create_access_token(user.id, user.username, user.role)
-    return {"access_token": token, "token_type": "bearer"}
+    return {"access_token": token, "token_type": "bearer", "user": _user_info(user).model_dump()}

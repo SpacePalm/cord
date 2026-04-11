@@ -39,5 +39,22 @@ class ConnectionManager:
         for ws in dead:
             self.disconnect(ws)
 
+    async def broadcast_to_many(self, chat_ids: list[uuid.UUID], event: dict):
+        """Broadcast event to unique websockets across multiple channels."""
+        sent: set[int] = set()
+        dead: list[WebSocket] = []
+        for cid in chat_ids:
+            for _user_id, ws in list(self._channels.get(cid, set())):
+                ws_id = id(ws)
+                if ws_id in sent:
+                    continue
+                sent.add(ws_id)
+                try:
+                    await ws.send_json(event)
+                except Exception:
+                    dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
+
 
 manager = ConnectionManager()

@@ -200,6 +200,8 @@ async def list_members(
             User.username,
             User.display_name,
             User.image_path,
+            User.status,
+            User.status_text,
             GroupMember.role,
             GroupMember.joined_at,
         )
@@ -218,6 +220,8 @@ async def list_members(
             role=row.role,
             joined_at=row.joined_at,
             is_online=str(row.user_id) in online_ids,
+            status=row.status or 'online',
+            status_text=row.status_text,
         )
         for row in rows
     ]

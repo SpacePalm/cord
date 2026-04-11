@@ -3,7 +3,7 @@
 import json
 import uuid
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from app.auth import decode_access_token
@@ -34,13 +34,26 @@ async def _user_chat_ids(user_id: uuid.UUID) -> set[uuid.UUID]:
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
+async def websocket_endpoint(ws: WebSocket):
+    # Extract token from Sec-WebSocket-Protocol header: "auth.<jwt>"
+    token: str | None = None
+    for proto in ws.headers.get("sec-websocket-protocol", "").split(","):
+        proto = proto.strip()
+        if proto.startswith("auth."):
+            token = proto[5:]
+            break
+
+    if not token:
+        await ws.close(code=4001, reason="Unauthorized")
+        return
+
     user = await _authenticate(token)
     if not user:
         await ws.close(code=4001, reason="Unauthorized")
         return
 
-    await ws.accept()
+    # Accept with the same subprotocol so the browser doesn't reject
+    await ws.accept(subprotocol=f"auth.{token}")
 
     chat_ids = await _user_chat_ids(user.id)
     for chat_id in chat_ids:
@@ -68,6 +81,13 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
                 manager.subscribe(ws, user.id, chat_id)
             elif action == "unsubscribe":
                 manager.unsubscribe(ws, chat_id)
+            elif action == "typing":
+                await manager.broadcast(chat_id, {
+                    "type": "typing",
+                    "chat_id": chat_id_str,
+                    "user_id": str(user.id),
+                    "display_name": user.display_name or user.username,
+                }, exclude_ws=ws)
     except WebSocketDisconnect:
         pass
     finally:

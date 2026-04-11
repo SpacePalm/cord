@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Pencil, Trash2, Forward, Check, CornerUpLeft, Reply, Play, Pause, Copy } from 'lucide-react';
+import { X, Pencil, Trash2, Forward, Check, CornerUpLeft, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
 import { pollsApi } from '../../api/polls';
 import { useAuthStore } from '../../store/authStore';
@@ -400,48 +400,105 @@ function EditForm({ msg, onDone }: { msg: Message; onDone: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
+// LinkEmbed — OpenGraph preview card
+// ---------------------------------------------------------------------------
+function LinkEmbed({ embed }: { embed: { url: string; title: string; description: string; image: string | null; site_name: string | null } }) {
+  return (
+    <a
+      href={embed.url}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="flex gap-3 mt-1 p-2.5 rounded-lg bg-[var(--bg-secondary)] border-l-2 border-[var(--accent)] hover:bg-[var(--bg-input)] transition-colors max-w-md overflow-hidden"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex-1 min-w-0">
+        {embed.site_name && (
+          <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-0.5">{embed.site_name}</p>
+        )}
+        <p className="text-sm font-medium text-[var(--accent)] truncate">{embed.title}</p>
+        {embed.description && (
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5 line-clamp-2">{embed.description}</p>
+        )}
+      </div>
+      {embed.image && (
+        <img src={embed.image} alt="" className="w-16 h-16 rounded object-cover shrink-0" />
+      )}
+    </a>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// (reactions removed)
+
+// ---------------------------------------------------------------------------
 // MessageActions
 // ---------------------------------------------------------------------------
 function MessageActions({
-  msg, isOwn, onEdit, onDelete, onForward, onReply,
+  msg, isOwn, onEdit, onDelete, onForward, onReply, onPin, onSelect,
 }: {
   msg: Message; isOwn: boolean;
-  onEdit: () => void; onDelete: () => void; onForward: () => void; onReply: () => void;
+  onEdit: () => void; onDelete: () => void; onForward: () => void; onReply: () => void; onPin: () => void;
+  onSelect: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
+  const t = useT();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handle = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [menuOpen]);
 
   const handleCopy = () => {
-    const text = msg.content ?? '';
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {});
+    navigator.clipboard.writeText(msg.content ?? '').catch(() => {});
+    setMenuOpen(false);
   };
+
+  const menuItem = 'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-white/10 hover:text-[var(--text-primary)] transition-colors';
 
   return (
     <div className="absolute right-4 -top-4 hidden group-hover:flex items-center gap-1 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-md px-1 py-0.5 z-10">
-      <button onClick={onReply} title="Reply"
+      <button onClick={onReply} title={t('chat.reply')}
         className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
         <Reply size={14} />
       </button>
-      <button onClick={handleCopy} title="Copy"
-        className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
-        {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-      </button>
       {isOwn && (
-        <button onClick={onEdit} title="Edit"
+        <button onClick={onEdit} title={t('chat.edit')}
           className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
           <Pencil size={14} />
         </button>
       )}
-      <button onClick={onForward} title="Forward"
-        className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
-        <Forward size={14} />
-      </button>
-      <button onClick={onDelete} title="Delete"
+      <button onClick={onDelete} title={t('chat.delete')}
         className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-red-400 transition-colors">
         <Trash2 size={14} />
       </button>
+      <div className="relative" ref={menuRef}>
+        <button onClick={() => setMenuOpen((v) => !v)} title={t('chat.more')}
+          className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+          <MoreHorizontal size={14} />
+        </button>
+        {menuOpen && (
+          <div className="absolute right-0 top-full mt-1 w-44 py-1 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-20">
+            <button onClick={handleCopy} className={menuItem}>
+              <Copy size={14} /> {t('chat.copy')}
+            </button>
+            <button onClick={() => { onPin(); setMenuOpen(false); }} className={menuItem}>
+              <Pin size={14} className={msg.is_pinned ? 'text-yellow-400' : ''} />
+              {msg.is_pinned ? t('chat.unpin') : t('chat.pin')}
+            </button>
+            <button onClick={() => { onForward(); setMenuOpen(false); }} className={menuItem}>
+              <Forward size={14} /> {t('chat.forwardBtn')}
+            </button>
+            <button onClick={() => { onSelect(); setMenuOpen(false); }} className={menuItem}>
+              <CheckSquare size={14} /> {t('chat.select')}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -450,14 +507,17 @@ function MessageActions({
 // MessageItem
 // ---------------------------------------------------------------------------
 function MessageItem({
-  msg, prevMsg, highlighted, onZoom, onForward, onDelete, onReply, onScrollTo,
+  msg, prevMsg, highlighted, onZoom, onForward, onDelete, onReply, onScrollTo, onPin,
+  selecting, selected, onToggleSelect,
 }: {
   msg: Message; prevMsg?: Message; highlighted: boolean;
   onZoom: (url: string) => void; onForward: (msg: Message) => void;
   onDelete: (msg: Message) => void; onReply: (msg: Message) => void;
-  onScrollTo: (messageId: string) => void;
+  onScrollTo: (messageId: string) => void; onPin: (msg: Message) => void;
+  selecting: boolean; selected: boolean; onToggleSelect: (msg: Message) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const queryClient = useQueryClient();
   const currentUserId = useAuthStore((s) => s.user?.id);
   const isOwn = msg.author_id === currentUserId;
 
@@ -484,15 +544,27 @@ function MessageItem({
 
       <div
         id={`msg-${msg.id}`}
-        className={`relative flex gap-3 px-4 group rounded transition-colors duration-700 ${sameAuthor ? 'mt-0.5' : 'mt-4'} ${highlighted ? 'bg-white/10' : 'hover:bg-white/[.03]'}`}
+        onClick={selecting ? () => onToggleSelect(msg) : undefined}
+        className={`relative flex gap-3 px-4 group rounded transition-colors duration-700 ${sameAuthor ? 'mt-0.5' : 'mt-4'} ${selecting ? 'cursor-pointer' : ''} ${selected ? 'bg-[var(--accent)]/10' : highlighted ? 'bg-white/10' : 'hover:bg-white/[.03]'}`}
       >
-        <MessageActions
-          msg={msg} isOwn={isOwn}
-          onEdit={() => setEditing(true)}
-          onDelete={() => onDelete(msg)}
-          onForward={() => onForward(msg)}
-          onReply={() => onReply(msg)}
-        />
+        {selecting && (
+          <div className="flex items-center shrink-0 self-center">
+            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selected ? 'bg-[var(--accent)] border-[var(--accent)]' : 'border-[var(--text-muted)]'}`}>
+              {selected && <Check size={12} className="text-white" />}
+            </div>
+          </div>
+        )}
+        {!selecting && (
+          <MessageActions
+            msg={msg} isOwn={isOwn}
+            onEdit={() => setEditing(true)}
+            onDelete={() => onDelete(msg)}
+            onForward={() => onForward(msg)}
+            onReply={() => onReply(msg)}
+            onPin={() => onPin(msg)}
+            onSelect={() => onToggleSelect(msg)}
+          />
+        )}
 
         {sameAuthor ? (
           <div className="w-9 shrink-0" />
@@ -524,12 +596,15 @@ function MessageItem({
           ) : (
             <>
               {msg.content && (
-                <p className="text-sm text-[var(--text-secondary)] leading-relaxed break-words whitespace-pre-wrap">
+                <div className="text-sm text-[var(--text-secondary)] leading-relaxed break-words whitespace-pre-wrap">
                   {renderContent(msg.content)}
                   {msg.is_edited && (
                     <span className="ml-1 text-xs text-[var(--text-muted)]">(изм.)</span>
                   )}
-                </p>
+                  {msg.is_pinned && (
+                    <Pin size={10} className="inline ml-1 text-yellow-400" />
+                  )}
+                </div>
               )}
               {msg.poll && (
                 <PollView poll={msg.poll} messageId={msg.id} chatId={msg.chat_id} />
@@ -538,6 +613,13 @@ function MessageItem({
                 <div className="flex flex-col gap-1 mt-1">
                   {msg.attachments.map((url) => (
                     <AttachmentView key={url} url={url} onZoom={onZoom} />
+                  ))}
+                </div>
+              )}
+              {msg.embeds && msg.embeds.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  {msg.embeds.map((embed, i) => (
+                    <LinkEmbed key={i} embed={embed} />
                   ))}
                 </div>
               )}
@@ -574,7 +656,9 @@ function MessageList({ chatId, onReply }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-  const [forwardMsg, setForwardMsg] = useState<Message | null>(null);
+  const [forwardMsgs, setForwardMsgs] = useState<Message[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selecting = selectedIds.size > 0;
   const [olderMessages, setOlderMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -676,8 +760,41 @@ function MessageList({ chatId, onReply }, ref) {
   }, [chatId, queryClient]);
 
   const handleZoom = useCallback((url: string) => setLightboxUrl(url), []);
-  const handleForward = useCallback((msg: Message) => setForwardMsg(msg), []);
+  const handleForward = useCallback((msg: Message) => setForwardMsgs([msg]), []);
   const handleReply = useCallback((msg: Message) => onReply(msg), [onReply]);
+
+  const handleToggleSelect = useCallback((msg: Message) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(msg.id)) next.delete(msg.id);
+      else next.add(msg.id);
+      return next;
+    });
+  }, []);
+
+  const handleCancelSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const handleBulkDelete = useCallback(() => {
+    const count = selectedIds.size;
+    if (!confirm(t('chat.deleteSelectedConfirm', { count: String(count) }))) return;
+    messagesApi.deleteBulk(chatId, Array.from(selectedIds)).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+      setOlderMessages((prev) => prev.filter((m) => !selectedIds.has(m.id)));
+      setSelectedIds(new Set());
+    });
+  }, [selectedIds, chatId, queryClient, t]);
+
+  const handleBulkForward = useCallback(() => {
+    const selected = messages.filter((m) => selectedIds.has(m.id));
+    setForwardMsgs(selected);
+  }, [selectedIds, messages]);
+  const handlePin = useCallback((msg: Message) => {
+    const fn = msg.is_pinned ? messagesApi.unpin : messagesApi.pin;
+    fn(msg.chat_id, msg.id).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+      queryClient.invalidateQueries({ queryKey: ['pinned', chatId] });
+    });
+  }, [chatId, queryClient]);
 
   const handleScrollTo = useCallback((messageId: string) => {
     const el = document.getElementById(`msg-${messageId}`);
@@ -767,6 +884,10 @@ function MessageList({ chatId, onReply }, ref) {
             onDelete={handleDelete}
             onReply={handleReply}
             onScrollTo={handleScrollTo}
+            onPin={handlePin}
+            selecting={selecting}
+            selected={selectedIds.has(msg.id)}
+            onToggleSelect={handleToggleSelect}
           />
         ))}
         {loadingNewer && (
@@ -787,8 +908,42 @@ function MessageList({ chatId, onReply }, ref) {
         </div>
       )}
 
+      {selecting && (
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-t border-[var(--border-color)] bg-[var(--bg-secondary)]">
+          <span className="text-sm text-[var(--text-secondary)]">
+            {t('chat.selected', { count: String(selectedIds.size) })}
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={handleBulkForward}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--accent-text)] hover:bg-[var(--accent-hover)] transition-colors"
+          >
+            <Forward size={14} />
+            {t('chat.forwardBtn')}
+          </button>
+          <button
+            onClick={handleBulkDelete}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm bg-red-500/80 text-white hover:bg-red-500 transition-colors"
+          >
+            <Trash2 size={14} />
+            {t('chat.deleteSelected')}
+          </button>
+          <button
+            onClick={handleCancelSelection}
+            className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
-      {forwardMsg && <ForwardModal message={forwardMsg} onClose={() => setForwardMsg(null)} />}
+      {forwardMsgs.length > 0 && (
+        <ForwardModal
+          messages={forwardMsgs}
+          onClose={() => { setForwardMsgs([]); setSelectedIds(new Set()); }}
+        />
+      )}
     </>
   );
 });

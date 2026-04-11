@@ -1,6 +1,6 @@
 // SearchPanel — боковая панель поиска по сообщениям канала
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X, Search, CornerDownRight } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
@@ -13,10 +13,15 @@ interface SearchPanelProps {
   onJumpTo: (msg: Message) => void;
 }
 
-function highlight(text: string, q: string): string {
-  if (!q) return text;
+function highlight(text: string, q: string): ReactNode[] {
+  if (!q) return [text];
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="bg-yellow-400/40 rounded px-0.5">$1</mark>');
+  const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+  return parts.map((part, i) =>
+    part.toLowerCase() === q.toLowerCase()
+      ? <mark key={i} className="bg-yellow-400/40 rounded px-0.5">{part}</mark>
+      : part
+  );
 }
 
 function SearchResult({ msg, q, onJump }: { msg: Message; q: string; onJump: () => void }) {
@@ -43,10 +48,9 @@ function SearchResult({ msg, q, onJump }: { msg: Message; q: string; onJump: () 
         </span>
       </div>
       {msg.content && (
-        <p
-          className="text-sm text-[var(--text-secondary)] leading-relaxed break-words"
-          dangerouslySetInnerHTML={{ __html: highlight(msg.content, q) }}
-        />
+        <p className="text-sm text-[var(--text-secondary)] leading-relaxed break-words">
+          {highlight(msg.content, q)}
+        </p>
       )}
       {msg.attachments.length > 0 && (
         <p className="text-xs text-[var(--text-muted)] mt-1">

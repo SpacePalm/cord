@@ -19,7 +19,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
@@ -29,7 +29,7 @@ from app.auth import get_current_user
 from app.models.user import User
 from app.models.group import Chat, GroupMember, Group
 from app.models.message import Message, MessageAttachment
-from app.schemas.message import MessageOut, MessageEdit, MessageForward, ForwardedFrom, ReplyTo, PollOut, PollOptionOut
+from app.schemas.message import MessageOut, MessageEdit, MessageForward, MessageBulkForward, MessageBulkDelete, ForwardedFrom, ReplyTo, PollOut, PollOptionOut, EmbedOut
 from app.models.poll import Poll, PollOption, PollVote
 from app.cache import get_cached_messages, set_cached_messages, invalidate_messages
 from app.ws_manager import manager
@@ -96,6 +96,14 @@ def _to_out(msg: Message, user_id: uuid.UUID | None = None) -> MessageOut:
             user_voted_option_id=user_voted_id,
             total_votes=sum(len(opt.votes) for opt in p.options),
         )
+    import json as _json
+    embeds_out: list[EmbedOut] = []
+    if msg.embeds_json:
+        try:
+            embeds_out = [EmbedOut(**e) for e in _json.loads(msg.embeds_json)]
+        except Exception:
+            pass
+
     return MessageOut(
         id=msg.id,
         content=msg.content,
@@ -105,9 +113,11 @@ def _to_out(msg: Message, user_id: uuid.UUID | None = None) -> MessageOut:
         author_image_path=msg.author.image_path or '',
         chat_id=msg.chat_id,
         is_edited=msg.is_edited,
+        is_pinned=msg.is_pinned,
         created_at=msg.created_at,
         updated_at=msg.updated_at,
         attachments=[a.file_path for a in msg.attachments],
+        embeds=embeds_out,
         reply_to=reply,
         forwarded_from=fwd,
         poll=poll_out,
@@ -199,6 +209,7 @@ async def send_message(
     reply_to_id: str | None = Form(None),
     poll_question: str | None = Form(None),
     poll_options: list[str] = Form(default=[]),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -272,6 +283,39 @@ async def send_message(
         "message": _to_out(created_msg, None).model_dump(mode="json"),
         "group_id": str(group_id),
     })
+
+    # Fetch link embeds in background — update message and notify via WS
+    if content and 'http' in content:
+        async def _fetch_embeds():
+            import json as _json
+            from app.opengraph import extract_embeds
+            from app.database import AsyncSessionLocal
+            embeds = await extract_embeds(content)
+            if not embeds:
+                return
+            async with AsyncSessionLocal() as bg_db:
+                r = await bg_db.execute(select(Message).where(Message.id == msg_id))
+                m = r.scalar_one_or_none()
+                if m:
+                    m.embeds_json = _json.dumps(embeds)
+                    await bg_db.commit()
+                    await invalidate_messages(str(chat_id))
+                    # Re-load with relations for broadcast
+                    r2 = await bg_db.execute(
+                        select(Message).where(Message.id == msg_id)
+                        .options(
+                            selectinload(Message.author),
+                            selectinload(Message.attachments),
+                            selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+                        )
+                    )
+                    updated = r2.scalar_one()
+                    await manager.broadcast(chat_id, {
+                        "type": "message_edited",
+                        "message": _to_out(updated, None).model_dump(mode="json"),
+                    })
+        background_tasks.add_task(_fetch_embeds)
+
     return msg_out
 
 
@@ -342,6 +386,131 @@ async def forward_message(
         "group_id": str(group_id),
     })
     return msg_out
+
+
+# POST bulk forward
+
+@router.post('/{chat_id}/messages/forward/bulk', response_model=list[MessageOut], status_code=201)
+async def forward_messages_bulk(
+    chat_id: uuid.UUID,
+    body: MessageBulkForward,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    chat = await _require_chat_member(chat_id, user, db)
+    group_id = chat.group_id
+
+    if not body.source_message_ids:
+        raise HTTPException(status_code=400, detail='No messages to forward')
+
+    # Загружаем все исходные сообщения
+    result = await db.execute(
+        select(Message)
+        .where(Message.id.in_(body.source_message_ids))
+        .options(selectinload(Message.author))
+        .order_by(Message.created_at.asc())
+    )
+    sources = result.scalars().all()
+    if not sources:
+        raise HTTPException(status_code=404, detail='No source messages found')
+
+    # Проверяем доступ к исходным каналам
+    src_chat_ids = {s.chat_id for s in sources}
+    for src_chat_id in src_chat_ids:
+        src_chat = await db.get(Chat, src_chat_id)
+        if src_chat:
+            member_check = await db.execute(
+                select(GroupMember).where(
+                    GroupMember.group_id == src_chat.group_id,
+                    GroupMember.user_id == user.id,
+                )
+            )
+            if not member_check.scalar_one_or_none():
+                raise HTTPException(status_code=403, detail='No access to source message')
+
+    fwd_ids: list[uuid.UUID] = []
+    for src in sources:
+        src_chat = await db.get(Chat, src.chat_id)
+        fwd = Message(
+            user_id=user.id,
+            chat_id=chat_id,
+            content=None,
+            forwarded_from_id=src.id,
+            forwarded_from_author=src.author.display_name or src.author.username,
+            forwarded_from_content=src.content,
+            forwarded_from_chat=src_chat.name if src_chat else 'неизвестный канал',
+        )
+        db.add(fwd)
+        await db.flush()
+        fwd_ids.append(fwd.id)
+
+    await db.commit()
+    await invalidate_messages(str(chat_id))
+
+    result = await db.execute(
+        select(Message)
+        .where(Message.id.in_(fwd_ids))
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.attachments),
+            selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+        )
+        .order_by(Message.created_at.asc())
+    )
+    fwd_msgs = result.scalars().all()
+    out = [_to_out(m, user.id) for m in fwd_msgs]
+    for m in fwd_msgs:
+        await manager.broadcast(chat_id, {
+            "type": "message_created",
+            "message": _to_out(m, None).model_dump(mode="json"),
+            "group_id": str(group_id),
+        })
+    return out
+
+
+# DELETE bulk
+
+@router.post('/{chat_id}/messages/delete/bulk', status_code=204)
+async def delete_messages_bulk(
+    chat_id: uuid.UUID,
+    body: MessageBulkDelete,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    chat = await _require_chat_member(chat_id, user, db)
+
+    if not body.message_ids:
+        raise HTTPException(status_code=400, detail='No messages to delete')
+
+    group = await db.get(Group, chat.group_id)
+    is_owner = group and group.owner_id == user.id
+
+    result = await db.execute(
+        select(Message).where(Message.id.in_(body.message_ids), Message.chat_id == chat_id)
+    )
+    msgs = result.scalars().all()
+
+    for msg in msgs:
+        if msg.user_id != user.id and not is_owner and user.role != 'admin':
+            raise HTTPException(
+                status_code=403,
+                detail=f'Cannot delete message {msg.id}',
+            )
+
+    deleted_ids: list[str] = []
+    for msg in msgs:
+        deleted_ids.append(str(msg.id))
+        await db.delete(msg)
+
+    await db.commit()
+    await invalidate_messages(str(chat_id))
+
+    for mid in deleted_ids:
+        await manager.broadcast(chat_id, {
+            "type": "message_deleted",
+            "chat_id": str(chat_id),
+            "message_id": mid,
+        })
 
 
 # PATCH edit
@@ -416,6 +585,101 @@ async def delete_message(
         "chat_id": str(chat_id),
         "message_id": str(message_id),
     })
+
+
+# PIN / UNPIN
+
+@router.post('/{chat_id}/messages/{message_id}/pin', response_model=MessageOut)
+async def pin_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await _require_chat_member(chat_id, user, db)
+    user_id = user.id
+    result = await db.execute(
+        select(Message).where(Message.id == message_id, Message.chat_id == chat_id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail='Message not found')
+    msg.is_pinned = True
+    await db.commit()
+    await invalidate_messages(str(chat_id))
+    # Reload with all relations
+    result = await db.execute(
+        select(Message).where(Message.id == message_id)
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.attachments),
+            selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+        )
+    )
+    msg = result.scalar_one()
+    msg_out = _to_out(msg, user_id)
+    await manager.broadcast(chat_id, {
+        "type": "message_edited",
+        "message": _to_out(msg, None).model_dump(mode="json"),
+    })
+    return msg_out
+
+
+@router.delete('/{chat_id}/messages/{message_id}/pin', response_model=MessageOut)
+async def unpin_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await _require_chat_member(chat_id, user, db)
+    user_id = user.id
+    result = await db.execute(
+        select(Message).where(Message.id == message_id, Message.chat_id == chat_id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail='Message not found')
+    msg.is_pinned = False
+    await db.commit()
+    await invalidate_messages(str(chat_id))
+    result = await db.execute(
+        select(Message).where(Message.id == message_id)
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.attachments),
+            selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+        )
+    )
+    msg = result.scalar_one()
+    msg_out = _to_out(msg, user_id)
+    await manager.broadcast(chat_id, {
+        "type": "message_edited",
+        "message": _to_out(msg, None).model_dump(mode="json"),
+    })
+    return msg_out
+
+
+@router.get('/{chat_id}/pinned', response_model=list[MessageOut])
+async def get_pinned_messages(
+    chat_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await _require_chat_member(chat_id, user, db)
+    result = await db.execute(
+        select(Message)
+        .where(Message.chat_id == chat_id, Message.is_pinned == True)
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.attachments),
+            selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
+        )
+        .order_by(Message.created_at.desc())
+    )
+    return [_to_out(m, user.id) for m in result.scalars().all()]
+
+
 
 
 # GET search

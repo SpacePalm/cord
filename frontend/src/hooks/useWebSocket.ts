@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
 import type { UnreadData } from '../api/notifications';
@@ -22,7 +22,40 @@ interface WsMessageDeleted {
   message_id: string;
 }
 
-type WsEvent = WsMessageCreated | WsMessageEdited | WsMessageDeleted;
+interface WsTyping {
+  type: 'typing';
+  chat_id: string;
+  user_id: string;
+  display_name: string;
+}
+
+interface WsVoiceParticipants {
+  type: 'voice_participants';
+  channel_id: string;
+  participants: { identity: string; name: string; image_path: string }[];
+}
+
+type WsEvent = WsMessageCreated | WsMessageEdited | WsMessageDeleted | WsTyping | WsVoiceParticipants;
+
+// Typing state — shared across components
+const typingMap = new Map<string, Map<string, { name: string; timeout: ReturnType<typeof setTimeout> }>>();
+const typingListeners = new Set<() => void>();
+
+function notifyTypingListeners() {
+  typingListeners.forEach((fn) => fn());
+}
+
+export function useTypingUsers(chatId: string): string[] {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const listener = () => setTick((v) => v + 1);
+    typingListeners.add(listener);
+    return () => { typingListeners.delete(listener); };
+  }, []);
+  const users = typingMap.get(chatId);
+  if (!users || users.size === 0) return [];
+  return Array.from(users.values()).map((u) => u.name);
+}
 
 export function useCordWebSocket() {
   const queryClient = useQueryClient();
@@ -35,7 +68,7 @@ export function useCordWebSocket() {
     if (!token) return;
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${window.location.host}/ws?token=${token}`);
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws`, [`auth.${token}`]);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -91,6 +124,30 @@ export function useCordWebSocket() {
           return old.filter((m) => m.id !== event.message_id);
         });
       }
+
+      if (event.type === 'voice_participants') {
+        queryClient.setQueryData(
+          ['voice-participants', event.channel_id],
+          event.participants,
+        );
+      }
+
+      if (event.type === 'typing') {
+        const chatId = event.chat_id;
+        if (!typingMap.has(chatId)) typingMap.set(chatId, new Map());
+        const users = typingMap.get(chatId)!;
+        const existing = users.get(event.user_id);
+        if (existing) clearTimeout(existing.timeout);
+        users.set(event.user_id, {
+          name: event.display_name,
+          timeout: setTimeout(() => {
+            users.delete(event.user_id);
+            if (users.size === 0) typingMap.delete(chatId);
+            notifyTypingListeners();
+          }, 3000),
+        });
+        notifyTypingListeners();
+      }
     };
 
     ws.onclose = (ev) => {
@@ -111,6 +168,12 @@ export function useCordWebSocket() {
     wsRef.current?.close();
   }, []);
 
+  const sendTyping = useCallback((chatId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'typing', chat_id: chatId }));
+    }
+  }, []);
+
   useEffect(() => {
     // Даём время на загрузку страницы и авторизацию перед первым подключением
     const delay = setTimeout(connect, 1000);
@@ -121,5 +184,5 @@ export function useCordWebSocket() {
     };
   }, [connect]);
 
-  return { reconnect };
+  return { reconnect, sendTyping };
 }

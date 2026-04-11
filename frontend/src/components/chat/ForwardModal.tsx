@@ -1,4 +1,4 @@
-// ForwardModal — выбор целевого канала для пересылки сообщения
+// ForwardModal — выбор целевого канала для пересылки сообщений
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -9,11 +9,11 @@ import type { Message } from '../../types';
 import { useT } from '../../i18n';
 
 interface ForwardModalProps {
-  message: Message;
+  messages: Message[];
   onClose: () => void;
 }
 
-export function ForwardModal({ message, onClose }: ForwardModalProps) {
+export function ForwardModal({ messages, onClose }: ForwardModalProps) {
   const t = useT();
   const [search, setSearch] = useState('');
   const [targetChatId, setTargetChatId] = useState<string | null>(null);
@@ -39,7 +39,15 @@ export function ForwardModal({ message, onClose }: ForwardModalProps) {
   });
 
   const forwardMutation = useMutation({
-    mutationFn: () => messagesApi.forward(targetChatId!, message.id),
+    mutationFn: () => {
+      if (messages.length === 1) {
+        return messagesApi.forward(targetChatId!, messages[0].id);
+      }
+      return messagesApi.forwardBulk(
+        targetChatId!,
+        messages.map((m) => m.id),
+      );
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['messages', targetChatId] });
       onClose();
@@ -61,6 +69,10 @@ export function ForwardModal({ message, onClose }: ForwardModalProps) {
     (byGroup[gn] ??= []).push(c);
   }
 
+  const title = messages.length > 1
+    ? t('chat.forwardSelected')
+    : t('chat.forward');
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -72,7 +84,14 @@ export function ForwardModal({ message, onClose }: ForwardModalProps) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-color)]">
-          <span className="font-semibold text-[var(--text-primary)]">{t('chat.forward')}</span>
+          <span className="font-semibold text-[var(--text-primary)]">
+            {title}
+            {messages.length > 1 && (
+              <span className="ml-2 text-xs font-normal text-[var(--text-muted)]">
+                ({messages.length})
+              </span>
+            )}
+          </span>
           <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
             <X size={18} />
           </button>

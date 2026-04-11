@@ -7,7 +7,19 @@ import { useSessionStore } from '../../store/sessionStore';
 import { VoicePresencePanel } from './VoicePresencePanel';
 import { SettingsModal } from '../settings/SettingsModal';
 import { voiceApi, type VoiceParticipantInfo } from '../../api/voice';
+import { authApi } from '../../api/auth';
 import { useT } from '../../i18n';
+
+const STATUS_OPTIONS = [
+  { value: 'online', color: 'bg-green-500' },
+  { value: 'idle', color: 'bg-yellow-500' },
+  { value: 'dnd', color: 'bg-red-500' },
+  { value: 'invisible', color: 'bg-gray-500' },
+] as const;
+
+function statusColor(status: string) {
+  return STATUS_OPTIONS.find((s) => s.value === status)?.color ?? 'bg-green-500';
+}
 
 interface ChannelSidebarProps {
   groupName: string;
@@ -67,8 +79,7 @@ function VoiceChannelItem({ channel, selected, active, onSelect, onJoin }: {
     queryKey: ['voice-participants', channel.id],
     queryFn: () => voiceApi.listParticipants(channel.id),
     enabled: !isLocal,
-    refetchInterval: 30000,
-    staleTime: 25000,
+    staleTime: 60_000,
   });
 
   const participants = isLocal ? localParticipants : (remoteParticipants ?? []);
@@ -129,8 +140,21 @@ function VoiceChannelItem({ channel, selected, active, onSelect, onJoin }: {
 
 function UserPanel({ user }: { user: User }) {
   const t = useT();
+  const setUser = useAuthStore((s) => s.setUser);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [customText, setCustomText] = useState(user.status_text || '');
   const initials = (user.display_name || user.username).slice(0, 2).toUpperCase();
+  const currentStatus = user.status || 'online';
+
+  const changeStatus = (status: string) => {
+    setStatusOpen(false);
+    authApi.updateStatus(status, customText || null).then((updated) => setUser(updated));
+  };
+
+  const saveCustomText = () => {
+    authApi.updateStatus(currentStatus, customText || null).then((updated) => setUser(updated));
+  };
 
   return (
     <>
@@ -147,7 +171,52 @@ function UserPanel({ user }: { user: User }) {
               {initials}
             </div>
           )}
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[var(--bg-secondary)]" />
+          <button
+            onClick={() => setStatusOpen((v) => !v)}
+            className={`absolute bottom-0 right-0 w-2.5 h-2.5 ${statusColor(currentStatus)} rounded-full border-2 border-[var(--bg-secondary)] cursor-pointer hover:scale-125 transition-transform`}
+            title={t('status.setStatus')}
+          />
+          {statusOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setStatusOpen(false)} />
+              <div className="absolute bottom-full left-0 mb-2 w-52 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-40 py-1">
+                <div className="px-2 py-1.5">
+                  <input
+                    value={customText}
+                    onChange={(e) => setCustomText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { saveCustomText(); setStatusOpen(false); } }}
+                    onBlur={saveCustomText}
+                    maxLength={128}
+                    placeholder={t('status.customText')}
+                    className="w-full px-2 py-1 rounded bg-[var(--bg-input)] text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                    autoFocus
+                  />
+                </div>
+                <div className="border-t border-[var(--border-color)]">
+                  {STATUS_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => changeStatus(opt.value)}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-white/5 transition-colors ${currentStatus === opt.value ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-full ${opt.color}`} />
+                      {t(`status.${opt.value}`)}
+                    </button>
+                  ))}
+                </div>
+                {customText && (
+                  <div className="border-t border-[var(--border-color)]">
+                    <button
+                      onClick={() => { setCustomText(''); authApi.updateStatus(currentStatus, null).then((u) => { setUser(u); setStatusOpen(false); }); }}
+                      className="w-full px-3 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-white/5 transition-colors text-left"
+                    >
+                      {t('status.clear')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -155,7 +224,7 @@ function UserPanel({ user }: { user: User }) {
             {user.display_name}
           </p>
           <p className="text-xs text-[var(--text-muted)] truncate">
-            @{user.username}
+            {user.status_text || `@${user.username}`}
           </p>
         </div>
 

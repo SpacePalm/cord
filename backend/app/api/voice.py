@@ -6,16 +6,70 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from livekit.api import AccessToken, VideoGrants, LiveKitAPI, ListParticipantsRequest
 
+from sqlalchemy import select as sa_select
+
 from app.auth import get_current_user
 from app.database import get_db
 from app.models.user import User
 from app.models.group import Chat, GroupMember
 from app.config import settings
 from app.cache import get_call_started, set_call_started, clear_call_started
+from app.ws_manager import manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
+
+
+async def _broadcast_voice_participants(
+    channel_id: str, db: AsyncSession,
+):
+    """Fetch current participants from LiveKit and broadcast to all group members via WS."""
+    room_name = str(channel_id)
+    chat = await db.get(Chat, _uuid.UUID(channel_id))
+    if not chat:
+        return
+
+    # Get participants from LiveKit
+    participants = []
+    async with LiveKitAPI(
+        url=settings.livekit_url,
+        api_key=settings.livekit_api_key,
+        api_secret=settings.livekit_api_secret,
+    ) as lk:
+        try:
+            resp = await lk.room.list_participants(
+                ListParticipantsRequest(room=room_name)
+            )
+            user_ids = [_uuid.UUID(p.identity) for p in resp.participants if p.identity]
+            users_map: dict[str, str] = {}
+            if user_ids:
+                rows = await db.execute(
+                    sa_select(User.id, User.image_path).where(User.id.in_(user_ids))
+                )
+                users_map = {str(r.id): r.image_path or "" for r in rows}
+            participants = [
+                {
+                    "identity": p.identity,
+                    "name": p.name or p.identity,
+                    "image_path": users_map.get(p.identity, ""),
+                }
+                for p in resp.participants
+            ]
+        except Exception as e:
+            logger.warning("Failed to fetch participants for broadcast: %s", e)
+            return
+
+    # Broadcast to all chats in the group
+    group_chats = await db.execute(
+        sa_select(Chat.id).where(Chat.group_id == chat.group_id)
+    )
+    chat_ids = [row[0] for row in group_chats.all()]
+    await manager.broadcast_to_many(chat_ids, {
+        "type": "voice_participants",
+        "channel_id": channel_id,
+        "participants": participants,
+    })
 
 
 @router.post("/token")
@@ -57,6 +111,15 @@ async def get_voice_token(
     now_ms = int(time.time() * 1000)
     await set_call_started(channel_id, now_ms)
     call_started = await get_call_started(channel_id) or now_ms
+
+    # Broadcast updated participant list to group (slight delay for LiveKit to register)
+    import asyncio
+    async def _delayed_broadcast():
+        await asyncio.sleep(2)
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as bg_db:
+            await _broadcast_voice_participants(channel_id, bg_db)
+    asyncio.create_task(_delayed_broadcast())
 
     return {
         "token": token.to_jwt(),
@@ -150,4 +213,5 @@ async def leave_voice(
     if participant_count == 0:
         await clear_call_started(channel_id)
 
+    await _broadcast_voice_participants(channel_id, db)
     return {"ok": True}

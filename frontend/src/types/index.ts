@@ -5,6 +5,8 @@ export interface User {
   email: string;
   role: string;
   image_path: string;
+  status?: string;
+  status_text?: string | null;
   theme_json?: string | null;
 }
 
@@ -61,9 +63,11 @@ export interface Message {
   author_image_path: string;
   chat_id: string;
   is_edited: boolean;
+  is_pinned: boolean;
   created_at: string;
   updated_at: string;
   attachments: string[];
+  embeds: { url: string; title: string; description: string; image: string | null; site_name: string | null }[];
   forwarded_from: ForwardedFrom | null;
   reply_to: ReplyTo | null;
   poll: Poll | null;
@@ -82,6 +86,8 @@ export interface Member {
   joined_at: string;
   is_online: boolean;
   role: string;
+  status?: string;
+  status_text?: string | null;
 }
 
 export interface InviteInfo {

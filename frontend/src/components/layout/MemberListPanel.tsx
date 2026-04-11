@@ -66,8 +66,16 @@ export function MemberListPanel({ groupId, onClose }: MemberListPanelProps) {
   );
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  online: 'bg-green-500',
+  idle: 'bg-yellow-500',
+  dnd: 'bg-red-500',
+  invisible: 'bg-gray-500',
+};
+
 function MemberItem({ member, online }: { member: Member; online: boolean }) {
   const initials = (member.display_name || member.username).slice(0, 2).toUpperCase();
+  const dotColor = online ? (STATUS_COLORS[member.status || 'online'] || 'bg-green-500') : 'bg-gray-500';
 
   return (
     <div className={`flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors ${!online ? 'opacity-40' : ''}`}>
@@ -79,7 +87,7 @@ function MemberItem({ member, online }: { member: Member; online: boolean }) {
             {initials}
           </div>
         )}
-        <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-secondary)] ${online ? 'bg-green-500' : 'bg-gray-500'}`} />
+        <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-secondary)] ${dotColor}`} />
       </div>
 
       <div className="min-w-0">
@@ -87,7 +95,7 @@ function MemberItem({ member, online }: { member: Member; online: boolean }) {
           {member.display_name}
         </p>
         <p className="text-[11px] text-[var(--text-muted)] truncate leading-tight">
-          @{member.username}
+          {member.status_text || `@${member.username}`}
         </p>
       </div>
     </div>

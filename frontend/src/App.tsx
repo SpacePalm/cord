@@ -10,6 +10,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { useThemeStore } from './store/themeStore';
 import { useAuthStore } from './store/authStore';
 import { authApi } from './api/auth';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // React Query client — caches API requests
 const queryClient = new QueryClient({
@@ -49,6 +50,7 @@ function Heartbeat() {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <ThemeInit />
@@ -71,5 +73,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
+    </ErrorBoundary>
   );
 }

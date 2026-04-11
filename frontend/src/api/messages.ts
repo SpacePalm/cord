@@ -37,11 +37,31 @@ export const messagesApi = {
       source_message_id: sourceMessageId,
     }),
 
+  forwardBulk: (targetChatId: string, sourceMessageIds: string[]): Promise<Message[]> =>
+    api.post<Message[]>(`/chats/${targetChatId}/messages/forward/bulk`, {
+      source_message_ids: sourceMessageIds,
+    }),
+
+  deleteBulk: (chatId: string, messageIds: string[]): Promise<void> =>
+    api.post<void>(`/chats/${chatId}/messages/delete/bulk`, {
+      message_ids: messageIds,
+    }),
+
   edit: (chatId: string, messageId: string, content: string): Promise<Message> =>
     api.patch<Message>(`/chats/${chatId}/messages/${messageId}`, { content }),
 
   delete: (chatId: string, messageId: string): Promise<void> =>
     api.delete<void>(`/chats/${chatId}/messages/${messageId}`),
+
+  pin: (chatId: string, messageId: string) =>
+    api.post<Message>(`/chats/${chatId}/messages/${messageId}/pin`),
+
+  unpin: (chatId: string, messageId: string) =>
+    api.delete<Message>(`/chats/${chatId}/messages/${messageId}/pin`),
+
+  pinned: (chatId: string) =>
+    api.get<Message[]>(`/chats/${chatId}/pinned`),
+
 
   search: (chatId: string, q: string, limit = 20, before?: string) => {
     let url = `/chats/${chatId}/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`;

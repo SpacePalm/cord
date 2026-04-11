@@ -41,6 +41,9 @@ export const authApi = {
   heartbeat: () =>
     api.post<{ ok: boolean }>('/auth/heartbeat'),
 
+  updateStatus: (status: string, statusText?: string | null) =>
+    api.put<User>('/auth/status', { status, status_text: statusText }),
+
   saveTheme: (theme: unknown) =>
     api.put<{ ok: boolean }>('/auth/theme', theme),
 };

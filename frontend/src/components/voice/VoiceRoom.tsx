@@ -129,6 +129,20 @@ function VolumeApplier() {
     }
   }, [participants, volumes, mutedUsers, deafened]);
 
+  // Remove gain nodes for participants that left
+  useEffect(() => {
+    const activeIds = new Set<string>();
+    for (const p of participants) {
+      if (p instanceof RemoteParticipant) activeIds.add(p.identity);
+    }
+    for (const [id, entry] of audioGains) {
+      if (!activeIds.has(id)) {
+        try { entry.ctx.close(); } catch {}
+        audioGains.delete(id);
+      }
+    }
+  }, [participants]);
+
   // Cleanup all gain nodes on unmount
   useEffect(() => {
     return () => {

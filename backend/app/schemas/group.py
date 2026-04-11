@@ -64,6 +64,8 @@ class MemberOut(BaseModel):
     role: str = 'member'
     joined_at: datetime
     is_online: bool = False
+    status: str = 'online'
+    status_text: str | None = None
 
 
 class GroupUpdate(BaseModel):

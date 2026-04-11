@@ -12,12 +12,12 @@ import { useAuthStore } from '../store/authStore';
 import { groupsApi } from '../api/groups';
 import { messagesApi } from '../api/messages';
 import type { Group, Chat, Message } from '../types';
-import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus, ArrowLeft } from 'lucide-react';
+import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus, ArrowLeft, Pin } from 'lucide-react';
 import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
 import { useT } from '../i18n';
 import { useUnreadCounts } from '../hooks/useUnreadCounts';
-import { useCordWebSocket } from '../hooks/useWebSocket';
+import { useCordWebSocket, useTypingUsers } from '../hooks/useWebSocket';
 import { ToastContainer } from '../components/ui/ToastContainer';
 
 type SidePanel = 'search' | 'media' | 'members' | null;
@@ -154,6 +154,76 @@ function CreateServerModal({ onClose, onCreate }: { onClose: () => void; onCreat
   );
 }
 
+function PinnedMessages({ chatId, onJumpTo }: { chatId: string; onJumpTo: (msg: Message) => void }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const { data: pinned = [] } = useQuery({
+    queryKey: ['pinned', chatId],
+    queryFn: () => messagesApi.pinned(chatId),
+    staleTime: 30_000,
+  });
+
+  if (pinned.length === 0) return null;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={t('chat.pinned')}
+        className={`p-1.5 rounded transition-colors ${open ? 'bg-[var(--accent)] text-white' : 'text-yellow-400 hover:text-yellow-300 hover:bg-white/5'}`}
+      >
+        <Pin size={18} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 w-80 max-h-96 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-40">
+            <div className="px-3 py-2 border-b border-[var(--border-color)] text-xs font-semibold text-[var(--text-muted)] uppercase">
+              {t('chat.pinned')} ({pinned.length})
+            </div>
+            {pinned.map((msg) => (
+              <button
+                key={msg.id}
+                onClick={() => { setOpen(false); onJumpTo(msg); }}
+                className="w-full text-left px-3 py-2.5 border-b border-[var(--border-color)] hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-baseline gap-2 mb-0.5">
+                  <span className="text-sm font-medium text-[var(--text-primary)]">{msg.author_display_name}</span>
+                  <span className="text-[10px] text-[var(--text-muted)]">
+                    {new Date(msg.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                {msg.content && (
+                  <p className="text-xs text-[var(--text-secondary)] truncate">{msg.content}</p>
+                )}
+                {msg.attachments.length > 0 && (
+                  <p className="text-[10px] text-[var(--text-muted)] mt-0.5">📎 {msg.attachments.length}</p>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TypingIndicator({ chatId }: { chatId: string }) {
+  const t = useT();
+  const names = useTypingUsers(chatId);
+  if (names.length === 0) return null;
+  const text = names.length === 1
+    ? t('chat.typingOne').replace('{name}', names[0])
+    : names.length <= 3
+      ? t('chat.typingMany').replace('{names}', names.join(', '))
+      : t('chat.typingSeveral');
+  return (
+    <div className="px-4 py-0.5 text-xs text-[var(--text-muted)] animate-pulse shrink-0">
+      {text}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // AppPage
 // ---------------------------------------------------------------------------
@@ -162,7 +232,7 @@ export function AppPage() {
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
   const voicePresence = useSessionStore((s) => s.voicePresence);
-  const { reconnect: reconnectWs } = useCordWebSocket();
+  const { reconnect: reconnectWs, sendTyping } = useCordWebSocket();
 
   // Mobile responsive: sidebar (groups+channels) or chat
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -362,6 +432,10 @@ export function AppPage() {
                 <div className="ml-auto flex items-center gap-1">
                   {selectedChannel.type === 'text' && (
                     <>
+                      <PinnedMessages
+                        chatId={selectedChannel.id}
+                        onJumpTo={(msg) => messageListRef.current?.jumpTo(msg.id, msg.created_at)}
+                      />
                       <button
                         onClick={() => togglePanel('search')}
                         title={t('search')}
@@ -412,6 +486,7 @@ export function AppPage() {
               {selectedChannel.type === 'text' && (
                 <>
                   <MessageList ref={messageListRef} chatId={selectedChannel.id} onReply={setReplyTo} />
+                  <TypingIndicator chatId={selectedChannel.id} />
                   <ChatInput
                     channelId={selectedChannel.id}
                     channelName={selectedChannel.name}
@@ -419,6 +494,7 @@ export function AppPage() {
                     onClearReply={() => setReplyTo(null)}
                     onSend={handleSend}
                     onFocus={() => selectedChannel && markRead(selectedChannel.id)}
+                    onTyping={() => sendTyping(selectedChannel.id)}
                   />
                 </>
               )}

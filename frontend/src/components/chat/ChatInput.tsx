@@ -9,8 +9,9 @@
 //  - Voice messages: microphone recording button
 //  - Polls: poll creation form with question and options
 
-import { useRef, useEffect, useCallback, useState } from 'react';
-import { Paperclip, X, FileText, Send, CornerUpLeft, Mic, MicOff, BarChart2, Plus, Trash2 } from 'lucide-react';
+import { useRef, useEffect, useCallback, useState, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
+import { Paperclip, X, FileText, Send, CornerUpLeft, Mic, MicOff, BarChart2, Plus, Trash2, Code } from 'lucide-react';
 import { useSessionStore } from '../../store/sessionStore';
 import { renderContent, hasFormatting } from '../../utils/renderContent';
 import type { Message } from '../../types';
@@ -27,6 +28,7 @@ interface ChatInputProps {
   replyTo?: Message | null;
   onClearReply?: () => void;
   onFocus?: () => void;
+  onTyping?: () => void;
   onSend: (
     text: string,
     attachments: File[],
@@ -90,13 +92,151 @@ function AttachmentPreview({ file, onRemove }: { file: File; onRemove: () => voi
   );
 }
 
-export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFocus, onSend }: ChatInputProps) {
+function ToolbarDropdown({ icon, title, items, anchorRef: _ignore }: {
+  icon: React.ReactNode; title: string;
+  items: { label: string; shortcut: string; action: () => void }[];
+  anchorRef: RefObject<HTMLElement | null>;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ bottom: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left });
+    }
+  }, [open]);
+
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={() => setOpen((v) => !v)} title={title}
+        className={`p-1.5 rounded transition-colors ${open ? 'text-[var(--text-primary)] bg-white/10' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10'}`}
+      >{icon}</button>
+      {open && pos && createPortal(
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} />
+          <div className="fixed z-50 w-44 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl py-1"
+            style={{ bottom: pos.bottom, left: pos.left }}>
+            {items.map((item) => (
+              <button key={item.label} onClick={() => { item.action(); setOpen(false); }}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-white/5 transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                <span>{item.label}</span>
+                <span className="text-[var(--text-muted)] font-mono text-[10px]">{item.shortcut}</span>
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+const CODE_LANGS = [
+  { value: 'js', label: 'JavaScript' },
+  { value: 'ts', label: 'TypeScript' },
+  { value: 'py', label: 'Python' },
+  { value: 'html', label: 'HTML' },
+  { value: 'css', label: 'CSS' },
+  { value: 'json', label: 'JSON' },
+  { value: 'bash', label: 'Bash' },
+  { value: 'sql', label: 'SQL' },
+  { value: 'java', label: 'Java' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'go', label: 'Go' },
+  { value: 'rust', label: 'Rust' },
+  { value: 'yaml', label: 'YAML' },
+  { value: '', label: 'Plain text' },
+];
+
+function CodeLangPicker({ onSelect, onClose, anchorRef }: { onSelect: (lang: string) => void; onClose: () => void; anchorRef: RefObject<HTMLElement | null> }) {
+  const [pos, setPos] = useState<{ bottom: number; left: number } | null>(null);
+  useEffect(() => {
+    if (anchorRef.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left });
+    }
+  }, [anchorRef]);
+
+  if (!pos) return null;
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-50" onClick={onClose} />
+      <div className="fixed z-50 w-40 max-h-64 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl py-1"
+        style={{ bottom: pos.bottom, left: pos.left }}>
+        {CODE_LANGS.map((lang) => (
+          <button key={lang.value} onClick={() => onSelect(lang.value)}
+            className="w-full text-left px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)] transition-colors">
+            {lang.label}
+          </button>
+        ))}
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+const EMOJI_TABS = [
+  { icon: '😀', emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😊','😇','🥰','😍','🤩','😘','😋','😛','😜','🤪','😎','🤔','🤫','🤭','🙄','😬','😏','😒','🥺','😴','😢','😭','😤','😡','🤬','😱','😰','😥','🤒','🤮','💀'] },
+  { icon: '👋', emojis: ['👍','👎','👏','🙌','🤝','🙏','💪','👋','✌️','🤞','🤟','🤘','🤙','👊','✊','👌','🤌','☝️','👆','👇','👈','👉','🖕','🫶'] },
+  { icon: '❤️', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','❤️‍🔥','💕','💞','💗','💖','💘','💝','♥️'] },
+  { icon: '🎉', emojis: ['🎉','🎊','🔥','⭐','✨','💯','🏆','🥇','🎯','🎮','🎲','🎸','🎵','🎶','🎤','🎧','🎬','🎨','🎭'] },
+  { icon: '🍕', emojis: ['🍕','🍔','🍟','🌭','🍿','🍣','🍩','🍪','🎂','🍰','🍫','🍬','☕','🍺','🍷','🥤','🧃'] },
+  { icon: '✅', emojis: ['✅','❌','❓','❗','💯','⭕','🔴','🟢','🔵','🟡','⚫','⚪','▶️','⏸️','🔔','🔕','💡','📌','🔑','🔒'] },
+];
+
+function ChatEmojiPicker({ visible, onSelect, onClose, anchorRef }: { visible: boolean; onSelect: (e: string) => void; onClose: () => void; anchorRef: RefObject<HTMLElement | null> }) {
+  const [tab, setTab] = useState(0);
+  const [pos, setPos] = useState<{ bottom: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (visible && anchorRef.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left });
+    }
+  }, [visible, anchorRef]);
+
+  if (!visible || !pos) return null;
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-50" onClick={onClose} />
+      <div className="fixed z-50 w-[280px] bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl"
+        style={{ bottom: pos.bottom, left: pos.left }}>
+        <div className="flex border-b border-[var(--border-color)]">
+          {EMOJI_TABS.map((t, i) => (
+            <button key={i} onClick={() => setTab(i)}
+              className={`flex-1 py-1.5 text-sm transition-colors ${tab === i ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+              {t.icon}
+            </button>
+          ))}
+        </div>
+        <div className="h-40 overflow-y-auto p-1.5">
+          <div className="grid grid-cols-8 gap-0.5">
+            {EMOJI_TABS[tab].emojis.map((e) => (
+              <button key={e} onClick={() => { onSelect(e); onClose(); }}
+                className="w-8 h-8 rounded hover:bg-white/10 text-lg flex items-center justify-center">
+                {e}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFocus, onTyping, onSend }: ChatInputProps) {
   const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -105,6 +245,9 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
 
   const [pollOpen, setPollOpen] = useState(false);
   const [pollDraft, setPollDraft] = useState<PollDraft>({ question: '', options: ['', ''] });
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [codeLangOpen, setCodeLangOpen] = useState(false);
+  const codeBtnRef = useRef<HTMLButtonElement>(null);
 
   const draft = useSessionStore((s) => s.drafts[channelId] ?? '');
   const setDraft = useSessionStore((s) => s.setDraft);
@@ -133,9 +276,14 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   };
 
+  const lastTypingRef = useRef(0);
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setDraft(channelId, e.target.value);
     adjustHeight(e.target);
+    if (onTyping && Date.now() - lastTypingRef.current > 2000) {
+      lastTypingRef.current = Date.now();
+      onTyping();
+    }
   };
 
   // Formatting — wraps selected text
@@ -307,33 +455,79 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
           </div>
         )}
 
-        {/* Formatting toolbar */}
-        <div className="flex items-center gap-0.5 px-3 pt-2">
-          <button
-            type="button"
-            onClick={() => wrapSelection('**', '**')}
-            title={t('chat.bold')}
-            className="px-1.5 py-0.5 rounded text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors"
-          >B</button>
-          <button
-            type="button"
-            onClick={() => wrapSelection('*', '*')}
-            title={t('chat.italic')}
-            className="px-1.5 py-0.5 rounded text-xs italic text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors"
-          >I</button>
-          <button
-            type="button"
-            onClick={() => wrapSelection('||', '||')}
-            title={t('chat.spoiler')}
-            className="px-1.5 py-0.5 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors font-mono"
-          >||</button>
-          <div className="w-px h-3 bg-[var(--border-color)] mx-1" />
+        {/* Toolbar */}
+        <div className="flex items-center gap-1 px-3 pt-2">
+          {/* Text formatting dropdown */}
+          <ToolbarDropdown
+            anchorRef={useRef(null)}
+            icon={<span className="text-xs font-semibold">Aa</span>}
+            title={t('chat.formatting')}
+            items={[
+              { label: t('chat.bold'), shortcut: '**text**', action: () => wrapSelection('**', '**') },
+              { label: t('chat.italic'), shortcut: '*text*', action: () => wrapSelection('*', '*') },
+              { label: t('chat.spoiler'), shortcut: '||text||', action: () => wrapSelection('||', '||') },
+              { label: t('chat.inlineCode'), shortcut: '`code`', action: () => wrapSelection('`', '`') },
+            ]}
+          />
+
+          {/* Emoji */}
+          <button ref={emojiBtnRef} type="button" onClick={() => setEmojiPickerOpen((v) => !v)}
+            className={`p-1.5 rounded transition-colors ${emojiPickerOpen ? 'text-[var(--text-primary)] bg-white/10' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10'}`}
+            title="Emoji"
+          >
+            <span className="text-sm grayscale opacity-70">😀</span>
+          </button>
+          <ChatEmojiPicker visible={emojiPickerOpen} anchorRef={emojiBtnRef}
+            onSelect={(emoji) => {
+              const el = textareaRef.current;
+              if (el) {
+                const pos = el.selectionStart ?? draft.length;
+                const newText = draft.slice(0, pos) + emoji + draft.slice(pos);
+                setDraft(channelId, newText);
+                requestAnimationFrame(() => {
+                  el.focus();
+                  el.setSelectionRange(pos + emoji.length, pos + emoji.length);
+                });
+              } else {
+                setDraft(channelId, draft + emoji);
+              }
+            }}
+            onClose={() => setEmojiPickerOpen(false)}
+          />
+
+          {/* Code block */}
+          <button ref={codeBtnRef} type="button" onClick={() => setCodeLangOpen((v) => !v)}
+            className={`p-1.5 rounded transition-colors ${codeLangOpen ? 'text-[var(--text-primary)] bg-white/10' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10'}`}
+            title="Code"
+          >
+            <Code size={14} />
+          </button>
+          {codeLangOpen && (
+            <CodeLangPicker
+              anchorRef={codeBtnRef}
+              onSelect={(lang) => {
+                const el = textareaRef.current;
+                if (!el) return;
+                const start = el.selectionStart ?? 0;
+                const end = el.selectionEnd ?? start;
+                const selected = draft.slice(start, end);
+                const block = `\`\`\`${lang}\n${selected || ''}\n\`\`\``;
+                const newText = draft.slice(0, start) + block + draft.slice(end);
+                setDraft(channelId, newText);
+                const cursorPos = start + 3 + lang.length + 1 + (selected ? selected.length : 0);
+                requestAnimationFrame(() => {
+                  el.focus();
+                  el.setSelectionRange(cursorPos, cursorPos);
+                });
+                setCodeLangOpen(false);
+              }}
+              onClose={() => setCodeLangOpen(false)}
+            />
+          )}
+
           {/* Poll */}
-          <button
-            type="button"
-            onClick={() => setPollOpen((v) => !v)}
-            title={t('chat.poll')}
-            className={`p-1 rounded transition-colors ${pollOpen ? 'text-[var(--accent)] bg-[var(--accent)]/10' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10'}`}
+          <button type="button" onClick={() => setPollOpen((v) => !v)} title={t('chat.poll')}
+            className={`p-1.5 rounded transition-colors ${pollOpen ? 'text-[var(--accent)] bg-white/10' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10'}`}
           >
             <BarChart2 size={14} />
           </button>
