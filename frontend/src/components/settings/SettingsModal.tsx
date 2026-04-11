@@ -9,7 +9,7 @@ import { useT, useLangStore, LANGUAGES } from '../../i18n';
 import { useThemeStore, PRESET_THEMES, FONT_OPTIONS, type ThemeColors, type Theme, type FontValue } from '../../store/themeStore';
 import { ImageCropModal } from '../ui/ImageCropModal';
 import { useNotificationStore } from '../../store/notificationStore';
-import { Download, Upload, RotateCcw, Bell, BellOff } from 'lucide-react';
+import { Download, Upload, RotateCcw, Bell, BellOff, Search, Save, Trash2 } from 'lucide-react';
 
 type Tab = 'profile' | 'security' | 'audio' | 'notifications' | 'appearance' | 'language';
 
@@ -697,9 +697,12 @@ const COLOR_KEYS: { key: keyof ThemeColors; labelKey: string }[] = [
 
 function AppearanceTab() {
   const t = useT();
-  const { current, setColor, setShape, setTheme, resetToPreset } = useThemeStore();
+  const { current, setColor, setShape, setTheme, resetToPreset, customThemes, saveCustomTheme, deleteCustomTheme } = useThemeStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importMsg, setImportMsg] = useState('');
+  const [themeSearch, setThemeSearch] = useState('');
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
 
   const handleExport = useCallback(() => {
     const blob = new Blob([JSON.stringify(current, null, 2)], { type: 'application/json' });
@@ -740,23 +743,99 @@ function AppearanceTab() {
         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-2">
           {t('appearance.presets')}
         </h3>
-        <div className="grid grid-cols-4 gap-2">
-          {PRESET_THEMES.map((p) => (
+        <div className="flex items-center gap-2 mb-2">
+          <div className="flex-1 flex items-center gap-2 px-2 py-1 rounded bg-[var(--bg-input)] border border-[var(--border-color)]">
+            <Search size={12} className="text-[var(--text-muted)] shrink-0" />
+            <input
+              value={themeSearch}
+              onChange={(e) => setThemeSearch(e.target.value)}
+              placeholder={t('appearance.searchThemes')}
+              className="flex-1 bg-transparent text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            />
+          </div>
+          <button
+            onClick={() => { setSaveName(current.name === 'custom' ? '' : current.name); setSaveDialogOpen(true); }}
+            title={t('appearance.saveTheme')}
+            className="p-1.5 rounded bg-white/5 text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-white/10 transition-colors"
+          >
+            <Save size={14} />
+          </button>
+        </div>
+
+        {saveDialogOpen && (
+          <div className="flex items-center gap-2 mb-2 p-2 rounded-lg bg-white/5 border border-[var(--border-color)]">
+            <input
+              autoFocus
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              placeholder={t('appearance.themeName')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && saveName.trim()) {
+                  saveCustomTheme(saveName.trim());
+                  setSaveDialogOpen(false);
+                }
+                if (e.key === 'Escape') setSaveDialogOpen(false);
+              }}
+              className="flex-1 px-2 py-1 rounded bg-[var(--bg-input)] text-xs text-[var(--text-primary)] outline-none border border-[var(--border-color)] focus:border-[var(--accent)]"
+            />
+            <button
+              onClick={() => { if (saveName.trim()) { saveCustomTheme(saveName.trim()); setSaveDialogOpen(false); } }}
+              disabled={!saveName.trim()}
+              className="px-3 py-1 rounded text-xs font-medium bg-[var(--accent)] text-[var(--accent-text)] hover:bg-[var(--accent-hover)] disabled:opacity-50 transition-colors"
+            >
+              {t('save')}
+            </button>
+            <button
+              onClick={() => setSaveDialogOpen(false)}
+              className="px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              {t('cancel')}
+            </button>
+          </div>
+        )}
+
+        <div className="max-h-40 overflow-y-auto flex flex-col gap-1">
+          {/* Custom themes */}
+          {customThemes
+            .filter((p) => p.name.toLowerCase().includes(themeSearch.toLowerCase()))
+            .map((p) => (
+            <div key={`custom-${p.name}`} className="flex items-center gap-1">
+              <button
+                onClick={() => resetToPreset(p.name)}
+                className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${current.name === p.name ? 'ring-2 ring-[var(--accent)]' : ''}`}
+                style={{ background: p.colors.bgSecondary, color: p.colors.textPrimary }}
+              >
+                <div className="flex gap-0.5 shrink-0">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: p.colors.accent }} />
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: p.colors.bgPrimary }} />
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: p.colors.textPrimary }} />
+                </div>
+                <span className="truncate">{p.name}</span>
+              </button>
+              <button
+                onClick={() => deleteCustomTheme(p.name)}
+                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--danger)] transition-colors shrink-0"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+          {/* Preset themes */}
+          {PRESET_THEMES
+            .filter((p) => p.name.toLowerCase().includes(themeSearch.toLowerCase()))
+            .map((p) => (
             <button
               key={p.name}
               onClick={() => resetToPreset(p.name)}
-              className={`
-                flex flex-col items-center gap-1.5 p-2 rounded-lg text-xs font-medium transition-colors
-                ${current.name === p.name ? 'ring-2 ring-[var(--accent)]' : ''}
-              `}
+              className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${current.name === p.name ? 'ring-2 ring-[var(--accent)]' : ''}`}
               style={{ background: p.colors.bgSecondary, color: p.colors.textPrimary }}
             >
-              <div className="flex gap-1">
-                <div className="w-3 h-3 rounded-full" style={{ background: p.colors.accent }} />
-                <div className="w-3 h-3 rounded-full" style={{ background: p.colors.bgPrimary }} />
-                <div className="w-3 h-3 rounded-full" style={{ background: p.colors.textPrimary }} />
+              <div className="flex gap-0.5 shrink-0">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ background: p.colors.accent }} />
+                <div className="w-2.5 h-2.5 rounded-full" style={{ background: p.colors.bgPrimary }} />
+                <div className="w-2.5 h-2.5 rounded-full" style={{ background: p.colors.textPrimary }} />
               </div>
-              {t(`appearance.preset.${p.name}`)}
+              <span className="truncate">{p.name}</span>
             </button>
           ))}
         </div>

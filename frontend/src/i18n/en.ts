@@ -306,7 +306,10 @@ export const en: Record<string, string> = {
 
   // ─── Appearance ───────────────────────────────────────────────────
   'appearance.title': 'Appearance',
-  'appearance.presets': 'Presets',
+  'appearance.presets': 'Themes',
+  'appearance.searchThemes': 'Search themes…',
+  'appearance.saveTheme': 'Save current as custom theme',
+  'appearance.themeName': 'Theme name',
   'appearance.colors': 'Colors',
   'appearance.shape': 'Shape',
   'appearance.bgPrimary': 'Primary Background',

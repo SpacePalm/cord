@@ -306,7 +306,10 @@ export const ru: Record<string, string> = {
 
   // ─── Внешний вид ──────────────────────────────────────────────────
   'appearance.title': 'Внешний вид',
-  'appearance.presets': 'Пресеты',
+  'appearance.presets': 'Темы',
+  'appearance.searchThemes': 'Поиск тем…',
+  'appearance.saveTheme': 'Сохранить текущую как пользовательскую',
+  'appearance.themeName': 'Название темы',
   'appearance.colors': 'Цвета',
   'appearance.shape': 'Форма',
   'appearance.bgPrimary': 'Основной фон',
