@@ -794,7 +794,7 @@ function AppearanceTab() {
           </div>
         )}
 
-        <div className="max-h-40 overflow-y-auto flex flex-col gap-1">
+        <div className="max-h-40 overflow-y-auto flex flex-col gap-1 relative z-10">
           {/* Custom themes */}
           {customThemes
             .filter((p) => p.name.toLowerCase().includes(themeSearch.toLowerCase()))
