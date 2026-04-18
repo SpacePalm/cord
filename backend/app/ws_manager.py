@@ -1,9 +1,12 @@
 """WebSocket connection manager for real-time message delivery."""
 
 import asyncio
+import logging
 import uuid
 from collections import defaultdict
 from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
@@ -31,7 +34,9 @@ class ConnectionManager:
             async with self._lock_for(ws):
                 await ws.send_json(event)
             return True
-        except Exception:
+        except Exception as exc:
+            logger.warning("[WS] send failed ws=%s event=%s err=%r",
+                           id(ws), event.get("type"), exc)
             return False
 
     def subscribe(self, ws: WebSocket, user_id: uuid.UUID, chat_id: uuid.UUID):
@@ -65,12 +70,20 @@ class ConnectionManager:
             pass
 
     async def broadcast(self, chat_id: uuid.UUID, event: dict, exclude_ws: WebSocket | None = None):
+        subs = list(self._channels.get(chat_id, set()))
+        logger.info("[WS] broadcast chat=%s event=%s subscribers=%d",
+                    chat_id, event.get("type"), len(subs))
         dead: list[WebSocket] = []
-        for _user_id, ws in list(self._channels.get(chat_id, set())):
+        sent_ok = 0
+        for _user_id, ws in subs:
             if ws is exclude_ws:
                 continue
-            if not await self._safe_send(ws, event):
+            if await self._safe_send(ws, event):
+                sent_ok += 1
+            else:
                 dead.append(ws)
+        logger.info("[WS] broadcast done chat=%s sent=%d dead=%d",
+                    chat_id, sent_ok, len(dead))
         for ws in dead:
             await self._drop(ws)
 
