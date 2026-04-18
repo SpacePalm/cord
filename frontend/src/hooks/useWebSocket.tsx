@@ -141,6 +141,9 @@ export function useCordWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const reconnectDelay = useRef(1000);
+  // Было ли это переподключение (а не первый коннект) — при reconnect-е нужно
+  // подтянуть всё, что могло прийти во время дисконнекта.
+  const reconnectedRef = useRef(false);
 
   const connect = useCallback(() => {
     const token = localStorage.getItem('access_token');
@@ -152,6 +155,13 @@ export function useCordWebSocket() {
 
     ws.onopen = () => {
       reconnectDelay.current = 1000;
+      if (reconnectedRef.current) {
+        // Пропущенные WS-события: рефетч активных кэшей сообщений/unread/dms.
+        queryClient.invalidateQueries({ queryKey: ['messages'] });
+        queryClient.invalidateQueries({ queryKey: ['unread'] });
+        queryClient.invalidateQueries({ queryKey: ['dms'] });
+      }
+      reconnectedRef.current = true;
     };
 
     ws.onmessage = (ev) => {

@@ -1,5 +1,6 @@
 """WebSocket connection manager for real-time message delivery."""
 
+import asyncio
 import uuid
 from collections import defaultdict
 from fastapi import WebSocket
@@ -11,6 +12,27 @@ class ConnectionManager:
         self._channels: dict[uuid.UUID, set[tuple[uuid.UUID, WebSocket]]] = defaultdict(set)
         # websocket -> set of chat_ids (for cleanup on disconnect)
         self._ws_channels: dict[WebSocket, set[uuid.UUID]] = defaultdict(set)
+        # Per-websocket lock: starlette/uvicorn не сериализует concurrent send_json.
+        # Если два POST-а одновременно делают broadcast, два `await send_json` на
+        # одном и том же сокете могут переплестись — wsproto не thread-safe,
+        # фреймы теряются. Лок гарантирует последовательность отправок.
+        self._ws_locks: dict[WebSocket, asyncio.Lock] = {}
+
+    def _lock_for(self, ws: WebSocket) -> asyncio.Lock:
+        lock = self._ws_locks.get(ws)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._ws_locks[ws] = lock
+        return lock
+
+    async def _safe_send(self, ws: WebSocket, event: dict) -> bool:
+        """Сериализованная отправка. True — успех, False — сокет мёртв."""
+        try:
+            async with self._lock_for(ws):
+                await ws.send_json(event)
+            return True
+        except Exception:
+            return False
 
     def subscribe(self, ws: WebSocket, user_id: uuid.UUID, chat_id: uuid.UUID):
         self._channels[chat_id].add((user_id, ws))
@@ -26,15 +48,14 @@ class ConnectionManager:
             self._channels[chat_id] = {
                 entry for entry in self._channels[chat_id] if entry[1] is not ws
             }
+        self._ws_locks.pop(ws, None)
 
     async def broadcast(self, chat_id: uuid.UUID, event: dict, exclude_ws: WebSocket | None = None):
         dead: list[WebSocket] = []
         for _user_id, ws in list(self._channels.get(chat_id, set())):
             if ws is exclude_ws:
                 continue
-            try:
-                await ws.send_json(event)
-            except Exception:
+            if not await self._safe_send(ws, event):
                 dead.append(ws)
         for ws in dead:
             self.disconnect(ws)
@@ -49,9 +70,7 @@ class ConnectionManager:
                 if ws_id in sent:
                     continue
                 sent.add(ws_id)
-                try:
-                    await ws.send_json(event)
-                except Exception:
+                if not await self._safe_send(ws, event):
                     dead.append(ws)
         for ws in dead:
             self.disconnect(ws)
@@ -72,10 +91,9 @@ class ConnectionManager:
                 if ws_id in sent:
                     continue
                 sent.add(ws_id)
-                try:
-                    await ws.send_json(event)
+                if await self._safe_send(ws, event):
                     delivered += 1
-                except Exception:
+                else:
                     dead.append(ws)
         for ws in dead:
             self.disconnect(ws)
