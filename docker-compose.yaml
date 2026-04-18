@@ -72,13 +72,12 @@ services:
       - ./media:/app/media       # локальные файлы; при S3 s3fs монтируется поверх
 
   frontend:
+    # Build-task: контейнер собирает SPA, копирует в ./frontend-dist, выходит.
+    # Статикой занимается внешний nginx на хосте (root /path/to/cord/frontend-dist).
+    # Exit 0 — это успех; compose не пытается рестартовать (restart: "no").
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports:
-      - "5173:5173"
-    depends_on:
-      - backend
     volumes:
-      - ./frontend:/app              # монтируем весь проект (src, index.html, vite.config.ts...)
-      - /app/node_modules            # node_modules остаётся в контейнере, не перезаписывается с хоста
+      - ./frontend-dist:/out
+    restart: "no"
