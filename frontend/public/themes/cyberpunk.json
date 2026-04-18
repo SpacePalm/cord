@@ -1,0 +1,18 @@
+{
+  "name": "Cyberpunk",
+  "colors": {
+    "bgPrimary": "#0a0a0f",
+    "bgSecondary": "#12121c",
+    "bgTertiary": "#1a1a2e",
+    "bgInput": "#22223a",
+    "textPrimary": "#eaf0ff",
+    "textSecondary": "#a0b0d0",
+    "textMuted": "#505878",
+    "accent": "#f72585",
+    "accentHover": "#e01070",
+    "accentText": "#ffffff",
+    "borderColor": "#2a2a44",
+    "dangerColor": "#ff2a2a"
+  },
+  "shape": { "borderRadius": 2, "fontSize": 13, "fontFamily": "jetbrains-mono" }
+}

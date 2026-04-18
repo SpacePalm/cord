@@ -1,0 +1,18 @@
+{
+  "name": "Sunset Ember",
+  "colors": {
+    "bgPrimary": "#1a1210",
+    "bgSecondary": "#231a16",
+    "bgTertiary": "#2d221c",
+    "bgInput": "#3a2c24",
+    "textPrimary": "#f5e6d8",
+    "textSecondary": "#c8a88e",
+    "textMuted": "#8a6e58",
+    "accent": "#f97316",
+    "accentHover": "#ea580c",
+    "accentText": "#000000",
+    "borderColor": "#3a2c24",
+    "dangerColor": "#ef4444"
+  },
+  "shape": { "borderRadius": 6, "fontSize": 15, "fontFamily": "plus-jakarta" }
+}
