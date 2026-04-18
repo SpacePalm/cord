@@ -99,6 +99,16 @@ _RUNTIME_MIGRATIONS: list[str] = [
 
 
 @app.on_event('startup')
+async def start_ws_pubsub_listener():
+    """Redis pub/sub listener для WS broadcast-ов между воркерами.
+    Без него при `uvicorn --workers N>1` события не доходят до ws,
+    которые физически подключены к другому процессу.
+    """
+    from app.ws_manager import manager as ws_manager
+    await ws_manager.start_listener()
+
+
+@app.on_event('startup')
 async def check_security_defaults():
     """Loud warning if default secrets remain in production config.
     A default JWT secret allows anyone to forge tokens, including admin ones.
