@@ -71,8 +71,8 @@ class ConnectionManager:
 
     async def broadcast(self, chat_id: uuid.UUID, event: dict, exclude_ws: WebSocket | None = None):
         subs = list(self._channels.get(chat_id, set()))
-        logger.info("[WS] broadcast chat=%s event=%s subscribers=%d",
-                    chat_id, event.get("type"), len(subs))
+        logger.warning("[WS] broadcast chat=%s event=%s subscribers=%d",
+                       chat_id, event.get("type"), len(subs))
         dead: list[WebSocket] = []
         sent_ok = 0
         for _user_id, ws in subs:
@@ -82,8 +82,8 @@ class ConnectionManager:
                 sent_ok += 1
             else:
                 dead.append(ws)
-        logger.info("[WS] broadcast done chat=%s sent=%d dead=%d",
-                    chat_id, sent_ok, len(dead))
+        logger.warning("[WS] broadcast done chat=%s sent=%d dead=%d",
+                       chat_id, sent_ok, len(dead))
         for ws in dead:
             await self._drop(ws)
 

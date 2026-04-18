@@ -377,6 +377,8 @@ async def send_message(
     )
     created_msg = result.scalar_one()
     msg_out = _to_out(created_msg, user.id)
+    import logging as _lg
+    _lg.getLogger(__name__).warning("[POST /messages] msg_id=%s chat=%s → broadcast", msg_id, chat_id)
     await manager.broadcast(chat_id, {
         "type": "message_created",
         "message": _to_out(created_msg, None).model_dump(mode="json"),
