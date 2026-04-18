@@ -38,15 +38,16 @@ export function ForwardModal({ messages, onClose }: ForwardModalProps) {
     enabled: groups.length > 0,
   });
 
-  const forwardMutation = useMutation({
-    mutationFn: () => {
+  const forwardMutation = useMutation<void>({
+    mutationFn: async () => {
       if (messages.length === 1) {
-        return messagesApi.forward(targetChatId!, messages[0].id);
+        await messagesApi.forward(targetChatId!, messages[0].id);
+      } else {
+        await messagesApi.forwardBulk(
+          targetChatId!,
+          messages.map((m) => m.id),
+        );
       }
-      return messagesApi.forwardBulk(
-        targetChatId!,
-        messages.map((m) => m.id),
-      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['messages', targetChatId] });

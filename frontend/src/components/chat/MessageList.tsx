@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Pencil, Trash2, Forward, Check, CornerUpLeft, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile } from 'lucide-react';
+import { X, Pencil, Trash2, Forward, Check, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
 import { pollsApi } from '../../api/polls';
 import { useAuthStore } from '../../store/authStore';
@@ -244,7 +244,7 @@ function AttachmentView({ url, onZoom }: { url: string; onZoom: (u: string) => v
 // ---------------------------------------------------------------------------
 // PollView
 // ---------------------------------------------------------------------------
-function PollView({ poll, messageId, chatId }: { poll: Poll; messageId: string; chatId: string }) {
+function PollView({ poll, chatId }: { poll: Poll; messageId: string; chatId: string }) {
   const queryClient = useQueryClient();
 
   const voteMutation = useMutation({
@@ -743,7 +743,6 @@ function MessageItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const queryClient = useQueryClient();
   const currentUserId = useAuthStore((s) => s.user?.id);
   const locale = useLocale();
   const isOwn = msg.author_id === currentUserId;

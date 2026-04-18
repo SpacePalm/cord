@@ -306,7 +306,6 @@ function MembersTab({ group }: { group: Group }) {
 // ---------------------------------------------------------------------------
 function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }: { group: Group; channels: Chat[]; onChannelsChanged: () => void; isPersonal?: boolean }) {
   const t = useT();
-  const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [newName, setNewName] = useState('');

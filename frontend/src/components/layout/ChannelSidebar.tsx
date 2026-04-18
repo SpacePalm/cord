@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Hash, Volume2, ChevronDown, Settings, LogIn, Cog, User as UserIcon, Search, Phone } from 'lucide-react';
+import { Hash, Volume2, ChevronDown, Settings, LogIn, Cog, Search, Phone } from 'lucide-react';
 import type { Chat, User } from '../../types';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';

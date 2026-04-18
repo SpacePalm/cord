@@ -12,7 +12,7 @@ import {
   useTracks,
   useRoomContext,
 } from '@livekit/components-react';
-import { ConnectionState, Track, RemoteParticipant, ScreenSharePresets, VideoPreset } from 'livekit-client';
+import { ConnectionState, Track, RemoteParticipant, RemoteAudioTrack, ScreenSharePresets, VideoPreset } from 'livekit-client';
 import {
   Mic, MicOff, PhoneOff, Loader2, WifiOff,
   MonitorUp, MonitorOff, X, Volume2, VolumeX,
@@ -111,20 +111,21 @@ function VolumeApplier() {
 
       for (const pub of p.audioTrackPublications.values()) {
         if (!pub.track || pub.source !== Track.Source.Microphone) continue;
+        const track = pub.track as RemoteAudioTrack;
         try {
-          const stream = (pub.track as any).mediaStream as MediaStream | undefined;
+          const stream = (track as any).mediaStream as MediaStream | undefined;
           if (stream) {
             // Use GainNode for full 0-300% range
             const gain = getOrCreateGain(p.identity, stream);
             if (gain) {
               gain.gain.value = vol;
               // Mute the original element to avoid double audio
-              pub.track.setVolume(0);
+              track.setVolume(0);
               continue;
             }
           }
           // Fallback: no stream available, use native (0-1 only)
-          pub.track.setVolume(Math.min(vol, 1));
+          track.setVolume(Math.min(vol, 1));
         } catch {
           // track not ready
         }
@@ -957,9 +958,9 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
         audio: settings.audio,
         resolution: preset,
         ...(isChrome ? {
-          selfBrowserSurface: 'include',
-          surfaceSwitching: 'include',
-          systemAudio: settings.audio ? 'include' : 'exclude',
+          selfBrowserSurface: 'include' as const,
+          surfaceSwitching: 'include' as const,
+          systemAudio: (settings.audio ? 'include' : 'exclude') as 'include' | 'exclude',
         } : {}),
       };
       const tracks = await localParticipant.createScreenTracks(captureOpts);
@@ -1025,7 +1026,7 @@ interface VoiceRoomProps {
   groupName: string;
 }
 
-export function VoiceRoom({ channelId, channelName, groupName }: VoiceRoomProps) {
+export function VoiceRoom({ channelId }: VoiceRoomProps) {
   const t = useT();
   const [token, setToken] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);

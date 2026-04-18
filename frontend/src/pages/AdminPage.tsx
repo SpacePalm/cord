@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronRight, Check, AlertTriangle,
 } from 'lucide-react';
 import { adminApi } from '../api/admin';
-import type { AdminUser, AdminGroup, AdminMember } from '../api/admin';
+import type { AdminUser } from '../api/admin';
 import { useAuthStore } from '../store/authStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useT } from '../i18n';

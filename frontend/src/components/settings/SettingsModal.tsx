@@ -11,7 +11,7 @@ import { ImageCropModal } from '../ui/ImageCropModal';
 import { useNotificationStore } from '../../store/notificationStore';
 import { playNotificationSound } from '../../utils/notificationSound';
 import { startRingtone, stopRingtone } from '../../utils/ringtone';
-import { Download, Upload, RotateCcw, Bell, BellOff, Search, Save, Trash2 } from 'lucide-react';
+import { Download, Upload, RotateCcw, BellOff, Search, Save, Trash2 } from 'lucide-react';
 
 type Tab = 'profile' | 'security' | 'audio' | 'notifications' | 'appearance' | 'language';
 
@@ -579,8 +579,6 @@ function AudioTab() {
 // ---------------------------------------------------------------------------
 
 function ThemePreview() {
-  const t = useT();
-
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Preview</p>

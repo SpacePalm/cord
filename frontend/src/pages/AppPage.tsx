@@ -15,7 +15,7 @@ import { groupsApi } from '../api/groups';
 import { messagesApi } from '../api/messages';
 import { dmsApi } from '../api/dms';
 import type { Group, Chat, Message } from '../types';
-import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus, ArrowLeft, Pin, Phone, Bell, BellOff } from 'lucide-react';
+import { Hash, Volume2, LogIn, Search, Paperclip, Users, Plus, ArrowLeft, Pin, Phone, Bell, BellOff } from 'lucide-react';
 import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
 import { FloatingCallBar } from '../components/FloatingCallBar';
