@@ -1,6 +1,7 @@
 """WebSocket endpoint for real-time message delivery."""
 
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -12,6 +13,7 @@ from app.models.user import User
 from app.models.group import Chat, GroupMember
 from app.ws_manager import manager
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -56,6 +58,7 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept(subprotocol=f"auth.{token}")
 
     chat_ids = await _user_chat_ids(user.id)
+    logger.warning("[WS] CONNECT ws=%s user=%s chats=%d", id(ws), user.id, len(chat_ids))
     for chat_id in chat_ids:
         manager.subscribe(ws, user.id, chat_id)
 
@@ -95,5 +98,8 @@ async def websocket_endpoint(ws: WebSocket):
                 await manager.broadcast(chat_id, payload, exclude_ws=ws)
     except WebSocketDisconnect:
         pass
+    except Exception as exc:
+        logger.warning("[WS] loop exception ws=%s err=%r", id(ws), exc)
     finally:
+        logger.warning("[WS] DISCONNECT ws=%s user=%s", id(ws), user.id)
         manager.disconnect(ws)
