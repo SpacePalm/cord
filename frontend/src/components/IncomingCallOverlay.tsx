@@ -14,17 +14,22 @@ import { dmsApi, type DMItem } from '../api/dms';
 import { startRingtone, stopRingtone } from '../utils/ringtone';
 import { useT } from '../i18n';
 
-// Дедуп входящих звонков по voice_chat_id — чтобы дубль подписки (StrictMode,
-// HMR, несколько вкладок) не показывал оверлей и не дудел несколько раз.
-const _seenCallIds = new Set<string>();
-const _seenCallOrder: string[] = [];
+// Дедуп входящих звонков — только для защиты от дубль-фаершотов одного и
+// того же события (StrictMode, HMR, несколько WS-подписок). TTL 5 секунд:
+// второй звонок с тем же voice_chat_id через минуту — легитимный новый звонок
+// (backend переиспользует voice_chat_id между DM-звонками одних юзеров).
+const _seenCallAt = new Map<string, number>();
+const DEDUP_TTL_MS = 5000;
 function _markCallSeen(id: string): boolean {
-  if (_seenCallIds.has(id)) return false;
-  _seenCallIds.add(id);
-  _seenCallOrder.push(id);
-  if (_seenCallOrder.length > 50) {
-    const rm = _seenCallOrder.shift();
-    if (rm) _seenCallIds.delete(rm);
+  const now = Date.now();
+  const prev = _seenCallAt.get(id);
+  if (prev !== undefined && now - prev < DEDUP_TTL_MS) return false;
+  _seenCallAt.set(id, now);
+  // Чистим старые записи чтобы Map не рос бесконечно.
+  if (_seenCallAt.size > 50) {
+    for (const [k, t] of _seenCallAt) {
+      if (now - t > DEDUP_TTL_MS) _seenCallAt.delete(k);
+    }
   }
   return true;
 }
