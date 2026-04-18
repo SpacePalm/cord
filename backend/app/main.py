@@ -114,41 +114,59 @@ async def check_security_defaults():
                        banner, banner, '\n'.join(f'  • {w}' for w in warnings), banner)
 
 
+# Magic number для pg_advisory_lock — случайное 32-битное int, одинаковое для
+# всех запусков. Любой воркер, который стартует первым, берёт этот лок;
+# остальные ждут на нём. Это сериализует миграции и создание superuser'а при
+# uvicorn --workers >1, иначе одновременный CREATE EXTENSION / INSERT user
+# даёт UniqueViolationError из-за race condition на pg_extension_name_index
+# или user.display_name UNIQUE.
+_STARTUP_LOCK_KEY = 0x636F7264  # "cord"
+
+
 @app.on_event('startup')
-async def create_tables():
+async def run_startup_migrations():
+    """Сериализованные миграции + создание superuser под advisory lock.
+    Все воркеры дойдут до этой точки; один держит lock, остальные блокируются,
+    потом видят что всё сделано (IF NOT EXISTS / EXISTS check) и отпускают.
+    """
     from sqlalchemy import text
     async with engine.begin() as conn:
-        # Расширение pg_trgm — нужно до создания GIN trigram-индексов.
-        await conn.execute(text('CREATE EXTENSION IF NOT EXISTS pg_trgm'))
-        # Базовые таблицы (новые — будут созданы, существующие — пропущены)
-        await conn.run_sync(Base.metadata.create_all)
-        # Добавляем/проверяем индексы + FTS-инфраструктуру.
-        for stmt in _RUNTIME_MIGRATIONS:
-            try:
-                await conn.execute(text(stmt))
-            except Exception as exc:
-                logger.warning('migration failed: %s... → %s', stmt[:60], exc)
+        # Блокирующий advisory lock, освобождается автоматически при закрытии соединения.
+        await conn.execute(text('SELECT pg_advisory_lock(:k)'), {'k': _STARTUP_LOCK_KEY})
+        try:
+            # Расширение pg_trgm — нужно до создания GIN trigram-индексов.
+            await conn.execute(text('CREATE EXTENSION IF NOT EXISTS pg_trgm'))
+            # Базовые таблицы (новые — будут созданы, существующие — пропущены)
+            await conn.run_sync(Base.metadata.create_all)
+            # Индексы и FTS — каждая операция в своём try, чтобы одна ошибка
+            # не блокировала остальные.
+            for stmt in _RUNTIME_MIGRATIONS:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as exc:
+                    logger.warning('migration failed: %s... → %s', stmt[:60], exc)
 
-
-@app.on_event('startup')
-async def create_superuser():
-    async with AsyncSessionLocal() as session:
-        from app.models.user import User
-        from app.auth import hash_password
-
-        result = await session.execute(
-            User.__table__.select().where(User.email == settings.admin_email)
-        )
-        if not result.scalar():
-            superuser = User(
-                username=settings.admin_username,
-                email=settings.admin_email,
-                hashed_password=hash_password(settings.admin_password),
-                role='admin',
-            )
-            session.add(superuser)
-            await session.commit()
-            logger.info('Superuser created')
+            # Создание superuser тут же под тем же локом. exists-check + insert
+            # в одной транзакции, что эквивалентно атомарной idempotent-операции.
+            from app.models.user import User
+            from app.auth import hash_password
+            row = (await conn.execute(
+                text('SELECT id FROM "user" WHERE email = :e'),
+                {'e': settings.admin_email},
+            )).first()
+            if not row:
+                await conn.execute(
+                    User.__table__.insert().values(
+                        username=settings.admin_username,
+                        display_name=settings.admin_username,
+                        email=settings.admin_email,
+                        hashed_password=hash_password(settings.admin_password),
+                        role='admin',
+                    )
+                )
+                logger.info('Superuser created')
+        finally:
+            await conn.execute(text('SELECT pg_advisory_unlock(:k)'), {'k': _STARTUP_LOCK_KEY})
 
 
 @app.get('/')
