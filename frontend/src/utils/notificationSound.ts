@@ -60,3 +60,47 @@ export function playNotificationSound(volume = 1.0): void {
   osc2.start(now + 0.1);
   osc2.stop(now + 0.22);
 }
+
+/**
+ * Внутренний генератор двухтонального звука с заданными частотами.
+ * Используется для join/leave — восходящий и нисходящий «glide».
+ */
+function playTwoTone(f1: number, f2: number, volume: number): void {
+  const ctx = getCtx();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  const v = Math.max(0, Math.min(1, volume));
+  if (v === 0) return;
+  const peak = 0.7 * v;
+  const now = ctx.currentTime;
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(peak, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+  gain.connect(ctx.destination);
+
+  const osc1 = ctx.createOscillator();
+  osc1.type = 'sine';
+  osc1.frequency.setValueAtTime(f1, now);
+  osc1.connect(gain);
+  osc1.start(now);
+  osc1.stop(now + 0.14);
+
+  const osc2 = ctx.createOscillator();
+  osc2.type = 'sine';
+  osc2.frequency.setValueAtTime(f2, now + 0.12);
+  osc2.connect(gain);
+  osc2.start(now + 0.12);
+  osc2.stop(now + 0.28);
+}
+
+/** Кто-то присоединился к голосовому каналу — восходящий тон (C5 → G5). */
+export function playVoiceJoinSound(volume = 1.0): void {
+  playTwoTone(523, 784, volume);
+}
+
+/** Кто-то вышел из голосового канала — нисходящий тон (G5 → C5). */
+export function playVoiceLeaveSound(volume = 1.0): void {
+  playTwoTone(784, 523, volume);
+}

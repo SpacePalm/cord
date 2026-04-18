@@ -24,6 +24,8 @@ import { voiceApi } from '../../api/voice';
 import { dmsApi } from '../../api/dms';
 import { useSessionStore } from '../../store/sessionStore';
 import { useAuthStore } from '../../store/authStore';
+import { useNotificationStore } from '../../store/notificationStore';
+import { playVoiceJoinSound, playVoiceLeaveSound } from '../../utils/notificationSound';
 import { useT } from '../../i18n';
 
 import '@livekit/components-styles';
@@ -863,6 +865,34 @@ function RoomContent() {
   useEffect(() => {
     if (selectedIdx >= screenTracks.length) setSelectedIdx(0);
   }, [screenTracks.length, selectedIdx]);
+
+  // Звук на join/leave участников. Первый tick только инициализирует snapshot,
+  // чтобы при заходе в комнату не ревело на каждого уже присутствующего.
+  const prevIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const { sound, soundVolume } = useNotificationStore.getState();
+    const localId = localParticipant?.identity;
+    const currentIds = new Set(
+      participants
+        .map((p) => p.identity)
+        .filter((id): id is string => !!id && id !== localId)
+    );
+
+    if (prevIdsRef.current === null) {
+      prevIdsRef.current = currentIds;
+      return;
+    }
+    const prev = prevIdsRef.current;
+    if (sound) {
+      for (const id of currentIds) {
+        if (!prev.has(id)) { playVoiceJoinSound(soundVolume); break; }
+      }
+      for (const id of prev) {
+        if (!currentIds.has(id)) { playVoiceLeaveSound(soundVolume); break; }
+      }
+    }
+    prevIdsRef.current = currentIds;
+  }, [participants, localParticipant]);
 
   if (connectionState === ConnectionState.Reconnecting) {
     return (
