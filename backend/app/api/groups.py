@@ -119,6 +119,8 @@ async def list_groups(
         .where(GroupMember.user_id == user.id, Group.is_active == True)  # noqa: E712
         .order_by(Group.created_at)
     )
+    # DM-группы фильтруются клиентом (GroupSidebar) — клиенту нужна возможность
+    # прочитать name/is_dm выбранной DM-группы при навигации.
     return result.scalars().all()
 
 
@@ -153,6 +155,8 @@ async def delete_group(
     group = await _get_group_or_404(group_id, db)
     if group.is_personal:
         raise HTTPException(status_code=400, detail='Cannot delete personal group')
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot delete DM group')
     _require_owner_or_admin(group, user)
     await db.delete(group)
     await db.commit()
@@ -177,6 +181,8 @@ async def leave_group(
     group = await _get_group_or_404(group_id, db)
     if group.is_personal:
         raise HTTPException(status_code=400, detail='Cannot leave personal group')
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot leave DM group')
     result = await db.execute(
         select(GroupMember).where(
             GroupMember.group_id == group_id,
@@ -240,6 +246,8 @@ async def kick_member(
     user: User = Depends(get_current_user),
 ):
     group = await _require_member(group_id, user, db)
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot kick from DM')
     _require_owner_or_admin(group, user)
 
     if target_user_id == group.owner_id:
@@ -268,6 +276,8 @@ async def update_member_role(
     db: AsyncSession = Depends(get_db),
 ):
     group = await _get_group_or_404(group_id, db)
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot change roles in DM')
     _require_owner_or_admin(group, user)
 
     if role not in ('editor', 'member'):
@@ -300,6 +310,10 @@ async def update_group(
     user: User = Depends(get_current_user),
 ):
     group = await _require_member(group_id, user, db)
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot modify DM group')
+    if group.is_personal:
+        raise HTTPException(status_code=400, detail='Cannot rename personal group')
     _require_owner_or_admin(group, user)
 
     if body.name is not None:
@@ -344,7 +358,12 @@ async def create_invite(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    await _require_editor_or_above(group_id, user, db)
+    group = await _require_editor_or_above(group_id, user, db)
+    # DM и личные группы — запрещаем приглашать посторонних
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot invite to DM')
+    if group.is_personal:
+        raise HTTPException(status_code=400, detail='Cannot invite to personal group')
 
     # Delete old invites for this group
     await db.execute(
@@ -393,9 +412,16 @@ async def create_chat(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    await _require_editor_or_above(group_id, user, db)
+    group = await _require_editor_or_above(group_id, user, db)
+    # В DM-группах каналы — только системные (создаются бэком при звонке).
+    # Запрещаем пользовательские POST'ы: это ломает концепцию 1-на-1 и наполняет базу.
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot create chats in DM group')
 
-    chat = Chat(name=body.name, group_id=group_id, type=body.type)
+    # В личной группе (Сохранённые) допустимы только текстовые чаты
+    chat_type = 'text' if group.is_personal else body.type
+
+    chat = Chat(name=body.name, group_id=group_id, type=chat_type)
     db.add(chat)
     await db.commit()
     await db.refresh(chat)
@@ -410,7 +436,9 @@ async def rename_chat(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    await _require_editor_or_above(group_id, user, db)
+    group = await _require_editor_or_above(group_id, user, db)
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot rename DM chats')
 
     chat = await db.get(Chat, chat_id)
     if not chat or chat.group_id != group_id:
@@ -429,11 +457,21 @@ async def delete_chat(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    await _require_editor_or_above(group_id, user, db)
+    group = await _require_editor_or_above(group_id, user, db)
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot delete chats in DM')
 
     chat = await db.get(Chat, chat_id)
     if not chat or chat.group_id != group_id:
         raise HTTPException(status_code=404, detail='Chat not found')
+
+    if group.is_personal:
+        # В личной группе нельзя удалить последний чат
+        remaining = await db.execute(
+            select(func.count()).select_from(Chat).where(Chat.group_id == group_id)
+        )
+        if (remaining.scalar() or 0) <= 1:
+            raise HTTPException(status_code=400, detail='Cannot delete the last chat in personal group')
 
     await db.delete(chat)
     await db.commit()

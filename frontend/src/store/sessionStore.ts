@@ -6,6 +6,7 @@ import { persist } from 'zustand/middleware';
 export interface VoicePresence {
   channelId: string;
   channelName: string;
+  groupId: string;      // для «развернуть» из плавающего виджета
   groupName: string;
   muted: boolean;
   deafened: boolean;
@@ -47,7 +48,7 @@ interface SessionState {
 
   // Voice channel
   voicePresence: VoicePresence | null;
-  joinVoice: (channelId: string, channelName: string, groupName: string) => void;
+  joinVoice: (channelId: string, channelName: string, groupName: string, groupId: string) => void;
   leaveVoice: () => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
@@ -59,6 +60,30 @@ interface SessionState {
   // Conference start time (from Redis via /api/voice/token)
   callStartedAt: number | null;
   setCallStartedAt: (ts: number) => void;
+
+  // UI flags — управляются из CommandPalette и т.п.
+  uiSettingsOpen: boolean;
+  uiSettingsTab: string | null;      // 'profile' | 'appearance' | ... (null — оставить дефолт)
+  uiCreateServerOpen: boolean;
+  openSettings: (tab?: string) => void;
+  closeSettings: () => void;
+  openCreateServer: () => void;
+  closeCreateServer: () => void;
+
+  // Прыжок к сообщению — выставляет CommandPalette, разбирает AppPage
+  pendingJumpTo: { chatId: string; messageId: string; createdAt: string } | null;
+  setPendingJumpTo: (p: { chatId: string; messageId: string; createdAt: string } | null) => void;
+
+  // Палитра команд (Ctrl+K или кнопка)
+  uiPaletteOpen: boolean;
+  openPalette: () => void;
+  closePalette: () => void;
+  togglePalette: () => void;
+
+  // DM-режим: включён — вместо обычного ChannelSidebar показывается список DM.
+  // Выбор DM сохраняет режим, выбор обычной группы — выключает.
+  dmMode: boolean;
+  setDmMode: (v: boolean) => void;
 }
 
 export const useSessionStore = create<SessionState>()(
@@ -122,9 +147,9 @@ export const useSessionStore = create<SessionState>()(
       // --- Voice channel ---
       voicePresence: null,
 
-      joinVoice: (channelId, channelName, groupName) =>
+      joinVoice: (channelId, channelName, groupName, groupId) =>
         set({
-          voicePresence: { channelId, channelName, groupName, muted: false, deafened: false },
+          voicePresence: { channelId, channelName, groupId, groupName, muted: false, deafened: false },
         }),
 
       leaveVoice: () => set({ voicePresence: null, voiceParticipants: [], callStartedAt: null }),
@@ -151,6 +176,26 @@ export const useSessionStore = create<SessionState>()(
       setCallStartedAt: (ts: number) => set((state: SessionState) => ({
         callStartedAt: state.callStartedAt === null || ts < state.callStartedAt ? ts : state.callStartedAt,
       })),
+
+      // --- UI flags ---
+      uiSettingsOpen: false,
+      uiSettingsTab: null,
+      uiCreateServerOpen: false,
+      openSettings: (tab) => set({ uiSettingsOpen: true, uiSettingsTab: tab ?? null }),
+      closeSettings: () => set({ uiSettingsOpen: false, uiSettingsTab: null }),
+      openCreateServer: () => set({ uiCreateServerOpen: true }),
+      closeCreateServer: () => set({ uiCreateServerOpen: false }),
+
+      pendingJumpTo: null,
+      setPendingJumpTo: (p) => set({ pendingJumpTo: p }),
+
+      uiPaletteOpen: false,
+      openPalette: () => set({ uiPaletteOpen: true }),
+      closePalette: () => set({ uiPaletteOpen: false }),
+      togglePalette: () => set((s) => ({ uiPaletteOpen: !s.uiPaletteOpen })),
+
+      dmMode: false,
+      setDmMode: (v) => set({ dmMode: v }),
     }),
     {
       name: 'cord-session',

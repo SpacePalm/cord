@@ -12,6 +12,10 @@ import { useAuthStore } from './store/authStore';
 import { authApi } from './api/auth';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CordWebSocketProvider } from './hooks/useWebSocket';
+import { CommandPalette } from './components/CommandPalette';
+import { IncomingCallOverlay } from './components/IncomingCallOverlay';
+import { OutgoingCallWatcher } from './components/OutgoingCallWatcher';
+import { MessageNotifier } from './components/MessageNotifier';
 
 // React Query client — caches API requests
 const queryClient = new QueryClient({
@@ -49,6 +53,20 @@ function Heartbeat() {
   return null;
 }
 
+// Палитра команд и оверлей входящих звонков — только у авторизованных.
+function AuthenticatedOverlays() {
+  const token = useAuthStore((s) => s.token);
+  if (!token) return null;
+  return (
+    <>
+      <CommandPalette />
+      <IncomingCallOverlay />
+      <OutgoingCallWatcher />
+      <MessageNotifier />
+    </>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -57,6 +75,7 @@ export default function App() {
         <ThemeInit />
         <Heartbeat />
         <CordWebSocketProvider>
+        <AuthenticatedOverlays />
         <Routes>
           {/* Public pages */}
           <Route path="/login" element={<LoginPage />} />

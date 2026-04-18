@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { X, Search, CornerDownRight } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
 import type { Message } from '../../types';
-import { useT } from '../../i18n';
+import { useT, useLocale } from '../../i18n';
 
 interface SearchPanelProps {
   chatId: string;
@@ -26,7 +26,8 @@ function highlight(text: string, q: string): ReactNode[] {
 
 function SearchResult({ msg, q, onJump }: { msg: Message; q: string; onJump: () => void }) {
   const t = useT();
-  const time = new Date(msg.created_at).toLocaleString('ru-RU', {
+  const locale = useLocale();
+  const time = new Date(msg.created_at).toLocaleString(locale, {
     day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
   });
 

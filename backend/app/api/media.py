@@ -46,9 +46,21 @@ async def serve_message_file(
     if not member_result.scalar_one_or_none():
         raise HTTPException(status_code=403, detail='Not a member of this group')
 
-    file_path = MEDIA_ROOT / 'messages' / str(message_id) / filename
+    # Защита от path traversal: нормализуем путь и проверяем что он внутри
+    # подкаталога именно этого message_id. Без этого filename типа '..%2Fescape'
+    # (URL-декодируется в `../escape`) мог бы вывести за пределы директории
+    # сообщения в соседнее message или даже выше.
+    message_dir = (MEDIA_ROOT / 'messages' / str(message_id)).resolve()
+    try:
+        file_path = (message_dir / filename).resolve()
+    except (ValueError, OSError):
+        raise HTTPException(status_code=400, detail='Invalid filename')
+
+    if not str(file_path).startswith(str(message_dir) + '/') and file_path != message_dir:
+        raise HTTPException(status_code=400, detail='Invalid filename')
+
     exists = await asyncio.to_thread(file_path.exists)
-    if not exists:
+    if not exists or not file_path.is_file():
         raise HTTPException(status_code=404, detail='File not found')
 
-    return FileResponse(path=file_path, filename=filename, media_type=None)
+    return FileResponse(path=file_path, filename=file_path.name, media_type=None)

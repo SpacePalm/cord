@@ -58,4 +58,8 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_bearer
     user = await db.get(User, uuid.UUID(user_id))
     if not user:
         raise credentials_exception
+    # Деактивированный пользователь (например, админ отключил аккаунт) не должен
+    # использовать ранее выданный токен до истечения срока действия JWT.
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Account is inactive')
     return user

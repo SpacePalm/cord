@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Hash, Volume2, ChevronDown, Settings, LogIn, Cog, User as UserIcon } from 'lucide-react';
+import { Hash, Volume2, ChevronDown, Settings, LogIn, Cog, User as UserIcon, Search, Phone } from 'lucide-react';
 import type { Chat, User } from '../../types';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
@@ -30,6 +30,10 @@ interface ChannelSidebarProps {
   onOpenSettings: () => void;
   unreadByChat?: Record<string, number>;
   isPersonal?: boolean;
+  // DM-режим: в шапке кнопка «Позвонить» вместо настроек
+  isDm?: boolean;
+  dmPeerName?: string;
+  onStartCall?: () => void;
 }
 
 function TextChannelItem({ channel, selected, onClick, unreadCount = 0 }: {
@@ -139,10 +143,15 @@ function VoiceChannelItem({ channel, selected, active, onSelect, onJoin }: {
   );
 }
 
-function UserPanel({ user }: { user: User }) {
+export function UserPanel({ user }: { user: User }) {
   const t = useT();
   const setUser = useAuthStore((s) => s.setUser);
+  // Локальный флаг для клика по шестерёнке + синк из глобального стора (CommandPalette)
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const uiSettingsOpen = useSessionStore((s) => s.uiSettingsOpen);
+  const uiSettingsTab = useSessionStore((s) => s.uiSettingsTab);
+  const closeSettings = useSessionStore((s) => s.closeSettings);
+  const showSettings = settingsOpen || uiSettingsOpen;
   const [statusOpen, setStatusOpen] = useState(false);
   const [customText, setCustomText] = useState(user.status_text || '');
   const initials = (user.display_name || user.username).slice(0, 2).toUpperCase();
@@ -238,8 +247,34 @@ function UserPanel({ user }: { user: User }) {
         </button>
       </div>
 
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {showSettings && (
+        <SettingsModal
+          initialTab={uiSettingsTab ?? undefined}
+          onClose={() => { setSettingsOpen(false); closeSettings(); }}
+        />
+      )}
     </>
+  );
+}
+
+// Кнопка-псевдоинпут открывающая глобальную палитру поиска.
+// Показывает «⌘K» / «Ctrl+K» в зависимости от платформы.
+function PaletteButton() {
+  const t = useT();
+  const openPalette = useSessionStore((s) => s.openPalette);
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+  return (
+    <button
+      onClick={openPalette}
+      className="mx-2 mt-2 mb-1 flex items-center gap-2 px-2.5 py-1.5 rounded bg-[var(--bg-input)] hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors text-sm"
+      title={t('palette.open')}
+    >
+      <Search size={14} className="shrink-0" />
+      <span className="flex-1 text-left truncate">{t('palette.quickSearch')}</span>
+      <kbd className="text-[10px] border border-[var(--border-color)] rounded px-1 py-0.5 text-[var(--text-muted)]">
+        {isMac ? '⌘K' : 'Ctrl+K'}
+      </kbd>
+    </button>
   );
 }
 
@@ -252,6 +287,9 @@ export function ChannelSidebar({
   onOpenSettings,
   unreadByChat,
   isPersonal,
+  isDm,
+  dmPeerName,
+  onStartCall,
 }: ChannelSidebarProps) {
   const t = useT();
   const user = useAuthStore((s) => s.user);
@@ -266,24 +304,36 @@ export function ChannelSidebar({
       className="w-60 flex flex-col flex-1 md:flex-initial"
       style={{ background: 'var(--bg-secondary)' }}
     >
-      {/* Шапка сервера */}
+      {/* Шапка сервера / DM */}
       <div className="group/header flex items-center justify-between px-4 py-3 font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-input)] border-b border-[var(--border-color)] transition-colors cursor-default">
-        <span className="truncate">{isPersonal ? t('saved.title') : groupName}</span>
-        {!isPersonal && (
-          <div className="flex items-center gap-1 shrink-0">
-            {canManage && (
-              <button
-                onClick={onOpenSettings}
-                title={t('server.settings')}
-                className="opacity-0 group-hover/header:opacity-100 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all"
-              >
-                <Cog size={16} />
-              </button>
-            )}
-            <ChevronDown size={16} className="text-[var(--text-muted)]" />
-          </div>
-        )}
+        <span className="truncate">
+          {isDm ? (dmPeerName ?? groupName) : isPersonal ? t('saved.title') : groupName}
+        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {isDm && onStartCall && (
+            <button
+              onClick={onStartCall}
+              title={t('dms.call')}
+              className="p-1 rounded text-[var(--text-muted)] hover:text-green-400 hover:bg-white/5 transition-colors"
+            >
+              <Phone size={16} />
+            </button>
+          )}
+          {!isDm && canManage && (
+            <button
+              onClick={onOpenSettings}
+              title={isPersonal ? t('saved.manageChats') : t('server.settings')}
+              className="opacity-0 group-hover/header:opacity-100 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all"
+            >
+              <Cog size={16} />
+            </button>
+          )}
+          {!isPersonal && !isDm && <ChevronDown size={16} className="text-[var(--text-muted)]" />}
+        </div>
       </div>
+
+      {/* Кнопка глобального поиска (палитра команд) */}
+      <PaletteButton />
 
       {/* Каналы */}
       <div className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-4">
@@ -319,7 +369,7 @@ export function ChannelSidebar({
                 active={voicePresence?.channelId === ch.id}
                 onSelect={() => onSelectChannel(ch.id)}
                 onJoin={() => {
-                  joinVoice(ch.id, ch.name, groupName);
+                  joinVoice(ch.id, ch.name, groupName, ch.group_id);
                   onSelectChannel(ch.id);
                 }}
               />

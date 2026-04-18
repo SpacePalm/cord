@@ -16,6 +16,7 @@ export interface Group {
   owner_id: string;
   image_path: string;
   is_personal?: boolean;
+  is_dm?: boolean;
   created_at: string;
 }
 

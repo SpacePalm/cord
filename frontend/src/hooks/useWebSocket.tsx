@@ -29,17 +29,96 @@ interface WsTyping {
   display_name: string;
 }
 
+interface WsStopTyping {
+  type: 'stop_typing';
+  chat_id: string;
+  user_id: string;
+}
+
 interface WsVoiceParticipants {
   type: 'voice_participants';
   channel_id: string;
   participants: { identity: string; name: string; image_path: string }[];
 }
 
-type WsEvent = WsMessageCreated | WsMessageEdited | WsMessageDeleted | WsTyping | WsVoiceParticipants;
+interface WsIncomingCall {
+  type: 'incoming_call';
+  group_id: string;
+  voice_chat_id: string;
+  caller: {
+    id: string;
+    username: string;
+    display_name: string;
+    image_path: string;
+  };
+}
+
+interface WsCallDeclined {
+  type: 'call_declined';
+  group_id: string;
+  decliner: {
+    id: string;
+    username: string;
+    display_name: string;
+  };
+}
+
+interface WsCallCancelled {
+  type: 'call_cancelled';
+  group_id: string;
+  caller: {
+    id: string;
+    username: string;
+    display_name: string;
+  };
+}
+
+type WsEvent = WsMessageCreated | WsMessageEdited | WsMessageDeleted | WsTyping | WsStopTyping | WsVoiceParticipants | WsIncomingCall | WsCallDeclined | WsCallCancelled;
+
+// Fallback-таймаут: если пришёл typing, но stop_typing потерян (disconnect, замедление сети),
+// всё равно снимаем индикатор. 6 секунд = 4с бездействия на отправителе + запас на задержку сети.
+const TYPING_FALLBACK_MS = 6000;
 
 // Typing state — shared across components
 const typingMap = new Map<string, Map<string, { name: string; timeout: ReturnType<typeof setTimeout> }>>();
 const typingListeners = new Set<() => void>();
+
+// Подписчики на входящие звонки — для показа браузерных уведомлений и UI-оповещений.
+export type IncomingCallEvent = WsIncomingCall;
+const incomingCallListeners = new Set<(e: IncomingCallEvent) => void>();
+
+export function onIncomingCall(fn: (e: IncomingCallEvent) => void): () => void {
+  incomingCallListeners.add(fn);
+  return () => { incomingCallListeners.delete(fn); };
+}
+
+// Подписчики на новые сообщения — для push/sound уведомлений.
+export type IncomingMessageEvent = WsMessageCreated;
+const incomingMessageListeners = new Set<(e: IncomingMessageEvent) => void>();
+
+export function onIncomingMessage(fn: (e: IncomingMessageEvent) => void): () => void {
+  incomingMessageListeners.add(fn);
+  return () => { incomingMessageListeners.delete(fn); };
+}
+
+// Подписчики на «звонок отклонён» — инициатору приходит когда собеседник нажал отмену.
+export type CallDeclinedEvent = WsCallDeclined;
+const callDeclinedListeners = new Set<(e: CallDeclinedEvent) => void>();
+
+export function onCallDeclined(fn: (e: CallDeclinedEvent) => void): () => void {
+  callDeclinedListeners.add(fn);
+  return () => { callDeclinedListeners.delete(fn); };
+}
+
+// Подписчики на «звонок отменён» — callee'у приходит, когда инициатор повесил
+// трубку до того как ответили. Оверлей должен закрыться, рингтон — прекратиться.
+export type CallCancelledEvent = WsCallCancelled;
+const callCancelledListeners = new Set<(e: CallCancelledEvent) => void>();
+
+export function onCallCancelled(fn: (e: CallCancelledEvent) => void): () => void {
+  callCancelledListeners.add(fn);
+  return () => { callCancelledListeners.delete(fn); };
+}
 
 function notifyTypingListeners() {
   typingListeners.forEach((fn) => fn());
@@ -84,6 +163,8 @@ export function useCordWebSocket() {
       }
 
       if (event.type === 'message_created') {
+        // Уведомляем подписчиков (MessageNotifier) — они сами отфильтруют по настройкам
+        incomingMessageListeners.forEach((fn) => fn(event));
         const msg = event.message;
         queryClient.setQueryData<Message[]>(['messages', msg.chat_id], (old) => {
           if (!old) return old;
@@ -94,19 +175,27 @@ export function useCordWebSocket() {
         const myId = useAuthStore.getState().user?.id;
         const activeChat = useSessionStore.getState().lastChannelId;
         if (msg.author_id !== myId && msg.chat_id !== activeChat) {
-          queryClient.setQueryData<UnreadData>(['unread'], (old) => {
-            if (!old) return old;
-            const prev = old.unread[msg.chat_id];
-            return {
+          const existing = queryClient.getQueryData<UnreadData>(['unread']);
+          if (existing) {
+            // Оптимистичный апдейт — кэш есть, просто инкрементим счётчик чата.
+            const prev = existing.unread[msg.chat_id];
+            queryClient.setQueryData<UnreadData>(['unread'], {
               unread: {
-                ...old.unread,
+                ...existing.unread,
                 [msg.chat_id]: {
                   count: (prev?.count ?? 0) + 1,
                   group_id: prev?.group_id ?? event.group_id,
                 },
               },
-            };
-          });
+            });
+          } else {
+            // Кэша нет (только залогинились / unread пуст) — форсим рефетч с сервера.
+            queryClient.invalidateQueries({ queryKey: ['unread'] });
+          }
+          // Инвалидируем список DM — там свой счётчик unread_count + last_message
+          // + сортировка по времени последнего сообщения. Пересчитывать вручную
+          // накладно (нужны данные о is_dm, peer и т.д.), проще форснуть refetch.
+          queryClient.invalidateQueries({ queryKey: ['dms'] });
         }
       }
 
@@ -144,9 +233,31 @@ export function useCordWebSocket() {
             users.delete(event.user_id);
             if (users.size === 0) typingMap.delete(chatId);
             notifyTypingListeners();
-          }, 3000),
+          }, TYPING_FALLBACK_MS),
         });
         notifyTypingListeners();
+      }
+
+      if (event.type === 'stop_typing') {
+        const users = typingMap.get(event.chat_id);
+        if (!users) return;
+        const existing = users.get(event.user_id);
+        if (existing) clearTimeout(existing.timeout);
+        users.delete(event.user_id);
+        if (users.size === 0) typingMap.delete(event.chat_id);
+        notifyTypingListeners();
+      }
+
+      if (event.type === 'incoming_call') {
+        incomingCallListeners.forEach((fn) => fn(event));
+      }
+
+      if (event.type === 'call_declined') {
+        callDeclinedListeners.forEach((fn) => fn(event));
+      }
+
+      if (event.type === 'call_cancelled') {
+        callCancelledListeners.forEach((fn) => fn(event));
       }
     };
 
@@ -174,6 +285,12 @@ export function useCordWebSocket() {
     }
   }, []);
 
+  const sendStopTyping = useCallback((chatId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'stop_typing', chat_id: chatId }));
+    }
+  }, []);
+
   useEffect(() => {
     // Даём время на загрузку страницы и авторизацию перед первым подключением
     const delay = setTimeout(connect, 1000);
@@ -184,7 +301,7 @@ export function useCordWebSocket() {
     };
   }, [connect]);
 
-  return { reconnect, sendTyping };
+  return { reconnect, sendTyping, sendStopTyping };
 }
 
 // ─── Context so WS lives at App level, pages consume via hook ──────
@@ -192,11 +309,13 @@ export function useCordWebSocket() {
 interface WsContextValue {
   reconnect: () => void;
   sendTyping: (chatId: string) => void;
+  sendStopTyping: (chatId: string) => void;
 }
 
 const WsContext = createContext<WsContextValue>({
   reconnect: () => {},
   sendTyping: () => {},
+  sendStopTyping: () => {},
 });
 
 export function CordWebSocketProvider({ children }: { children: ReactNode }) {

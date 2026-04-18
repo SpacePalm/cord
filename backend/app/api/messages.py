@@ -19,9 +19,9 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func as sa_func, text as sa_text, literal
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -31,14 +31,47 @@ from app.models.group import Chat, GroupMember, Group
 from app.models.message import Message, MessageAttachment, MessageReaction
 from app.schemas.message import MessageOut, MessageEdit, MessageForward, MessageBulkForward, MessageBulkDelete, ForwardedFrom, ReplyTo, PollOut, PollOptionOut, EmbedOut, ReactionGroupOut, ReactionUserOut
 from app.models.poll import Poll, PollOption, PollVote
-from app.cache import get_cached_messages, set_cached_messages, invalidate_messages
+from app.cache import get_cached_messages, set_cached_messages, invalidate_messages, get_cached_search, set_cached_search, invalidate_unread
+from app.rate_limit import RateLimiter
 from app.ws_manager import manager
 
 router = APIRouter(prefix='/api/chats', tags=['messages'])
+# Отдельный роутер для глобального поиска — чтобы не ломать префикс /api/chats
+search_router = APIRouter(prefix='/api/search', tags=['search'])
+
+# 60 поисковых запросов в минуту на IP — среднее 1 req/sec с запасом на debounce
+# из палитры. Чтение из Redis кэша тоже учитывается, но оно быстрое, так что лимит
+# не мешает нормальному юзеру. При превышении — 429 Too Many Requests.
+search_limiter = RateLimiter(key='search', limit=60, window_seconds=60)
 
 MEDIA_ROOT = Path('/app/media')
 PAGE_SIZE = 50
 URL_RE = re.compile(r'https?://[^\s<>"\']+')
+
+
+def _escape_ilike(q: str) -> str:
+    """Экранирует wildcards для безопасной передачи в ILIKE.
+
+    Без этого `%` и `_` в пользовательском вводе трактуются как SQL-wildcards
+    («любая последовательность» и «любой символ»), и поиск `opt_` находит `optim`.
+    Порядок важен: сначала \\, потом % и _.
+    """
+    return q.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
+async def _invalidate_unread_for_chat(chat_id: uuid.UUID, db: AsyncSession) -> None:
+    """Сбрасывает Redis-кэш непрочитанных для всех участников группы чата.
+
+    Без этого после создания сообщения фронт может получать устаревший
+    счёт до 5 секунд (TTL Redis), пока не сработает новый запрос минуя кэш.
+    """
+    result = await db.execute(
+        select(GroupMember.user_id)
+        .join(Chat, Chat.group_id == GroupMember.group_id)
+        .where(Chat.id == chat_id)
+    )
+    for (uid,) in result.all():
+        await invalidate_unread(str(uid))
 
 
 # Helpers
@@ -140,17 +173,52 @@ def _to_out(msg: Message, user_id: uuid.UUID | None = None) -> MessageOut:
     )
 
 
+# Разрешённые MIME-типы вложений. SVG намеренно исключён — в нём может быть
+# исполняемый JS (XSS при просмотре в браузере через <img> в некоторых контекстах).
+_ALLOWED_MIME_PREFIXES = ('image/', 'audio/', 'video/')
+_ALLOWED_MIME_EXACT = {
+    'application/pdf', 'application/zip', 'application/x-zip-compressed',
+    'application/x-tar', 'application/x-rar-compressed', 'application/octet-stream',
+    'text/plain', 'text/markdown', 'text/csv',
+}
+_BLOCKED_MIME = {'image/svg+xml', 'image/svg'}
+
+
+def _sanitize_upload_filename(name: str | None) -> str:
+    """Только базовое имя без каталогов — защита от path traversal и спецсимволов."""
+    if not name:
+        return 'file'
+    # Обрубаем любые директории (./, ../, \\..\\) — Path.name даёт только финальный сегмент
+    base = Path(name).name
+    # Убираем нулевые байты и символы-разделители, оставляем понятные
+    base = ''.join(c for c in base if c.isprintable() and c not in '\x00/\\')
+    base = base.strip() or 'file'
+    # Ограничиваем длину — часть имени файла в ФС должна влезать в лимит
+    return base[:100]
+
+
+def _validate_upload(file: UploadFile) -> None:
+    ct = (file.content_type or '').split(';')[0].strip().lower()
+    if ct in _BLOCKED_MIME:
+        raise HTTPException(status_code=415, detail=f'Blocked MIME type: {ct}')
+    if ct and not ct.startswith(_ALLOWED_MIME_PREFIXES) and ct not in _ALLOWED_MIME_EXACT:
+        raise HTTPException(status_code=415, detail=f'Unsupported file type: {ct}')
+
+
 def _save_upload_sync(message_id: uuid.UUID, data: bytes, filename: str) -> str:
     dest_dir = MEDIA_ROOT / 'messages' / str(message_id)
     dest_dir.mkdir(parents=True, exist_ok=True)
+    # filename уже санирован в _save_upload — дополнительная защита.
     safe_name = f'{uuid.uuid4().hex[:8]}_{filename}'
     (dest_dir / safe_name).write_bytes(data)
     return f'/media/messages/{message_id}/{safe_name}'
 
 
 async def _save_upload(message_id: uuid.UUID, file: UploadFile) -> str:
+    _validate_upload(file)
     data = await file.read()
-    return await asyncio.to_thread(_save_upload_sync, message_id, data, file.filename)
+    filename = _sanitize_upload_filename(file.filename)
+    return await asyncio.to_thread(_save_upload_sync, message_id, data, filename)
 
 
 async def _load_messages_from_db(
@@ -216,6 +284,11 @@ async def get_messages(
     return result
 
 
+# Лимиты на опросы оставлены — защита от создания сотен вариантов в одном пропе.
+MAX_POLL_OPTIONS = 10
+MAX_POLL_OPTION_LEN = 200
+
+
 # POST message
 
 @router.post('/{chat_id}/messages', response_model=MessageOut, status_code=201)
@@ -234,6 +307,13 @@ async def send_message(
     group_id = chat.group_id
     if chat.type == 'voice':
         raise HTTPException(status_code=400, detail='Cannot send messages to a voice channel')
+
+    # Оставлены только лимиты опросов — защита от ввода сотен пунктов в одно поле.
+    if len(poll_options) > MAX_POLL_OPTIONS:
+        raise HTTPException(status_code=413, detail=f'Too many poll options (max {MAX_POLL_OPTIONS})')
+    if any(len(o) > MAX_POLL_OPTION_LEN for o in poll_options):
+        raise HTTPException(status_code=413, detail=f'Poll option too long (max {MAX_POLL_OPTION_LEN} chars)')
+
     has_poll = bool(poll_question and len(poll_options) >= 2)
     if not content and not files and not has_poll:
         raise HTTPException(status_code=400, detail='Message must have content, attachments, or a poll')
@@ -283,6 +363,7 @@ async def send_message(
 
     await db.commit()
     await invalidate_messages(str(chat_id))
+    await _invalidate_unread_for_chat(chat_id, db)
 
     result = await db.execute(
         select(Message)
@@ -788,22 +869,35 @@ async def toggle_reaction(
 @router.get('/{chat_id}/messages/search', response_model=list[MessageOut])
 async def search_messages(
     chat_id: uuid.UUID,
+    http_request: Request,
     q: str = Query(..., min_length=2, description='Поисковый запрос'),
     limit: int = Query(20, ge=1, le=50),
     before: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    await search_limiter.check(http_request)
     await _require_chat_member(chat_id, user, db)
 
+    # Кэшируем только первую страницу (before=None): вторая страница редко запрашивается,
+    # а ключ с timestamp сильно размывает кэш.
+    use_cache = before is None
+    cache_params = {'chat_id': str(chat_id), 'q': q.strip().lower(), 'limit': limit}
+    if use_cache:
+        cached = await get_cached_search('msg_chat', str(user.id), cache_params)
+        if cached is not None:
+            return [MessageOut.model_validate(d) for d in cached]
+
+    esc = _escape_ilike(q)
+    pattern = f'%{esc}%'
     stmt = (
         select(Message)
         .outerjoin(MessageAttachment, MessageAttachment.message_id == Message.id)
         .where(
             Message.chat_id == chat_id,
             or_(
-                Message.content.ilike(f'%{q}%'),
-                MessageAttachment.file_path.ilike(f'%{q}%'),
+                Message.content.ilike(pattern, escape='\\'),
+                MessageAttachment.file_path.ilike(pattern, escape='\\'),
             ),
         )
         .options(
@@ -819,7 +913,12 @@ async def search_messages(
     if before:
         stmt = stmt.where(Message.created_at < before)
     result = await db.execute(stmt)
-    return [_to_out(m, user.id) for m in result.scalars().all()]
+    outs = [_to_out(m, user.id) for m in result.scalars().all()]
+
+    if use_cache:
+        await set_cached_search('msg_chat', str(user.id), cache_params, [o.model_dump(mode='json') for o in outs])
+
+    return outs
 
 
 # GET media (вложения)
@@ -892,3 +991,85 @@ async def get_links(
         return bool(m.content and URL_RE.search(m.content))
 
     return [_to_out(m, user.id) for m in msgs if has_url(m)]
+
+
+# ─── Глобальный поиск сообщений (для CommandPalette) ──────────────────────
+
+from pydantic import BaseModel, ConfigDict  # noqa: E402  (локальный импорт, чтобы не замусоривать верх)
+
+
+class GlobalMessageHit(BaseModel):
+    """Лёгкий превью-формат для палитры. Без реакций, вложений, embed — только то,
+    что нужно показать в строке результата и перепрыгнуть к сообщению."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    chat_id: uuid.UUID
+    chat_name: str
+    group_id: uuid.UUID
+    group_name: str
+    author_id: uuid.UUID
+    author_display_name: str
+    content: str | None
+    created_at: datetime
+
+
+@search_router.get('/messages', response_model=list[GlobalMessageHit])
+async def search_messages_global(
+    http_request: Request,
+    q: str = Query(..., min_length=2, max_length=100),
+    limit: int = Query(10, ge=1, le=25),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Ищет сообщения по всем чатам, в которых состоит пользователь.
+    Права: фильтрация через GroupMember — виден только контент своих групп.
+    Результат кэшируется в Redis на 30с по (user_id, q, limit).
+    """
+    await search_limiter.check(http_request)
+    cache_params = {'q': q.strip().lower(), 'limit': limit}
+    cached = await get_cached_search('msg_global', str(user.id), cache_params)
+    if cached is not None:
+        return [GlobalMessageHit.model_validate(d) for d in cached]
+
+    my_chat_ids = (
+        select(Chat.id)
+        .join(GroupMember, GroupMember.group_id == Chat.group_id)
+        .where(GroupMember.user_id == user.id)
+    )
+
+    # FTS-запрос: plainto_tsquery разбивает q по пробелам и соединяет AND,
+    # автоматически применяет стеммер ('тестирую' → 'тестир') и убирает stop-words.
+    # @@ — оператор сопоставления. ts_rank — релевантность (0..1).
+    tsq = sa_func.plainto_tsquery('russian', q)
+
+    stmt = (
+        select(Message, Chat, Group, User, sa_func.ts_rank(Message.content_tsv, tsq).label('rank'))
+        .join(Chat, Chat.id == Message.chat_id)
+        .join(Group, Group.id == Chat.group_id)
+        .join(User, User.id == Message.user_id)
+        .where(
+            Message.chat_id.in_(my_chat_ids),
+            Message.content_tsv.op('@@')(tsq),
+        )
+        # Сначала по релевантности, при равенстве — по свежести.
+        .order_by(sa_text('rank DESC'), Message.created_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    hits = []
+    for msg, chat, group, author, _rank in result.all():
+        hits.append(GlobalMessageHit(
+            id=msg.id,
+            chat_id=chat.id,
+            chat_name=chat.name,
+            group_id=group.id,
+            group_name=group.name,
+            author_id=author.id,
+            author_display_name=author.display_name or author.username,
+            content=msg.content,
+            created_at=msg.created_at,
+        ))
+    await set_cached_search('msg_global', str(user.id), cache_params, [h.model_dump(mode='json') for h in hits])
+    return hits

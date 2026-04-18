@@ -10,7 +10,8 @@ import { renderContent, Spoiler as _Spoiler } from '../../utils/renderContent';
 import { EMOJI_TABS } from './ChatInput';
 import { useProtectedUrl, toProtectedUrl } from '../../hooks/useProtectedUrl';
 import type { Message, ReplyTo, Poll } from '../../types';
-import { useT } from '../../i18n';
+import { useT, useLocale } from '../../i18n';
+import { useUserActionsPopover } from '../UserActionsPopover';
 
 
 const PAGE = 50;
@@ -553,6 +554,97 @@ function ReactionBar({ msg, onReact }: { msg: Message; onReact: (emoji: string) 
 }
 
 // ---------------------------------------------------------------------------
+// MessageContextMenu — открывается по ПКМ, позиционируется у курсора
+// ---------------------------------------------------------------------------
+function MessageContextMenu({
+  x, y, msg, isOwn, onEdit, onDelete, onForward, onReply, onPin, onSelect, onReact, onClose,
+}: {
+  x: number; y: number; msg: Message; isOwn: boolean;
+  onEdit: () => void; onDelete: () => void; onForward: () => void; onReply: () => void; onPin: () => void;
+  onSelect: () => void; onReact: (emoji: string) => void; onClose: () => void;
+}) {
+  const t = useT();
+  const ref = useRef<HTMLDivElement>(null);
+  const reactBtnRef = useRef<HTMLButtonElement>(null);
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [style, setStyle] = useState<React.CSSProperties>({ position: 'fixed', left: x, top: y, opacity: 0 });
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    const left = x + w > window.innerWidth - 4 ? Math.max(4, window.innerWidth - w - 4) : x;
+    const top = y + h > window.innerHeight - 4 ? Math.max(4, y - h) : y;
+    setStyle({ position: 'fixed', left, top, opacity: 1 });
+  }, [x, y]);
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', handle);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', handle);
+      document.removeEventListener('keydown', key);
+    };
+  }, [onClose]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(msg.content ?? '').catch(() => {});
+    onClose();
+  };
+
+  const menuItem = 'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-white/10 hover:text-[var(--text-primary)] transition-colors';
+  const menuItemDanger = 'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--danger)]/15 hover:text-red-400 transition-colors';
+
+  return createPortal(
+    <div ref={ref} style={style}
+      className="min-w-[180px] bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl z-50 py-1"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button ref={reactBtnRef} onClick={() => setReactionPickerOpen((v) => !v)} className={menuItem}>
+        <Smile size={14} /> {t('chat.react')}
+      </button>
+      {reactionPickerOpen && (
+        <ReactionPicker
+          anchorRef={reactBtnRef}
+          onSelect={(emoji) => { onReact(emoji); onClose(); }}
+          onClose={() => setReactionPickerOpen(false)}
+        />
+      )}
+      <button onClick={() => { onReply(); onClose(); }} className={menuItem}>
+        <Reply size={14} /> {t('chat.reply')}
+      </button>
+      {isOwn && (
+        <button onClick={() => { onEdit(); onClose(); }} className={menuItem}>
+          <Pencil size={14} /> {t('chat.edit')}
+        </button>
+      )}
+      <button onClick={handleCopy} className={menuItem}>
+        <Copy size={14} /> {t('chat.copy')}
+      </button>
+      <button onClick={() => { onPin(); onClose(); }} className={menuItem}>
+        <Pin size={14} className={msg.is_pinned ? 'text-yellow-400' : ''} />
+        {msg.is_pinned ? t('chat.unpin') : t('chat.pin')}
+      </button>
+      <button onClick={() => { onForward(); onClose(); }} className={menuItem}>
+        <Forward size={14} /> {t('chat.forwardBtn')}
+      </button>
+      <button onClick={() => { onSelect(); onClose(); }} className={menuItem}>
+        <CheckSquare size={14} /> {t('chat.select')}
+      </button>
+      <div className="h-px bg-[var(--border-color)] my-1" />
+      <button onClick={() => { onDelete(); onClose(); }} className={menuItemDanger}>
+        <Trash2 size={14} /> {t('chat.delete')}
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // MessageActions
 // ---------------------------------------------------------------------------
 function MessageActions({
@@ -568,12 +660,15 @@ function MessageActions({
   const reactBtnRef = useRef<HTMLButtonElement>(null);
   const moreBtnRef = useRef<HTMLButtonElement>(null);
 
+  const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(msg.content ?? '').catch(() => {});
-    setMenuOpen(false);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
   };
 
   const menuItem = 'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-white/10 hover:text-[var(--text-primary)] transition-colors';
+  const canCopy = !!msg.content;
 
   return (
     <div className="absolute right-4 -top-4 hidden group-hover:flex items-center gap-1 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-md px-1 py-0.5 z-10">
@@ -598,6 +693,12 @@ function MessageActions({
           <Pencil size={14} />
         </button>
       )}
+      {canCopy && (
+        <button onClick={handleCopy} title={t('chat.copy')}
+          className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+          {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+        </button>
+      )}
       <button onClick={onDelete} title={t('chat.delete')}
         className="p-1.5 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-red-400 transition-colors">
         <Trash2 size={14} />
@@ -609,9 +710,6 @@ function MessageActions({
       {menuOpen && (
         <Popup anchorRef={moreBtnRef} onClose={() => setMenuOpen(false)} width={176}>
           <div className="py-1">
-            <button onClick={handleCopy} className={menuItem}>
-              <Copy size={14} /> {t('chat.copy')}
-            </button>
             <button onClick={() => { onPin(); setMenuOpen(false); }} className={menuItem}>
               <Pin size={14} className={msg.is_pinned ? 'text-yellow-400' : ''} />
               {msg.is_pinned ? t('chat.unpin') : t('chat.pin')}
@@ -644,9 +742,21 @@ function MessageItem({
   onReact: (msg: Message, emoji: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const queryClient = useQueryClient();
   const currentUserId = useAuthStore((s) => s.user?.id);
+  const locale = useLocale();
   const isOwn = msg.author_id === currentUserId;
+  const userActions = useUserActionsPopover();
+
+  const openAuthorMenu = (e: React.MouseEvent) => {
+    userActions.openAt({
+      id: msg.author_id,
+      username: msg.author_username,
+      display_name: msg.author_display_name || msg.author_username,
+      image_path: msg.author_image_path,
+    }, e);
+  };
 
   const sameAuthor =
     prevMsg?.author_id === msg.author_id &&
@@ -656,8 +766,8 @@ function MessageItem({
     !prevMsg ||
     new Date(prevMsg.created_at).toDateString() !== new Date(msg.created_at).toDateString();
 
-  const date = new Date(msg.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-  const time = new Date(msg.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const date = new Date(msg.created_at).toLocaleDateString(locale, { day: 'numeric', month: 'long' });
+  const time = new Date(msg.created_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 
   return (
     <>
@@ -672,6 +782,11 @@ function MessageItem({
       <div
         id={`msg-${msg.id}`}
         onClick={selecting ? () => onToggleSelect(msg) : undefined}
+        onContextMenu={(e) => {
+          if (selecting || editing) return;
+          e.preventDefault();
+          setCtxMenu({ x: e.clientX, y: e.clientY });
+        }}
         className={`relative flex gap-3 px-4 group rounded transition-colors duration-700 ${sameAuthor ? 'mt-0.5' : 'mt-4'} ${selecting ? 'cursor-pointer' : ''} ${selected ? 'bg-[var(--accent)]/10' : highlighted ? 'bg-white/10' : 'hover:bg-white/[.03]'}`}
       >
         {selecting && (
@@ -696,20 +811,33 @@ function MessageItem({
 
         {sameAuthor ? (
           <div className="w-9 shrink-0" />
-        ) : msg.author_image_path ? (
-          <img src={msg.author_image_path} alt="" className="w-9 h-9 rounded-full object-cover shrink-0 mt-0.5" />
         ) : (
-          <div className="w-9 h-9 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
-            {(msg.author_display_name || msg.author_username).slice(0, 2).toUpperCase()}
-          </div>
+          <button
+            type="button"
+            onClick={openAuthorMenu}
+            className="shrink-0 mt-0.5 rounded-full hover:ring-2 hover:ring-[var(--accent)] transition-all"
+            title={msg.author_display_name || msg.author_username}
+          >
+            {msg.author_image_path ? (
+              <img src={msg.author_image_path} alt="" className="w-9 h-9 rounded-full object-cover" />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-xs font-bold">
+                {(msg.author_display_name || msg.author_username).slice(0, 2).toUpperCase()}
+              </div>
+            )}
+          </button>
         )}
 
         <div className="flex-1 min-w-0">
           {!sameAuthor && (
             <div className="flex items-baseline gap-2 mb-0.5">
-              <span className="font-medium text-[var(--text-primary)] text-sm">
+              <button
+                type="button"
+                onClick={openAuthorMenu}
+                className="font-medium text-[var(--text-primary)] text-sm hover:underline"
+              >
                 {msg.author_display_name || msg.author_username}
-              </span>
+              </button>
               <span className="text-xs text-[var(--text-muted)]">{time}</span>
             </div>
           )}
@@ -762,6 +890,20 @@ function MessageItem({
           </span>
         )}
       </div>
+      {ctxMenu && (
+        <MessageContextMenu
+          x={ctxMenu.x} y={ctxMenu.y} msg={msg} isOwn={isOwn}
+          onEdit={() => setEditing(true)}
+          onDelete={() => onDelete(msg)}
+          onForward={() => onForward(msg)}
+          onReply={() => onReply(msg)}
+          onPin={() => onPin(msg)}
+          onSelect={() => onToggleSelect(msg)}
+          onReact={(emoji) => onReact(msg, emoji)}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+      {userActions.element}
     </>
   );
 }

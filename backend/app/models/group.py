@@ -1,5 +1,5 @@
 from typing import Literal
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, func
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, func, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -10,6 +10,11 @@ from datetime import datetime
 class GroupMember(Base):
     """Связь пользователь ↔ группа (many-to-many)."""
     __tablename__ = 'group_member'
+    __table_args__ = (
+        # Compound PK = (group_id, user_id) — эффективен для WHERE group_id=...,
+        # но запросы "мои группы" (WHERE user_id=?) делают seq scan. Отдельный индекс.
+        Index('idx_group_member_user', 'user_id'),
+    )
 
     group_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey('group.id', ondelete='CASCADE'), primary_key=True
@@ -35,6 +40,10 @@ class Group(Base):
     image_path: Mapped[str] = mapped_column(String, default='')
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_personal: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Direct Message: "группа" из 2 участников без UI-атрибутов сервера.
+    # Используем Group как носитель чатов (text + опционально voice), чтобы
+    # переиспользовать WebSocket, права, сообщения, реакции без изменений.
+    is_dm: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

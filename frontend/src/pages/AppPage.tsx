@@ -2,25 +2,48 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GroupSidebar } from '../components/layout/GroupSidebar';
 import { ChannelSidebar } from '../components/layout/ChannelSidebar';
+import { DMListPanel } from '../components/layout/DMListPanel';
 import { ChatInput } from '../components/chat/ChatInput';
 import { MessageList, type MessageListHandle } from '../components/chat/MessageList';
 import { SearchPanel } from '../components/chat/SearchPanel';
 import { MediaPanel } from '../components/chat/MediaPanel';
 import { GroupSettingsModal } from '../components/settings/GroupSettingsModal';
 import { useSessionStore } from '../store/sessionStore';
+import { useNotificationStore } from '../store/notificationStore';
 import { useAuthStore } from '../store/authStore';
 import { groupsApi } from '../api/groups';
 import { messagesApi } from '../api/messages';
+import { dmsApi } from '../api/dms';
 import type { Group, Chat, Message } from '../types';
-import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus, ArrowLeft, Pin } from 'lucide-react';
+import { Hash, Volume2, LogIn, Search, Paperclip, Users, X, Plus, ArrowLeft, Pin, Phone, Bell, BellOff } from 'lucide-react';
 import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
+import { FloatingCallBar } from '../components/FloatingCallBar';
 import { useT } from '../i18n';
 import { useUnreadCounts } from '../hooks/useUnreadCounts';
 import { useWs, useTypingUsers } from '../hooks/useWebSocket';
 import { ToastContainer } from '../components/ui/ToastContainer';
 
 type SidePanel = 'search' | 'media' | 'members' | null;
+
+// Кнопка mute/unmute уведомлений для конкретного чата.
+// Хранит per-chat флаг в notificationStore, mutedChats.
+function MuteButton({ chatId }: { chatId: string }) {
+  const t = useT();
+  const muted = useNotificationStore((s) => !!s.mutedChats[chatId]);
+  const toggle = useNotificationStore((s) => s.toggleChatMute);
+  return (
+    <button
+      onClick={() => toggle(chatId)}
+      title={muted ? t('notifications.unmute') : t('notifications.mute')}
+      className={`p-1.5 rounded transition-colors ${
+        muted ? 'text-[var(--danger)] hover:bg-white/5' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
+      }`}
+    >
+      {muted ? <BellOff size={18} /> : <Bell size={18} />}
+    </button>
+  );
+}
 
 function CallTimer() {
   const callStartedAt = useSessionStore((s) => s.callStartedAt);
@@ -73,7 +96,7 @@ function VoiceChannelView({ channel, groupName }: { channel: Chat; groupName: st
         <p className="text-sm mt-1">{t('group.voiceGroup')}</p>
       </div>
       <button
-        onClick={() => joinVoice(channel.id, channel.name, groupName)}
+        onClick={() => joinVoice(channel.id, channel.name, groupName, channel.group_id)}
         className="px-6 py-2 rounded bg-[var(--accent)] text-white font-medium hover:bg-[var(--accent-hover)] transition-colors flex items-center gap-2"
       >
         <LogIn size={18} />
@@ -233,7 +256,7 @@ export function AppPage() {
   const currentUser = useAuthStore((s) => s.user);
   const voicePresence = useSessionStore((s) => s.voicePresence);
   const addAttachments = useSessionStore((s) => s.addAttachments);
-  const { reconnect: reconnectWs, sendTyping } = useWs();
+  const { reconnect: reconnectWs, sendTyping, sendStopTyping } = useWs();
   const [dragOver, setDragOver] = useState(false);
   const dragCounter = useRef(0);
 
@@ -253,6 +276,19 @@ export function AppPage() {
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(lastGroupId);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(lastChannelId);
+
+  // Синхронизация с внешними источниками (CommandPalette): когда lastGroupId/lastChannelId
+  // меняются из другого места, применяем их к локальному стейту.
+  useEffect(() => {
+    if (lastGroupId !== null && lastGroupId !== selectedGroupId) {
+      setSelectedGroupId(lastGroupId);
+    }
+  }, [lastGroupId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (lastChannelId !== null && lastChannelId !== selectedChannelId) {
+      setSelectedChannelId(lastChannelId);
+    }
+  }, [lastChannelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { unreadByChat, unreadByGroup, markRead, toasts, dismissToast } = useUnreadCounts();
 
@@ -324,7 +360,52 @@ export function AppPage() {
   const [sidePanel, setSidePanel] = useState<SidePanel>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [groupSettingsOpen, setGroupSettingsOpen] = useState(false);
-  const [createServerOpen, setCreateServerOpen] = useState(false);
+  const [createServerOpenLocal, setCreateServerOpenLocal] = useState(false);
+  const uiCreateServerOpen = useSessionStore((s) => s.uiCreateServerOpen);
+  const closeCreateServer = useSessionStore((s) => s.closeCreateServer);
+  const dmMode = useSessionStore((s) => s.dmMode);
+
+  // DM-данные для текущего выбранного DM (если selectedGroup — DM)
+  const { data: dms } = useQuery({
+    queryKey: ['dms'],
+    queryFn: dmsApi.list,
+    staleTime: 15_000,
+  });
+  const currentDm = (dms ?? []).find((d) => d.group_id === selectedGroupId);
+  const dmPeerName = currentDm?.peer.display_name || currentDm?.peer.username;
+
+  const handleStartDMCall = async () => {
+    if (!selectedGroupId) return;
+    try {
+      const call = await dmsApi.initiateCall(selectedGroupId);
+      // Запускаем голосовую сессию локально — peer получит WS-событие и join'нется сам.
+      const peerName = currentDm?.peer.display_name || currentDm?.peer.username || '';
+      const groupLabel = peerName ? `DM: ${peerName}` : 'DM';
+      useSessionStore.getState().joinVoice(call.voice_chat_id, 'call', groupLabel, selectedGroupId);
+    } catch (e) {
+      console.error('DM call failed', e);
+    }
+  };
+  const createServerOpen = createServerOpenLocal || uiCreateServerOpen;
+  const setCreateServerOpen = (v: boolean) => {
+    setCreateServerOpenLocal(v);
+    if (!v) closeCreateServer();
+  };
+
+  // Прыжок к сообщению из CommandPalette: когда палитра установила pendingJumpTo
+  // и нужный канал уже выбран + MessageList смонтирован — вызываем jumpTo и очищаем флаг.
+  const pendingJumpTo = useSessionStore((s) => s.pendingJumpTo);
+  const setPendingJumpTo = useSessionStore((s) => s.setPendingJumpTo);
+  useEffect(() => {
+    if (!pendingJumpTo) return;
+    if (selectedChannelId !== pendingJumpTo.chatId) return;
+    // Чуть подождём монтирование — queueMicrotask недостаточно, используем rAF
+    const id = requestAnimationFrame(() => {
+      messageListRef.current?.jumpTo(pendingJumpTo.messageId, pendingJumpTo.createdAt);
+      setPendingJumpTo(null);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [pendingJumpTo, selectedChannelId, setPendingJumpTo]);
 
   const groupList = groups ?? [];
   const channelList = channels ?? [];
@@ -389,7 +470,21 @@ export function AppPage() {
             onCreateGroup={handleCreateGroup}
             unreadByGroup={unreadByGroup}
           />
-          {selectedGroup ? (
+          {/* DM-панель показываем когда активен DM-режим ИЛИ выбранная группа сама DM
+              (это, например, при «развернуть звонок» из плавающего виджета). */}
+          {dmMode || selectedGroup?.is_dm ? (
+            <DMListPanel
+              selectedChannelId={selectedChannelId}
+              onSelect={(dm) => {
+                setSelectedGroupId(dm.group_id);
+                setSelectedChannelId(dm.chat_id);
+                setLastGroup(dm.group_id);
+                setLastChannel(dm.chat_id);
+                markRead(dm.chat_id);
+                if (isMobile) setMobileView('chat');
+              }}
+            />
+          ) : selectedGroup ? (
             <ChannelSidebar
               groupName={selectedGroup.name}
               channels={channelList}
@@ -399,6 +494,9 @@ export function AppPage() {
               canManage={canEdit}
               onOpenSettings={() => setGroupSettingsOpen(true)}
               isPersonal={selectedGroup.is_personal}
+              isDm={selectedGroup.is_dm}
+              dmPeerName={dmPeerName}
+              onStartCall={selectedGroup.is_dm ? handleStartDMCall : undefined}
             />
           ) : (
             <div className={`${isMobile ? 'flex-1' : 'w-60'} bg-[var(--bg-secondary)]`} />
@@ -420,13 +518,21 @@ export function AppPage() {
                     <ArrowLeft size={20} />
                   </button>
                 )}
-                {selectedChannel.type === 'voice' ? (
+                {selectedGroup?.is_dm ? (
+                  currentDm?.peer.image_path ? (
+                    <img src={currentDm.peer.image_path} alt="" className="w-6 h-6 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-[10px] font-bold">
+                      {(dmPeerName || '??').slice(0, 2).toUpperCase()}
+                    </div>
+                  )
+                ) : selectedChannel.type === 'voice' ? (
                   <Volume2 size={20} className="text-[var(--text-muted)]" />
                 ) : (
                   <Hash size={20} className="text-[var(--text-muted)]" />
                 )}
                 <span className="font-semibold text-[var(--text-primary)]">
-                  {selectedChannel.name}
+                  {selectedGroup?.is_dm ? (dmPeerName || selectedChannel.name) : selectedChannel.name}
                 </span>
                 {voicePresence && voicePresence.channelId === selectedChannel.id && (
                   <CallTimer />
@@ -434,6 +540,16 @@ export function AppPage() {
 
                 {/* Кнопки панелей */}
                 <div className="ml-auto flex items-center gap-1">
+                  {/* Кнопка «Позвонить» в DM */}
+                  {selectedGroup?.is_dm && selectedChannel.type === 'text' && (
+                    <button
+                      onClick={handleStartDMCall}
+                      title={t('dms.call')}
+                      className="p-1.5 rounded text-[var(--text-muted)] hover:text-green-400 hover:bg-white/5 transition-colors"
+                    >
+                      <Phone size={18} />
+                    </button>
+                  )}
                   {selectedChannel.type === 'text' && (
                     <>
                       <PinnedMessages
@@ -463,6 +579,9 @@ export function AppPage() {
                         <Paperclip size={18} />
                       </button>
                     </>
+                  )}
+                  {selectedChannel.type === 'text' && (
+                    <MuteButton chatId={selectedChannel.id} />
                   )}
                   <button
                     onClick={() => togglePanel('members')}
@@ -529,6 +648,7 @@ export function AppPage() {
                     onSend={handleSend}
                     onFocus={() => selectedChannel && markRead(selectedChannel.id)}
                     onTyping={() => sendTyping(selectedChannel.id)}
+                    onStopTyping={() => sendStopTyping(selectedChannel.id)}
                   />
                 </div>
               )}
@@ -551,6 +671,26 @@ export function AppPage() {
             </div>
           )}
         </div>
+
+        {/* Плавающая панель звонка — когда ты в голосе, но смотришь другой канал/чат.
+            Клик "развернуть" переключает на voice-канал, и VoiceRoom выше показывается на весь экран. */}
+        {voicePresence && selectedChannel?.id !== voicePresence.channelId && (
+          <FloatingCallBar
+            onExpand={() => {
+              // Если звонок в DM-группе — включаем dmMode, чтобы слева оставался
+              // правильный DM-сайдбар, а не каналы группы.
+              const callGroup = groupList.find((g) => g.id === voicePresence.groupId);
+              if (callGroup?.is_dm) {
+                useSessionStore.getState().setDmMode(true);
+              }
+              setSelectedGroupId(voicePresence.groupId);
+              setSelectedChannelId(voicePresence.channelId);
+              setLastGroup(voicePresence.groupId);
+              setLastChannel(voicePresence.channelId);
+              if (isMobile) setMobileView('chat');
+            }}
+          />
+        )}
 
         {/* Боковые панели */}
         {selectedChannel?.type === 'text' && sidePanel === 'search' && (
@@ -591,6 +731,7 @@ export function AppPage() {
             queryClient.setQueryData<Group[]>(['groups'], (old) => old?.map((x) => (x.id === g.id ? g : x)) ?? [g]);
           }}
           onChannelsChanged={() => queryClient.invalidateQueries({ queryKey: ['chats', selectedGroupId] })}
+          isPersonal={selectedGroup.is_personal}
         />
       )}
 

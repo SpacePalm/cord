@@ -68,8 +68,12 @@ export const adminApi = {
     api.delete<void>(`/admin/groups/${groupId}/members/${userId}`),
 
   getStats: () => api.get<DiskStats>('/admin/stats'),
-  cleanupMessages: (days: number) =>
-    api.post<{ deleted: number }>('/admin/cleanup/messages', { days }),
+  cleanupMessages: (days: number, includePersonal: boolean = false, includeDm: boolean = false) =>
+    api.post<{ deleted: number }>('/admin/cleanup/messages', {
+      days,
+      include_personal: includePersonal,
+      include_dm: includeDm,
+    }),
   cleanupAttachments: () =>
     api.post<{ deleted: number }>('/admin/cleanup/attachments', {}),
 };

@@ -56,5 +56,42 @@ class ConnectionManager:
         for ws in dead:
             self.disconnect(ws)
 
+    async def send_to_user(self, user_id: uuid.UUID, event: dict) -> int:
+        """Доставить event по всем активным сокетам пользователя (он может быть
+        подключен с нескольких устройств). Возвращает количество успешных отправок.
+        Если получатель офлайн — 0 (fire-and-forget).
+        """
+        sent: set[int] = set()
+        delivered = 0
+        dead: list[WebSocket] = []
+        for _chat_id, conns in list(self._channels.items()):
+            for uid, ws in conns:
+                if uid != user_id:
+                    continue
+                ws_id = id(ws)
+                if ws_id in sent:
+                    continue
+                sent.add(ws_id)
+                try:
+                    await ws.send_json(event)
+                    delivered += 1
+                except Exception:
+                    dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
+        return delivered
+
+    def subscribe_all_members(self, chat_id: uuid.UUID, user_ids: list[uuid.UUID]) -> None:
+        """Подписать уже подключённых WS-клиентов указанных юзеров на новый chat_id.
+        Нужно при создании чата в рантайме (например, voice-чата DM при звонке) —
+        иначе они не получат последующие события по этому каналу.
+        """
+        target = set(user_ids)
+        for _chat_id, conns in list(self._channels.items()):
+            for uid, ws in conns:
+                if uid in target:
+                    self._channels[chat_id].add((uid, ws))
+                    self._ws_channels[ws].add(chat_id)
+
 
 manager = ConnectionManager()

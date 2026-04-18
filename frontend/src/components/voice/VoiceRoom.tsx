@@ -17,10 +17,13 @@ import {
   Mic, MicOff, PhoneOff, Loader2, WifiOff,
   MonitorUp, MonitorOff, X, Volume2, VolumeX,
   Maximize, Minimize, Headphones, HeadphoneOff,
-  MoreVertical, Signal,
+  MoreVertical, Signal, MessageSquare,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { voiceApi } from '../../api/voice';
+import { dmsApi } from '../../api/dms';
 import { useSessionStore } from '../../store/sessionStore';
+import { useAuthStore } from '../../store/authStore';
 import { useT } from '../../i18n';
 
 import '@livekit/components-styles';
@@ -443,14 +446,18 @@ function UserMenu({ participant, anchorRef, onClose }: {
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void;
 }) {
+  const t = useT();
+  const navigate = useNavigate();
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const isSelf = participant.identity === currentUserId;
 
   useEffect(() => {
     if (anchorRef.current) {
       const rect = anchorRef.current.getBoundingClientRect();
       const menuW = 220;
-      const menuH = 140;
+      const menuH = isSelf ? 120 : 180;
       let top = rect.bottom + 4;
       let left = rect.left;
       // If overflows right edge
@@ -459,7 +466,7 @@ function UserMenu({ participant, anchorRef, onClose }: {
       if (top + menuH > window.innerHeight) top = rect.top - menuH - 4;
       setPos({ top, left });
     }
-  }, [anchorRef]);
+  }, [anchorRef, isSelf]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -475,6 +482,20 @@ function UserMenu({ participant, anchorRef, onClose }: {
   if (!pos) return null;
 
   const name = participant.name || participant.identity;
+  const itemCls = 'flex items-center gap-2 w-full px-2 py-1.5 rounded text-sm text-[var(--text-secondary)] hover:bg-white/10 hover:text-[var(--text-primary)] transition-colors';
+
+  // Открытие DM: participant.identity — это user.id, этого хватает для openWith.
+  const openDM = async () => {
+    try {
+      const dm = await dmsApi.openWith(participant.identity);
+      useSessionStore.getState().setLastGroup(dm.group_id);
+      useSessionStore.getState().setLastChannel(dm.chat_id);
+      useSessionStore.getState().setDmMode(true);
+      navigate('/app');
+    } finally {
+      onClose();
+    }
+  };
 
   return createPortal(
     <div
@@ -483,6 +504,16 @@ function UserMenu({ participant, anchorRef, onClose }: {
       style={{ top: pos.top, left: pos.left }}
     >
       <p className="text-xs font-semibold text-[var(--text-primary)] truncate mb-2 px-1">{name}</p>
+      {/* DM — не показываем для самого себя (нельзя открыть чат с собой) */}
+      {!isSelf && (
+        <>
+          <button onClick={openDM} className={itemCls}>
+            <MessageSquare size={14} />
+            {t('user.openChat')}
+          </button>
+          <div className="h-px bg-[var(--border-color)] my-1.5" />
+        </>
+      )}
       <VolumeSlider identity={participant.identity} />
     </div>,
     document.body
@@ -1050,6 +1081,10 @@ export function VoiceRoom({ channelId, channelName, groupName }: VoiceRoomProps)
   }, [channelId, setCallStartedAt]);
 
   const handleLeave = useCallback(() => {
+    // Если это DM-звонок — сообщаем второй стороне отмену (её оверлей и рингтон
+    // остановятся). Для обычной групповой голосовой — endpoint 404, молча игнор.
+    const presence = useSessionStore.getState().voicePresence;
+    if (presence) dmsApi.cancelCall(presence.groupId).catch(() => {});
     voiceApi.leave(channelId).catch(() => {});
     leaveVoice();
   }, [leaveVoice, channelId]);

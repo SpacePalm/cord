@@ -6,12 +6,17 @@ import { en } from './en';
 // ─── Language registry ──────────────────────────────────────────────
 // To add a new language: 1) create a file xx.ts  2) add it here
 
-export const LANGUAGES: Record<string, { label: string; translations: Record<string, string> }> = {
-  ru: { label: 'Русский', translations: ru },
-  en: { label: 'English', translations: en },
+export const LANGUAGES: Record<string, { label: string; translations: Record<string, string>; locale: string }> = {
+  ru: { label: 'Русский', translations: ru, locale: 'ru-RU' },
+  en: { label: 'English', translations: en, locale: 'en-US' },
 };
 
 export const DEFAULT_LANG = 'en';
+
+export function useLocale(): string {
+  const lang = useLangStore((s) => s.lang);
+  return LANGUAGES[lang]?.locale ?? LANGUAGES[DEFAULT_LANG].locale;
+}
 
 // ─── Store ──────────────────────────────────────────────────────────
 

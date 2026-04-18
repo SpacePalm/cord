@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Camera, Check, Trash2, Hash, Volume2, Pencil, Copy, RefreshCw, UserX, AlertTriangle } from 'lucide-react';
 import { groupsApi } from '../../api/groups';
 import { useAuthStore } from '../../store/authStore';
-import { useT } from '../../i18n';
+import { useT, useLocale } from '../../i18n';
 import type { Group, Chat } from '../../types';
 import { ImageCropModal } from '../ui/ImageCropModal';
 
@@ -15,6 +15,7 @@ interface GroupSettingsModalProps {
   onClose: () => void;
   onGroupUpdated: (g: Group) => void;
   onChannelsChanged: () => void;
+  isPersonal?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,13 +304,14 @@ function MembersTab({ group }: { group: Group }) {
 // ---------------------------------------------------------------------------
 // ChannelsTab
 // ---------------------------------------------------------------------------
-function ChannelsTab({ group, channels, onChannelsChanged }: { group: Group; channels: Chat[]; onChannelsChanged: () => void }) {
+function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }: { group: Group; channels: Chat[]; onChannelsChanged: () => void; isPersonal?: boolean }) {
   const t = useT();
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<'text' | 'voice'>('text');
+  const textChannelCount = channels.filter((c) => c.type === 'text').length;
 
   const renameMutation = useMutation({
     mutationFn: ({ chatId, name }: { chatId: string; name: string }) =>
@@ -377,14 +379,16 @@ function ChannelsTab({ group, channels, onChannelsChanged }: { group: Group; cha
               >
                 <Pencil size={13} />
               </button>
-              <button
-                onClick={() => deleteMutation.mutate(ch.id)}
-                disabled={deleteMutation.isPending}
-                title={t('delete')}
-                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10"
-              >
-                <Trash2 size={13} />
-              </button>
+              {!(isPersonal && textChannelCount <= 1 && ch.type === 'text') && (
+                <button
+                  onClick={() => deleteMutation.mutate(ch.id)}
+                  disabled={deleteMutation.isPending}
+                  title={t('delete')}
+                  className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -402,14 +406,16 @@ function ChannelsTab({ group, channels, onChannelsChanged }: { group: Group; cha
             maxLength={50}
             className="flex-1 px-3 py-1.5 rounded bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent)] text-sm"
           />
-          <select
-            value={newType}
-            onChange={(e) => setNewType(e.target.value as 'text' | 'voice')}
-            className="px-2 py-1.5 rounded bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] text-sm focus:outline-none"
-          >
-            <option value="text">{t('group.text')}</option>
-            <option value="voice">{t('group.voice')}</option>
-          </select>
+          {!isPersonal && (
+            <select
+              value={newType}
+              onChange={(e) => setNewType(e.target.value as 'text' | 'voice')}
+              className="px-2 py-1.5 rounded bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] text-sm focus:outline-none"
+            >
+              <option value="text">{t('group.text')}</option>
+              <option value="voice">{t('group.voice')}</option>
+            </select>
+          )}
           <button
             onClick={() => createMutation.mutate()}
             disabled={!newName.trim() || createMutation.isPending}
@@ -428,6 +434,7 @@ function ChannelsTab({ group, channels, onChannelsChanged }: { group: Group; cha
 // ---------------------------------------------------------------------------
 function InviteTab({ group }: { group: Group }) {
   const t = useT();
+  const locale = useLocale();
   const [inviteInfo, setInviteInfo] = useState<{ code: string; expires_at: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
@@ -448,7 +455,7 @@ function InviteTab({ group }: { group: Group }) {
   };
 
   const expiresDate = inviteInfo
-    ? new Date(inviteInfo.expires_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })
+    ? new Date(inviteInfo.expires_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })
     : null;
 
   return (
@@ -506,16 +513,18 @@ function InviteTab({ group }: { group: Group }) {
 // ---------------------------------------------------------------------------
 // Modal shell
 // ---------------------------------------------------------------------------
-export function GroupSettingsModal({ group, channels, onClose, onGroupUpdated, onChannelsChanged }: GroupSettingsModalProps) {
+export function GroupSettingsModal({ group, channels, onClose, onGroupUpdated, onChannelsChanged, isPersonal = false }: GroupSettingsModalProps) {
   const t = useT();
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>(isPersonal ? 'channels' : 'overview');
 
-  const TAB_LABELS: { id: Tab; label: string }[] = [
-    { id: 'overview', label: t('server.overview') },
-    { id: 'members', label: t('members') },
-    { id: 'channels', label: t('group.groups') },
-    { id: 'invite', label: t('server.invite') },
-  ];
+  const TAB_LABELS: { id: Tab; label: string }[] = isPersonal
+    ? [{ id: 'channels', label: t('group.groups') }]
+    : [
+        { id: 'overview', label: t('server.overview') },
+        { id: 'members', label: t('members') },
+        { id: 'channels', label: t('group.groups') },
+        { id: 'invite', label: t('server.invite') },
+      ];
 
   // Close on Escape
   useEffect(() => {
@@ -532,7 +541,7 @@ export function GroupSettingsModal({ group, channels, onClose, onGroupUpdated, o
       <div className="bg-[var(--bg-secondary)] rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-color)]">
-          <h1 className="font-semibold text-[var(--text-primary)]">{t('server.settings')}</h1>
+          <h1 className="font-semibold text-[var(--text-primary)]">{isPersonal ? t('saved.manageChats') : t('server.settings')}</h1>
           <button
             onClick={onClose}
             className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors"
@@ -560,16 +569,16 @@ export function GroupSettingsModal({ group, channels, onClose, onGroupUpdated, o
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {tab === 'overview' && (
+          {!isPersonal && tab === 'overview' && (
             <OverviewTab group={group} onGroupUpdated={onGroupUpdated} onClose={onClose} />
           )}
-          {tab === 'members' && (
+          {!isPersonal && tab === 'members' && (
             <MembersTab group={group} />
           )}
           {tab === 'channels' && (
-            <ChannelsTab group={group} channels={channels} onChannelsChanged={onChannelsChanged} />
+            <ChannelsTab group={group} channels={channels} onChannelsChanged={onChannelsChanged} isPersonal={isPersonal} />
           )}
-          {tab === 'invite' && (
+          {!isPersonal && tab === 'invite' && (
             <InviteTab group={group} />
           )}
         </div>

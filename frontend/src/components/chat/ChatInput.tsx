@@ -29,6 +29,7 @@ interface ChatInputProps {
   onClearReply?: () => void;
   onFocus?: () => void;
   onTyping?: () => void;
+  onStopTyping?: () => void;
   onSend: (
     text: string,
     attachments: File[],
@@ -229,7 +230,10 @@ function ChatEmojiPicker({ visible, onSelect, onClose, anchorRef }: { visible: b
   );
 }
 
-export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFocus, onTyping, onSend }: ChatInputProps) {
+// После этого периода бездействия шлём stop_typing, чтобы у собеседников не висел индикатор.
+const TYPING_IDLE_MS = 4000;
+
+export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFocus, onTyping, onStopTyping, onSend }: ChatInputProps) {
   const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -276,15 +280,40 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   };
 
-  const lastTypingRef = useRef(0);
+  // Состояние "печатает": активно от первого нажатия до TYPING_IDLE_MS без ввода или отправки.
+  const typingActiveRef = useRef(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopTyping = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (typingActiveRef.current) {
+      typingActiveRef.current = false;
+      onStopTyping?.();
+    }
+  }, [onStopTyping]);
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setDraft(channelId, e.target.value);
     adjustHeight(e.target);
-    if (onTyping && Date.now() - lastTypingRef.current > 2000) {
-      lastTypingRef.current = Date.now();
-      onTyping();
+    if (e.target.value.length === 0) {
+      stopTyping();
+      return;
     }
+    if (!typingActiveRef.current) {
+      typingActiveRef.current = true;
+      onTyping?.();
+    }
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(stopTyping, TYPING_IDLE_MS);
   };
+
+  // При смене канала / размонтировании — гасим индикатор
+  useEffect(() => {
+    return () => stopTyping();
+  }, [channelId, stopTyping]);
 
   // Formatting — wraps selected text
   const wrapSelection = useCallback((prefix: string, suffix: string) => {
@@ -365,9 +394,10 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
     onClearReply?.();
     setPollOpen(false);
     setPollDraft({ question: '', options: ['', ''] });
+    stopTyping();
 
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-  }, [draft, attachments, channelId, replyTo, pollOpen, pollDraft, onSend, clearDraft, clearAttachments, onClearReply]);
+  }, [draft, attachments, channelId, replyTo, pollOpen, pollDraft, onSend, clearDraft, clearAttachments, onClearReply, stopTyping]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -615,6 +645,7 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               onFocus={onFocus}
+              onBlur={stopTyping}
               placeholder={`${t('chat.writeTo')}${channelName}`}
               rows={1}
               className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-sm outline-none resize-none leading-5 py-1"

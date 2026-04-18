@@ -91,6 +91,8 @@ class AppSettingsUpdate(BaseModel):
 
 class CleanupMessagesBody(BaseModel):
     days: int = 30  # delete messages older than N days
+    include_personal: bool = False  # also delete messages in personal (Saved) groups
+    include_dm: bool = False         # also delete messages in DM (direct message) groups
 
 
 # Helpers
@@ -211,8 +213,12 @@ async def list_groups(
     admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    # Get all groups with owner username, member count, channel count
-    result = await db.execute(select(Group).where(Group.is_personal == False))
+    # Get all groups with owner username, member count, channel count.
+    # Скрываем личные группы ("Saved Messages") и DM — это системные сущности,
+    # не сервера. Для них нет UI-операций в админке.
+    result = await db.execute(
+        select(Group).where(Group.is_personal == False, Group.is_dm == False)
+    )
     groups = result.scalars().all()
 
     out = []
@@ -258,6 +264,12 @@ async def delete_group(
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail='Group not found')
+    # Системные группы (DM, личные) нельзя удалять даже из админки — это приватные
+    # переписки пользователей и их "Saved Messages". Админ не должен их трогать.
+    if group.is_dm:
+        raise HTTPException(status_code=400, detail='Cannot delete DM from admin')
+    if group.is_personal:
+        raise HTTPException(status_code=400, detail='Cannot delete personal group from admin')
 
     await db.delete(group)
     await db.commit()
@@ -366,6 +378,12 @@ async def cleanup_messages(
 ):
     cutoff = datetime.now(timezone.utc) - timedelta(days=body.days)
     stmt = sa_delete(Message).where(Message.created_at < cutoff)
+    if not body.include_personal:
+        personal_chat_ids = select(Chat.id).join(Group, Group.id == Chat.group_id).where(Group.is_personal == True)
+        stmt = stmt.where(Message.chat_id.notin_(personal_chat_ids))
+    if not body.include_dm:
+        dm_chat_ids = select(Chat.id).join(Group, Group.id == Chat.group_id).where(Group.is_dm == True)
+        stmt = stmt.where(Message.chat_id.notin_(dm_chat_ids))
     result = await db.execute(stmt)
     await db.commit()
     return {'deleted': result.rowcount}

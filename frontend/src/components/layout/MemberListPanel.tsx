@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import { groupsApi } from '../../api/groups';
 import type { Member } from '../../types';
 import { useT } from '../../i18n';
+import { useUserActionsPopover } from '../UserActionsPopover';
 
 interface MemberListPanelProps {
   groupId: string;
@@ -24,6 +25,7 @@ export function MemberListPanel({ groupId, onClose }: MemberListPanelProps) {
   const memberList = members ?? [];
   const online = memberList.filter((m) => m.is_online);
   const offline = memberList.filter((m) => !m.is_online);
+  const userActions = useUserActionsPopover();
 
   return (
     <div className="w-60 border-l border-[var(--border-color)] bg-[var(--bg-secondary)] flex flex-col shrink-0">
@@ -46,7 +48,9 @@ export function MemberListPanel({ groupId, onClose }: MemberListPanelProps) {
               {t('members.online')} — {online.length}
             </p>
             {online.map((m) => (
-              <MemberItem key={m.user_id} member={m} online />
+              <MemberItem key={m.user_id} member={m} online onClick={(e) => userActions.openAt({
+                id: m.user_id, username: m.username, display_name: m.display_name, image_path: m.image_path,
+              }, e)} />
             ))}
           </div>
         )}
@@ -57,11 +61,14 @@ export function MemberListPanel({ groupId, onClose }: MemberListPanelProps) {
               {t('members.offline')} — {offline.length}
             </p>
             {offline.map((m) => (
-              <MemberItem key={m.user_id} member={m} online={false} />
+              <MemberItem key={m.user_id} member={m} online={false} onClick={(e) => userActions.openAt({
+                id: m.user_id, username: m.username, display_name: m.display_name, image_path: m.image_path,
+              }, e)} />
             ))}
           </div>
         )}
       </div>
+      {userActions.element}
     </div>
   );
 }
@@ -73,12 +80,16 @@ const STATUS_COLORS: Record<string, string> = {
   invisible: 'bg-gray-500',
 };
 
-function MemberItem({ member, online }: { member: Member; online: boolean }) {
+function MemberItem({ member, online, onClick }: { member: Member; online: boolean; onClick: (e: React.MouseEvent) => void }) {
   const initials = (member.display_name || member.username).slice(0, 2).toUpperCase();
   const dotColor = online ? (STATUS_COLORS[member.status || 'online'] || 'bg-green-500') : 'bg-gray-500';
 
   return (
-    <div className={`flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors ${!online ? 'opacity-40' : ''}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left ${!online ? 'opacity-40' : ''}`}
+    >
       <div className="relative shrink-0">
         {member.image_path ? (
           <img src={member.image_path} alt="" className="w-8 h-8 rounded-full object-cover" />
@@ -98,6 +109,6 @@ function MemberItem({ member, online }: { member: Member; online: boolean }) {
           {member.status_text || `@${member.username}`}
         </p>
       </div>
-    </div>
+    </button>
   );
 }

@@ -6,8 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base, AsyncSessionLocal
-from app.api import auth, groups, messages, admin, polls, media, voice, notifications, ws
+from app.api import auth, groups, messages, admin, polls, media, voice, notifications, ws, users, dms
 from app.api.groups import invite_router
+from app.api.messages import search_router
 from app.models import poll as _poll_models  # noqa: F401 — registers Poll tables
 from app.models import user_chat_state as _user_chat_state_models  # noqa: F401 — registers UserChatState table
 from app.config import settings
@@ -33,6 +34,9 @@ app.include_router(media.router)
 app.include_router(voice.router)
 app.include_router(notifications.router)
 app.include_router(admin.router)
+app.include_router(users.router)
+app.include_router(dms.router)
+app.include_router(search_router)
 app.include_router(ws.router)
 
 # Static files
@@ -47,10 +51,83 @@ app.mount('/media/group_avatars', StaticFiles(directory=str(MEDIA_ROOT / 'group_
 
 
 # Startup
+
+# Runtime-миграции: индексы + FTS-инфраструктура.
+# create_all не добавляет индексы/колонки к существующим таблицам, поэтому
+# досоздаём их вручную (все операторы идемпотентны).
+_RUNTIME_MIGRATIONS: list[str] = [
+    # ─── Индексы ────────────────────────────────────────────────────
+    # GIN trigram по content — fallback для поиска нередких слов.
+    "CREATE INDEX IF NOT EXISTS idx_message_content_trgm "
+    "ON message USING gin (content gin_trgm_ops) WHERE content IS NOT NULL",
+    # Composite для пагинации истории: WHERE chat_id=? ORDER BY created_at.
+    "CREATE INDEX IF NOT EXISTS idx_message_chat_created "
+    "ON message (chat_id, created_at)",
+    # GIN trigram по username/display_name — для /api/users/search и админки.
+    'CREATE INDEX IF NOT EXISTS idx_user_username_trgm '
+    'ON "user" USING gin (username gin_trgm_ops)',
+    'CREATE INDEX IF NOT EXISTS idx_user_display_name_trgm '
+    'ON "user" USING gin (display_name gin_trgm_ops)',
+    # Compound PK (group_id, user_id) неэффективен для запросов "мои группы".
+    "CREATE INDEX IF NOT EXISTS idx_group_member_user "
+    "ON group_member (user_id)",
+
+    # ─── Full-Text Search ────────────────────────────────────────────
+    # tsvector-колонка для русского полнотекстового поиска.
+    # to_tsvector в PG STABLE (не IMMUTABLE), поэтому generated column
+    # работает только через trigger, а не через GENERATED ALWAYS AS.
+    "ALTER TABLE message ADD COLUMN IF NOT EXISTS content_tsv tsvector",
+    # Trigger для авто-обновления tsvector при INSERT/UPDATE content.
+    # CREATE OR REPLACE TRIGGER — PG 14+.
+    "DROP TRIGGER IF EXISTS msg_tsv_update ON message",
+    "CREATE TRIGGER msg_tsv_update BEFORE INSERT OR UPDATE OF content ON message "
+    "FOR EACH ROW EXECUTE FUNCTION "
+    "tsvector_update_trigger(content_tsv, 'pg_catalog.russian', content)",
+    # Бэкфилл существующих строк (идемпотентно: только где NULL).
+    # На больших БД может занять время — сделать разово вручную и закомментить.
+    "UPDATE message SET content_tsv = to_tsvector('pg_catalog.russian', coalesce(content, '')) "
+    "WHERE content_tsv IS NULL",
+    # GIN-индекс по tsvector — основной для FTS-запросов.
+    "CREATE INDEX IF NOT EXISTS idx_message_content_tsv "
+    "ON message USING gin (content_tsv)",
+
+    # ─── DM (Direct Messages) ────────────────────────────────────────
+    'ALTER TABLE "group" ADD COLUMN IF NOT EXISTS is_dm BOOLEAN NOT NULL DEFAULT FALSE',
+    # Индекс для быстрой выборки моих DM: WHERE is_dm=true AND id IN (мои группы).
+    'CREATE INDEX IF NOT EXISTS idx_group_is_dm ON "group" (is_dm) WHERE is_dm = TRUE',
+]
+
+
+@app.on_event('startup')
+async def check_security_defaults():
+    """Loud warning if default secrets remain in production config.
+    A default JWT secret allows anyone to forge tokens, including admin ones.
+    """
+    warnings: list[str] = []
+    if settings.jwt_secret == 'change-me-in-production':
+        warnings.append('CORD_JWT_SECRET is not set — tokens can be forged!')
+    if settings.admin_password == 'admin123':
+        warnings.append('CORD_ADMIN_PASSWORD is not set — default admin password in use!')
+    if warnings:
+        banner = '=' * 70
+        logger.warning('\n%s\nSECURITY WARNING\n%s\n%s\n%s',
+                       banner, banner, '\n'.join(f'  • {w}' for w in warnings), banner)
+
+
 @app.on_event('startup')
 async def create_tables():
+    from sqlalchemy import text
     async with engine.begin() as conn:
+        # Расширение pg_trgm — нужно до создания GIN trigram-индексов.
+        await conn.execute(text('CREATE EXTENSION IF NOT EXISTS pg_trgm'))
+        # Базовые таблицы (новые — будут созданы, существующие — пропущены)
         await conn.run_sync(Base.metadata.create_all)
+        # Добавляем/проверяем индексы + FTS-инфраструктуру.
+        for stmt in _RUNTIME_MIGRATIONS:
+            try:
+                await conn.execute(text(stmt))
+            except Exception as exc:
+                logger.warning('migration failed: %s... → %s', stmt[:60], exc)
 
 
 @app.on_event('startup')

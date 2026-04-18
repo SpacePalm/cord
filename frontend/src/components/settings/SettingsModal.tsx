@@ -9,12 +9,15 @@ import { useT, useLangStore, LANGUAGES } from '../../i18n';
 import { useThemeStore, PRESET_THEMES, FONT_OPTIONS, type ThemeColors, type Theme, type FontValue } from '../../store/themeStore';
 import { ImageCropModal } from '../ui/ImageCropModal';
 import { useNotificationStore } from '../../store/notificationStore';
+import { playNotificationSound } from '../../utils/notificationSound';
+import { startRingtone, stopRingtone } from '../../utils/ringtone';
 import { Download, Upload, RotateCcw, Bell, BellOff, Search, Save, Trash2 } from 'lucide-react';
 
 type Tab = 'profile' | 'security' | 'audio' | 'notifications' | 'appearance' | 'language';
 
 interface SettingsModalProps {
   onClose: () => void;
+  initialTab?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -969,6 +972,14 @@ function NotificationsTab() {
   const t = useT();
   const browserEnabled = useNotificationStore((s) => s.browserEnabled);
   const setBrowserEnabled = useNotificationStore((s) => s.setBrowserEnabled);
+  const level = useNotificationStore((s) => s.level);
+  const setLevel = useNotificationStore((s) => s.setLevel);
+  const sound = useNotificationStore((s) => s.sound);
+  const setSound = useNotificationStore((s) => s.setSound);
+  const soundVolume = useNotificationStore((s) => s.soundVolume);
+  const setSoundVolume = useNotificationStore((s) => s.setSoundVolume);
+  const ringtoneVolume = useNotificationStore((s) => s.ringtoneVolume);
+  const setRingtoneVolume = useNotificationStore((s) => s.setRingtoneVolume);
   const [denied, setDenied] = useState(false);
 
   const handleBrowserToggle = async () => {
@@ -986,6 +997,18 @@ function NotificationsTab() {
     }
   };
 
+  const levels: { value: import('../../store/notificationStore').NotificationLevel; labelKey: string; hintKey: string }[] = [
+    { value: 'all',          labelKey: 'notifications.levelAll',         hintKey: 'notifications.levelAllHint' },
+    { value: 'mentions_dm',  labelKey: 'notifications.levelMentions',    hintKey: 'notifications.levelMentionsHint' },
+    { value: 'dm_only',      labelKey: 'notifications.levelDmOnly',      hintKey: 'notifications.levelDmOnlyHint' },
+    { value: 'off',          labelKey: 'notifications.levelOff',         hintKey: 'notifications.levelOffHint' },
+  ];
+
+  const toggleCls = (active: boolean) =>
+    `relative w-11 h-6 rounded-full transition-colors shrink-0 ${active ? 'bg-[var(--accent)]' : 'bg-white/10'}`;
+  const thumbCls = (active: boolean) =>
+    `absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-5' : 'translate-x-0'}`;
+
   return (
     <div className="flex flex-col gap-6">
       {/* Browser notifications toggle */}
@@ -1000,16 +1023,103 @@ function NotificationsTab() {
             </p>
           )}
         </div>
-        <button
-          onClick={handleBrowserToggle}
-          className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
-            browserEnabled ? 'bg-[var(--accent)]' : 'bg-white/10'
-          }`}
-        >
-          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-            browserEnabled ? 'translate-x-5' : 'translate-x-0'
-          }`} />
+        <button onClick={handleBrowserToggle} className={toggleCls(browserEnabled)}>
+          <span className={thumbCls(browserEnabled)} />
         </button>
+      </div>
+
+      {/* Уровень уведомлений — radio-подобные карточки */}
+      <div className={browserEnabled ? '' : 'opacity-50 pointer-events-none'}>
+        <p className="text-sm font-medium text-[var(--text-primary)] mb-2">{t('notifications.levelTitle')}</p>
+        <div className="flex flex-col gap-1">
+          {levels.map((l) => {
+            const active = level === l.value;
+            return (
+              <button
+                key={l.value}
+                onClick={() => setLevel(l.value)}
+                className={`flex items-start gap-3 p-3 rounded-lg text-left transition-colors ${
+                  active ? 'bg-[var(--accent)]/15 border border-[var(--accent)]/40' : 'bg-[var(--bg-input)] hover:bg-white/5 border border-transparent'
+                }`}
+              >
+                <span className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 ${
+                  active ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--text-muted)]'
+                }`}>
+                  {active && <span className="block w-1.5 h-1.5 rounded-full bg-white mx-auto mt-[3px]" />}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-[var(--text-primary)]">{t(l.labelKey)}</p>
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">{t(l.hintKey)}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Звук */}
+      <div className={browserEnabled ? '' : 'opacity-50 pointer-events-none'}>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-[var(--text-primary)]">{t('notifications.sound')}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">{t('notifications.soundHint')}</p>
+          </div>
+          <button onClick={() => setSound(!sound)} className={toggleCls(sound)}>
+            <span className={thumbCls(sound)} />
+          </button>
+        </div>
+
+        {/* Ползунок громкости beep сообщений + кнопка предпрослушки */}
+        <div className={`mt-3 flex items-center gap-3 ${sound ? '' : 'opacity-50 pointer-events-none'}`}>
+          <label className="text-xs text-[var(--text-muted)] shrink-0 w-24">{t('notifications.volumeMessages')}</label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={Math.round(soundVolume * 100)}
+            onChange={(e) => setSoundVolume(Number(e.target.value) / 100)}
+            className="flex-1 accent-[var(--accent)]"
+          />
+          <span className="text-xs tabular-nums text-[var(--text-muted)] w-10 text-right">
+            {Math.round(soundVolume * 100)}%
+          </span>
+          <button
+            onClick={() => playNotificationSound(soundVolume)}
+            title={t('notifications.testSound')}
+            className="px-2 py-1 rounded bg-[var(--bg-input)] hover:bg-white/10 text-xs text-[var(--text-secondary)] transition-colors"
+          >
+            {t('notifications.testSound')}
+          </button>
+        </div>
+
+        {/* Ползунок громкости гудков звонка + preview */}
+        <div className={`mt-2 flex items-center gap-3 ${sound ? '' : 'opacity-50 pointer-events-none'}`}>
+          <label className="text-xs text-[var(--text-muted)] shrink-0 w-24">{t('notifications.volumeRingtone')}</label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={Math.round(ringtoneVolume * 100)}
+            onChange={(e) => setRingtoneVolume(Number(e.target.value) / 100)}
+            className="flex-1 accent-[var(--accent)]"
+          />
+          <span className="text-xs tabular-nums text-[var(--text-muted)] w-10 text-right">
+            {Math.round(ringtoneVolume * 100)}%
+          </span>
+          <button
+            onClick={() => {
+              // Короткое превью — 2 секунды, потом авто-стоп. Если уже играет — перезапустится.
+              startRingtone(ringtoneVolume);
+              setTimeout(stopRingtone, 2000);
+            }}
+            title={t('notifications.testRingtone')}
+            className="px-2 py-1 rounded bg-[var(--bg-input)] hover:bg-white/10 text-xs text-[var(--text-secondary)] transition-colors"
+          >
+            {t('notifications.testSound')}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1047,9 +1157,13 @@ function LanguageTab() {
 // ---------------------------------------------------------------------------
 // SettingsModal
 // ---------------------------------------------------------------------------
-export function SettingsModal({ onClose }: SettingsModalProps) {
+const ALL_TABS: Tab[] = ['profile', 'security', 'audio', 'notifications', 'appearance', 'language'];
+
+export function SettingsModal({ onClose, initialTab }: SettingsModalProps) {
   const t = useT();
-  const [tab, setTab] = useState<Tab>('profile');
+  const [tab, setTab] = useState<Tab>(
+    initialTab && (ALL_TABS as string[]).includes(initialTab) ? (initialTab as Tab) : 'profile'
+  );
 
   // Close on Escape
   useEffect(() => {

@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, Depends, Request, UploadFile, File
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -10,10 +10,16 @@ from app.database import get_db
 from app.models.user import User
 from app.models.app_settings import AppSetting
 from app.auth import hash_password, verify_password, create_access_token, get_current_user
+from app.rate_limit import RateLimiter
 
 MEDIA_ROOT = Path('/app/media')
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# 5 регистраций с одного IP в час — спаму новых аккаунтов не повредит, живому пользователю хватит
+register_limiter = RateLimiter(key='register', limit=5, window_seconds=3600)
+# 10 попыток логина за 5 минут с одного IP — защита от перебора паролей
+login_limiter = RateLimiter(key='login', limit=10, window_seconds=300)
 
 class RegisterRequest(BaseModel):
     username: str
@@ -166,7 +172,8 @@ async def upload_avatar(
     return _user_info(current_user)
         
 @router.post("/register")
-async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(request: RegisterRequest, http_request: Request, db: AsyncSession = Depends(get_db)):
+    await register_limiter.check(http_request)
     # Check registration toggle
     reg_row = await db.execute(
         select(AppSetting).where(AppSetting.key == 'registration_enabled')
@@ -203,27 +210,37 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     return {"id": new_user.id, "username": new_user.username, "email": new_user.email}
 
 @router.post("/login")
-async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(request: LoginRequest, http_request: Request, db: AsyncSession = Depends(get_db)):
+    await login_limiter.check(http_request)
     user_result = await db.execute(select(User).where(User.email == request.email))
     user = user_result.scalar_one_or_none()
-    
+
     if not user or not verify_password(request.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
-    
+
+    # Снимаем значения в локальные переменные ДО любого commit — после commit
+    # ORM-объект user становится expired и доступ к атрибутам вызовет ленивый
+    # запрос в уже завершённой транзакции (MissingGreenlet).
+    user_id = user.id
+    user_username = user.username
+    user_role = user.role
+
     # Создаём "Saved Messages" если нет (для старых пользователей)
     from app.models.group import Group, GroupMember, Chat
     existing_saved = await db.execute(
-        select(Group).where(Group.owner_id == user.id, Group.is_personal == True)
+        select(Group).where(Group.owner_id == user_id, Group.is_personal == True)
     )
     if not existing_saved.scalar_one_or_none():
-        saved_group = Group(name='Saved Messages', owner_id=user.id, image_path='', is_personal=True)
+        saved_group = Group(name='Saved Messages', owner_id=user_id, image_path='', is_personal=True)
         db.add(saved_group)
         await db.flush()
-        db.add(GroupMember(group_id=saved_group.id, user_id=user.id, role='owner'))
+        db.add(GroupMember(group_id=saved_group.id, user_id=user_id, role='owner'))
         db.add(Chat(name='Saved Messages', group_id=saved_group.id, type='text'))
         await db.commit()
+        # Обновляем объект user, чтобы _user_info() ниже не ломался на expired-атрибутах
+        await db.refresh(user)
 
-    token = create_access_token(user.id, user.username, user.role)
+    token = create_access_token(user_id, user_username, user_role)
     return {"access_token": token, "token_type": "bearer", "user": _user_info(user).model_dump()}

@@ -9,7 +9,27 @@ import {
 import { adminApi } from '../api/admin';
 import type { AdminUser, AdminGroup, AdminMember } from '../api/admin';
 import { useAuthStore } from '../store/authStore';
+import { useSessionStore } from '../store/sessionStore';
 import { useT } from '../i18n';
+
+function AdminPaletteButton() {
+  const t = useT();
+  const openPalette = useSessionStore((s) => s.openPalette);
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+  return (
+    <button
+      onClick={openPalette}
+      className="flex items-center gap-2 px-2.5 py-1 rounded bg-[var(--bg-input)] hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors text-xs"
+      title={t('palette.open')}
+    >
+      <Search size={12} />
+      <span>{t('palette.quickSearch')}</span>
+      <kbd className="text-[9px] border border-[var(--border-color)] rounded px-1 text-[var(--text-muted)]">
+        {isMac ? '⌘K' : 'Ctrl+K'}
+      </kbd>
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -310,6 +330,8 @@ function SystemTab() {
   const t = useT();
   const qc = useQueryClient();
   const [cleanupDays, setCleanupDays] = useState(90);
+  const [includePersonal, setIncludePersonal] = useState(false);
+  const [includeDm, setIncludeDm] = useState(false);
   const [cleanupMsgResult, setCleanupMsgResult] = useState<number | null>(null);
   const [cleanupAttResult, setCleanupAttResult] = useState<number | null>(null);
 
@@ -329,7 +351,7 @@ function SystemTab() {
   });
 
   const cleanupMsgMutation = useMutation({
-    mutationFn: () => adminApi.cleanupMessages(cleanupDays),
+    mutationFn: () => adminApi.cleanupMessages(cleanupDays, includePersonal, includeDm),
     onSuccess: (data) => {
       setCleanupMsgResult(data.deleted);
       refetchStats();
@@ -452,7 +474,15 @@ function SystemTab() {
               <span className="text-sm text-[var(--text-muted)]">{t('admin.days')}</span>
               <button
                 onClick={() => {
-                  if (!confirm(t('admin.deleteMessagesConfirm', { days: String(cleanupDays) }))) return;
+                  // Выбираем confirm-текст в зависимости от включённых тумблеров
+                  const confirmKey = includePersonal && includeDm
+                    ? 'admin.deleteMessagesConfirmWithBoth'
+                    : includePersonal
+                      ? 'admin.deleteMessagesConfirmWithPersonal'
+                      : includeDm
+                        ? 'admin.deleteMessagesConfirmWithDm'
+                        : 'admin.deleteMessagesConfirm';
+                  if (!confirm(t(confirmKey, { days: String(cleanupDays) }))) return;
                   setCleanupMsgResult(null);
                   cleanupMsgMutation.mutate();
                 }}
@@ -462,6 +492,38 @@ function SystemTab() {
                 {cleanupMsgMutation.isPending ? t('admin.deleting') : t('delete')}
               </button>
             </div>
+            <label className="w-full flex items-center gap-3 cursor-pointer select-none">
+              <div
+                onClick={() => setIncludePersonal(v => !v)}
+                className={`relative w-9 h-5 rounded-full transition-colors ${
+                  includePersonal ? 'bg-[var(--danger)]' : 'bg-white/10'
+                }`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                  includePersonal ? 'translate-x-4' : 'translate-x-0.5'
+                }`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-[var(--text-primary)]">{t('admin.includePersonal')}</p>
+                <p className="text-[11px] text-[var(--text-muted)]">{t('admin.includePersonalHint')}</p>
+              </div>
+            </label>
+            <label className="w-full flex items-center gap-3 cursor-pointer select-none">
+              <div
+                onClick={() => setIncludeDm(v => !v)}
+                className={`relative w-9 h-5 rounded-full transition-colors ${
+                  includeDm ? 'bg-[var(--danger)]' : 'bg-white/10'
+                }`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                  includeDm ? 'translate-x-4' : 'translate-x-0.5'
+                }`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-[var(--text-primary)]">{t('admin.includeDm')}</p>
+                <p className="text-[11px] text-[var(--text-muted)]">{t('admin.includeDmHint')}</p>
+              </div>
+            </label>
             {cleanupMsgResult !== null && (
               <div className="w-full flex items-center gap-1 text-xs text-green-400">
                 <Check size={12} /> {t('admin.deletedMessages', { count: String(cleanupMsgResult) })}
@@ -509,7 +571,12 @@ export function AdminPage() {
   const t = useT();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const [tab, setTab] = useState<Tab>('users');
+  // Начальная вкладка из query-параметра ?tab=... (используется CommandPalette)
+  const initialTab: Tab = (() => {
+    const q = new URLSearchParams(window.location.search).get('tab');
+    return q === 'groups' || q === 'system' ? (q as Tab) : 'users';
+  })();
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   useEffect(() => {
     if (user && user.role !== 'admin') navigate('/app', { replace: true });
@@ -532,12 +599,15 @@ export function AdminPage() {
           <Shield size={20} className="text-[var(--accent)]" />
           <span className="font-bold text-[var(--text-primary)]">{t('admin.title')}</span>
         </div>
-        <button
-          onClick={() => navigate('/app')}
-          className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          <ArrowLeft size={16} /> {t('admin.toApp')}
-        </button>
+        <div className="flex items-center gap-3">
+          <AdminPaletteButton />
+          <button
+            onClick={() => navigate('/app')}
+            className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <ArrowLeft size={16} /> {t('admin.toApp')}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

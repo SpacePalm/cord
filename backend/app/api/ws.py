@@ -81,13 +81,18 @@ async def websocket_endpoint(ws: WebSocket):
                 manager.subscribe(ws, user.id, chat_id)
             elif action == "unsubscribe":
                 manager.unsubscribe(ws, chat_id)
-            elif action == "typing":
-                await manager.broadcast(chat_id, {
-                    "type": "typing",
-                    "chat_id": chat_id_str,
-                    "user_id": str(user.id),
-                    "display_name": user.display_name or user.username,
-                }, exclude_ws=ws)
+            elif action in ("typing", "stop_typing"):
+                # Re-проверяем членство на каждом typing-событии. Иначе после
+                # kick-а user'а он продолжит слать typing в чат, где раньше был,
+                # и member'ы будут видеть призрачного «участника».
+                if chat_id not in (await _user_chat_ids(user.id)):
+                    manager.unsubscribe(ws, chat_id)
+                    continue
+                event_type = action  # "typing" or "stop_typing"
+                payload: dict = {"type": event_type, "chat_id": chat_id_str, "user_id": str(user.id)}
+                if event_type == "typing":
+                    payload["display_name"] = user.display_name or user.username
+                await manager.broadcast(chat_id, payload, exclude_ws=ws)
     except WebSocketDisconnect:
         pass
     finally:

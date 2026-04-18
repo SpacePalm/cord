@@ -1,15 +1,28 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import { notificationsApi } from '../api/notifications';
-import { useNotificationStore } from '../store/notificationStore';
-import { useSessionStore } from '../store/sessionStore';
 
 export interface ToastNotification {
   id: number;
+  /** Короткий идентификатор: «+N» (от unread-счётчика) */
   message: string;
+  /** Имя отправителя для богатых тостов (опционально) */
+  title?: string;
+  /** URL аватара отправителя (опционально) */
+  avatar?: string;
+  /** Клик по тосту — колбэк перехода в чат */
+  onClick?: () => void;
 }
 
+// Глобальный канал для push-а богатых тостов извне (из MessageNotifier'а).
+// useUnreadCounts подписан и добавляет в свой state.
 let toastId = 0;
+const toastListeners = new Set<(t: ToastNotification) => void>();
+
+export function pushRichToast(toast: Omit<ToastNotification, 'id'>): void {
+  const full: ToastNotification = { id: ++toastId, ...toast };
+  toastListeners.forEach((fn) => fn(full));
+}
 
 export function useUnreadCounts() {
   const { data } = useQuery({
@@ -18,11 +31,19 @@ export function useUnreadCounts() {
     staleTime: 60_000,
   });
 
-  const prevDataRef = useRef<string>('');
-  const initializedRef = useRef(false);
-  const browserEnabled = useNotificationStore((s) => s.browserEnabled);
-  const lastChannelId = useSessionStore((s) => s.lastChannelId);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
+
+  // Подписка на богатые тосты от MessageNotifier.
+  // Все решения «показывать/не показывать» и уровни/mute принимаются там —
+  // сюда приходят только тосты, которые уже прошли фильтры настроек.
+  useEffect(() => {
+    const handler = (t: ToastNotification) => {
+      setToasts((prev) => [...prev, t]);
+      setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== t.id)), 5000);
+    };
+    toastListeners.add(handler);
+    return () => { toastListeners.delete(handler); };
+  }, []);
 
   const { unreadByChat, unreadByGroup } = useMemo(() => {
     const byChat: Record<string, number> = {};
@@ -36,49 +57,6 @@ export function useUnreadCounts() {
     return { unreadByChat: byChat, unreadByGroup: byGroup };
   }, [data]);
 
-  // Баннер-уведомления
-  useEffect(() => {
-    const currentJson = JSON.stringify(data?.unread ?? {});
-
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      prevDataRef.current = currentJson;
-      return;
-    }
-
-    if (currentJson === prevDataRef.current) return;
-
-    const prev: Record<string, { count: number }> = JSON.parse(prevDataRef.current || '{}');
-    const curr = data?.unread ?? {};
-    prevDataRef.current = currentJson;
-
-    let newCount = 0;
-    for (const [chatId, info] of Object.entries(curr)) {
-      if (chatId === lastChannelId) continue;
-      const prevCount = prev[chatId]?.count ?? 0;
-      if (info.count > prevCount) {
-        newCount += info.count - prevCount;
-      }
-    }
-
-    if (newCount > 0) {
-      // Browser notification (только когда вкладка не в фокусе)
-      if (browserEnabled && Notification.permission === 'granted' && !document.hasFocus()) {
-        new Notification('Cord', {
-          body: `${newCount} new message${newCount > 1 ? 's' : ''}`,
-          icon: '/favicon.ico',
-        });
-      }
-
-      // Toast баннер (всегда)
-      const id = ++toastId;
-      setToasts((prev) => [...prev, { id, message: `+${newCount}` }]);
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, 4000);
-    }
-  }, [data, browserEnabled, lastChannelId]);
-
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
@@ -87,6 +65,8 @@ export function useUnreadCounts() {
   const markRead = useCallback((chatId: string) => {
     notificationsApi.markRead(chatId).then(() => {
       queryClient.invalidateQueries({ queryKey: ['unread'] });
+      // DM-список тоже держит unread_count — обновляем и его.
+      queryClient.invalidateQueries({ queryKey: ['dms'] });
     }).catch(() => {});
   }, [queryClient]);
 

@@ -2,8 +2,10 @@
 
 import { Plus, Shield, LogOut, Bookmark } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
+import { dmsApi } from '../../api/dms';
 import type { Group } from '../../types';
 import { useT } from '../../i18n';
 
@@ -73,29 +75,57 @@ export function GroupSidebar({
   const userRole = useAuthStore((s) => s.user?.role);
   const inCall = !!useSessionStore((s) => s.voicePresence);
   const logout = useAuthStore((s) => s.logout);
+  const dmMode = useSessionStore((s) => s.dmMode);
+  const setDmMode = useSessionStore((s) => s.setDmMode);
+
+  // Бейдж непрочитанных DM — сумма по всем DM-беседам.
+  const { data: dms } = useQuery({
+    queryKey: ['dms'],
+    queryFn: dmsApi.list,
+    staleTime: 15_000,
+  });
+  const totalDmUnread = (dms ?? []).reduce((s, d) => s + (d.unread_count ?? 0), 0);
 
   return (
     <div
       className="w-[72px] flex flex-col items-center py-3 gap-2 overflow-y-auto"
       style={{ background: 'var(--bg-primary)' }}
     >
-      {/* Logo */}
+      {/* Logo — клик открывает DM-режим. overflow-hidden вынесен во внутренний div,
+          иначе бейдж непрочитанных и полоска-индикатор обрезались бы кругом. */}
       <button
-        className="w-12 h-12 rounded-full overflow-hidden hover:rounded-2xl transition-all shrink-0 bg-[var(--bg-tertiary)] flex items-center justify-center p-1.5"
-        title={t('sidebar.cord')}
+        onClick={() => setDmMode(!dmMode)}
+        title={t('dms.title')}
+        className={`relative w-12 h-12 shrink-0 flex items-center justify-center ${
+          dmMode ? '' : ''
+        }`}
       >
-        <img src="/logo.png" alt="Cord" className="w-full h-full object-contain" />
+        <div
+          className={`w-12 h-12 rounded-full overflow-hidden hover:rounded-2xl transition-all flex items-center justify-center p-1.5 ${
+            dmMode
+              ? 'rounded-2xl bg-[var(--accent)]'
+              : 'bg-[var(--bg-tertiary)]'
+          }`}
+        >
+          <img src="/logo.png" alt="Cord" className="w-full h-full object-contain" />
+        </div>
+        {dmMode && <span className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded-r-full" />}
+        {totalDmUnread > 0 && (
+          <span className="absolute -bottom-0.5 -right-0.5 bg-[var(--danger)] text-white text-[9px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 ring-2 ring-[var(--bg-primary)]">
+            {totalDmUnread > 99 ? '99+' : totalDmUnread}
+          </span>
+        )}
       </button>
 
       {/* Saved Messages */}
       {(() => {
         const saved = groups.find((g) => g.is_personal);
         if (!saved) return null;
-        const isSel = selectedGroupId === saved.id;
+        const isSel = !dmMode && selectedGroupId === saved.id;
         const unread = unreadByGroup?.[saved.id] ?? 0;
         return (
           <button
-            onClick={() => onSelectGroup(saved.id)}
+            onClick={() => { setDmMode(false); onSelectGroup(saved.id); }}
             title={t('saved.title')}
             className={`
               relative w-12 h-12 rounded-full flex items-center justify-center
@@ -119,13 +149,13 @@ export function GroupSidebar({
 
       <div className="w-8 h-px bg-[var(--bg-secondary)] my-1" />
 
-      {/* Список групп */}
-      {groups.filter((g) => !g.is_personal).map((group) => (
+      {/* Список групп (без личных и DM — они идут отдельно) */}
+      {groups.filter((g) => !g.is_personal && !g.is_dm).map((group) => (
         <GroupIcon
           key={group.id}
           group={group}
-          selected={selectedGroupId === group.id}
-          onClick={() => onSelectGroup(group.id)}
+          selected={!dmMode && selectedGroupId === group.id}
+          onClick={() => { setDmMode(false); onSelectGroup(group.id); }}
           unreadCount={unreadByGroup?.[group.id] ?? 0}
         />
       ))}
