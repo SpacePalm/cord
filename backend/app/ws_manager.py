@@ -42,14 +42,22 @@ class ConnectionManager:
     def subscribe(self, ws: WebSocket, user_id: uuid.UUID, chat_id: uuid.UUID):
         self._channels[chat_id].add((user_id, ws))
         self._ws_channels[ws].add(chat_id)
+        logger.warning("[WS] SUBSCRIBE ws=%s user=%s chat=%s total=%d",
+                       id(ws), user_id, chat_id, len(self._channels[chat_id]))
 
     def unsubscribe(self, ws: WebSocket, chat_id: uuid.UUID):
         user_entries = {entry for entry in self._channels[chat_id] if entry[1] is ws}
+        if user_entries:
+            logger.warning("[WS] UNSUBSCRIBE ws=%s chat=%s (had %d entries)",
+                           id(ws), chat_id, len(user_entries))
         self._channels[chat_id] -= user_entries
         self._ws_channels[ws].discard(chat_id)
 
     def disconnect(self, ws: WebSocket):
-        for chat_id in self._ws_channels.pop(ws, set()):
+        chats = self._ws_channels.pop(ws, set())
+        if chats:
+            logger.warning("[WS] disconnect cleanup ws=%s removes from %d chats", id(ws), len(chats))
+        for chat_id in chats:
             self._channels[chat_id] = {
                 entry for entry in self._channels[chat_id] if entry[1] is not ws
             }
@@ -71,8 +79,9 @@ class ConnectionManager:
 
     async def broadcast(self, chat_id: uuid.UUID, event: dict, exclude_ws: WebSocket | None = None):
         subs = list(self._channels.get(chat_id, set()))
-        logger.warning("[WS] broadcast chat=%s event=%s subscribers=%d",
-                       chat_id, event.get("type"), len(subs))
+        sub_info = [f"{str(uid)[:8]}:{id(w)}" for uid, w in subs]
+        logger.warning("[WS] broadcast chat=%s event=%s subscribers=%d %s",
+                       chat_id, event.get("type"), len(subs), sub_info)
         dead: list[WebSocket] = []
         sent_ok = 0
         for _user_id, ws in subs:
