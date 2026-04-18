@@ -341,18 +341,24 @@ export function AppPage() {
   });
 
   // Отправить сообщение
+  // ВАЖНО: не делаем invalidateQueries — refetch'и гонятся с WS-echo и теряют
+  // сообщения при быстрой отправке. Вместо этого добавляем ответ в кэш
+  // напрямую; дедуп по id защищает от повторного добавления из WS.
   const sendMessageMutation = useMutation({
     mutationFn: ({ chatId, text, files, replyToId, poll, onProgress }: {
       chatId: string; text: string; files: File[]; replyToId?: string;
       poll?: { question: string; options: string[] };
       onProgress?: (pct: number) => void;
     }) => messagesApi.send(chatId, text, files, replyToId, poll, onProgress).then((res) => {
-      // После отправки помечаем чат прочитанным чтобы свои сообщения не считались непрочитанными
       markRead(chatId);
       return res;
     }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messages', selectedChannelId] });
+    onSuccess: (response, variables) => {
+      queryClient.setQueryData<Message[]>(['messages', variables.chatId], (old) => {
+        if (!old) return [response];
+        if (old.some((m) => m.id === response.id)) return old;
+        return [...old, response];
+      });
     },
   });
 

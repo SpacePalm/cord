@@ -167,7 +167,12 @@ export function useCordWebSocket() {
         incomingMessageListeners.forEach((fn) => fn(event));
         const msg = event.message;
         queryClient.setQueryData<Message[]>(['messages', msg.chat_id], (old) => {
-          if (!old) return old;
+          // Кэша нет (чат ещё не открывался) — инвалидация: при следующем
+          // заходе useQuery сам подтянет свежий список включая это сообщение.
+          if (!old) {
+            queryClient.invalidateQueries({ queryKey: ['messages', msg.chat_id] });
+            return old;
+          }
           if (old.some((m) => m.id === msg.id)) return old;
           return [...old, msg];
         });
