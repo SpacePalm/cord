@@ -50,6 +50,20 @@ class ConnectionManager:
             }
         self._ws_locks.pop(ws, None)
 
+    async def _drop(self, ws: WebSocket) -> None:
+        """Отключить сокет из менеджера И явно закрыть его.
+
+        Без явного close: backend считает сокет «мёртвым» (не шлёт туда событий),
+        но браузер держит TCP открытым — onclose не срабатывает, реконнект не
+        идёт, все последующие сообщения молча теряются до reload. Принудительный
+        close заставляет клиента увидеть disconnect и переподключиться.
+        """
+        self.disconnect(ws)
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
     async def broadcast(self, chat_id: uuid.UUID, event: dict, exclude_ws: WebSocket | None = None):
         dead: list[WebSocket] = []
         for _user_id, ws in list(self._channels.get(chat_id, set())):
@@ -58,7 +72,7 @@ class ConnectionManager:
             if not await self._safe_send(ws, event):
                 dead.append(ws)
         for ws in dead:
-            self.disconnect(ws)
+            await self._drop(ws)
 
     async def broadcast_to_many(self, chat_ids: list[uuid.UUID], event: dict):
         """Broadcast event to unique websockets across multiple channels."""
@@ -73,7 +87,7 @@ class ConnectionManager:
                 if not await self._safe_send(ws, event):
                     dead.append(ws)
         for ws in dead:
-            self.disconnect(ws)
+            await self._drop(ws)
 
     async def send_to_user(self, user_id: uuid.UUID, event: dict) -> int:
         """Доставить event по всем активным сокетам пользователя (он может быть
@@ -96,7 +110,7 @@ class ConnectionManager:
                 else:
                     dead.append(ws)
         for ws in dead:
-            self.disconnect(ws)
+            await self._drop(ws)
         return delivered
 
     def subscribe_all_members(self, chat_id: uuid.UUID, user_ids: list[uuid.UUID]) -> None:
