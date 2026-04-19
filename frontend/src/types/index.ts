@@ -8,6 +8,7 @@ export interface User {
   status?: string;
   status_text?: string | null;
   theme_json?: string | null;
+  preferences_json?: string | null;
 }
 
 export interface Group {

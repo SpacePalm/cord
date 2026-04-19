@@ -46,4 +46,7 @@ export const authApi = {
 
   saveTheme: (theme: unknown) =>
     api.put<{ ok: boolean }>('/auth/theme', theme),
+
+  savePreferences: (prefs: unknown) =>
+    api.put<{ ok: boolean }>('/auth/preferences', prefs),
 };

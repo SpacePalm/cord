@@ -52,6 +52,7 @@ class UserInfo(BaseModel):
     status: str = 'online'
     status_text: str | None = None
     theme_json: str | None = None
+    preferences_json: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -68,6 +69,7 @@ def _user_info(u: User) -> UserInfo:
         status=u.status or 'online',
         status_text=u.status_text,
         theme_json=u.theme_json,
+        preferences_json=u.preferences_json,
     )
 
 
@@ -103,6 +105,21 @@ async def save_theme(
     """Сохраняет тему пользователя в БД."""
     import json
     current_user.theme_json = json.dumps(body)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.put("/preferences")
+async def save_preferences(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Сохраняет кросс-девайсные настройки (язык, уведомления, mute чатов).
+    Единый JSON-блоб — фронтенд сам знает структуру.
+    """
+    import json
+    current_user.preferences_json = json.dumps(body)
     await db.commit()
     return {"ok": True}
 

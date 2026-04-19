@@ -95,6 +95,10 @@ _RUNTIME_MIGRATIONS: list[str] = [
     'ALTER TABLE "group" ADD COLUMN IF NOT EXISTS is_dm BOOLEAN NOT NULL DEFAULT FALSE',
     # Индекс для быстрой выборки моих DM: WHERE is_dm=true AND id IN (мои группы).
     'CREATE INDEX IF NOT EXISTS idx_group_is_dm ON "group" (is_dm) WHERE is_dm = TRUE',
+
+    # ─── User preferences ────────────────────────────────────────────
+    # Кросс-девайсные настройки юзера (язык, уведомления, mute чатов).
+    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS preferences_json TEXT',
 ]
 
 

@@ -32,6 +32,9 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(20), default="online", nullable=False)  # online, idle, dnd, invisible
     status_text: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
     theme_json: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    # Кросс-девайсные настройки: язык, уведомления, mute чатов и т.п.
+    # Единый JSON-блоб, чтобы не плодить миграции под каждую настройку.
+    preferences_json: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

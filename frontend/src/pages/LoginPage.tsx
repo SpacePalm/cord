@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
+import { applyServerPreferences, startPreferencesAutoSync } from '../utils/preferencesSync';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { ApiError } from '../api/client';
@@ -26,6 +27,8 @@ export function LoginPage() {
       localStorage.setItem('access_token', data.access_token);
       const user = await authApi.me();
       useThemeStore.getState().loadFromServer(user.theme_json ?? null);
+      applyServerPreferences(user.preferences_json);
+      startPreferencesAutoSync();
       setAuth(user, data.access_token);
       navigate('/app');
     },

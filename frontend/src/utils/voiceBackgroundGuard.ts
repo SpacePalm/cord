@@ -1,20 +1,21 @@
 // Утилиты для удержания голосового звонка активным на мобильных устройствах.
 //
 // Проблема: iOS Safari и Android Chrome агрессивно усыпляют фоновые вкладки
-// и выключают аудио/WebSocket когда экран гаснет. Комбинация приёмов ниже
-// максимизирует шансы что звонок выживет в фоне/при заблокированном экране.
+// и выключают аудио/WebSocket когда экран гаснет.
 //
 // Что делаем:
 //   1) Screen Wake Lock — не даём экрану гаснуть (Android Chrome, iOS 16.4+)
 //   2) Media Session API — регистрируем звонок как «активное медиа», тогда
 //      ОС показывает его на lock-screen и не глушит вкладку так агрессивно.
-//   3) Тихий audio-loop — держит AudioContext активным даже если никто не
-//      говорит (иначе Safari может приостановить WebRTC audio тракт).
-//   4) Переподнимаем Wake Lock при возврате вкладки (API автоматически
+//   3) Переподнимаем Wake Lock при возврате вкладки (API автоматически
 //      релизит лок когда visibilityState переходит в hidden).
+//
+// ВАЖНО: раньше был ещё silent-audio loop для удержания AudioContext активным,
+// но на iOS HTMLAudioElement переключает audio-session в режим "playback",
+// что конфликтует с WebRTC ("record+playback") — вылезают пульсирующие звуки
+// и не включается микрофон. Убрали. LiveKit-треки сами держат audio-session.
 
 let _wakeLock: WakeLockSentinel | null = null;
-let _silentAudio: HTMLAudioElement | null = null;
 let _visListener: (() => void) | null = null;
 let _active = false;
 
@@ -27,11 +28,6 @@ function isMobile(): boolean {
   if (typeof window === 'undefined') return false;
   return window.innerWidth < 768;
 }
-
-// Минимальный wav-файл тишины в data-URI (короткий, зацикливаем).
-// Сгенерирован: 0.1s тишины 8kHz mono.
-const SILENT_WAV_DATAURI =
-  'data:audio/wav;base64,UklGRnAAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUwAAAB/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/fw==';
 
 async function acquireWakeLock(): Promise<void> {
   if (_wakeLock) return;
@@ -79,29 +75,9 @@ function teardownMediaSession(): void {
   } catch {}
 }
 
-function startSilentAudio(): void {
-  if (_silentAudio) return;
-  try {
-    const a = new Audio(SILENT_WAV_DATAURI);
-    a.loop = true;
-    a.volume = 0.0001;  // фактически тишина, но не 0 — иначе Safari может не считать «играющим»
-    // play() возвращает Promise, без await чтобы не блокировать инициализацию.
-    a.play().catch(() => { /* требуется user gesture — вызываем ИЗ обработчика Join */ });
-    _silentAudio = a;
-  } catch {}
-}
-
-function stopSilentAudio(): void {
-  if (_silentAudio) {
-    try { _silentAudio.pause(); _silentAudio.src = ''; } catch {}
-    _silentAudio = null;
-  }
-}
-
 /**
- * Активировать комплексную защиту от усыпления для голосового звонка.
- * Вызывать ИЗ user-gesture контекста (клик «Присоединиться») — иначе Wake Lock
- * и silent-audio откажут из-за autoplay-политик.
+ * Активировать защиту от усыпления для голосового звонка на мобильных.
+ * Вызывать после user-gesture (Join) — иначе Wake Lock откажет.
  */
 export async function activateVoiceGuard(title: string, subtitle: string): Promise<void> {
   if (_active) return;
@@ -111,7 +87,6 @@ export async function activateVoiceGuard(title: string, subtitle: string): Promi
 
   await acquireWakeLock();
   setupMediaSession(title, subtitle);
-  startSilentAudio();
 
   // Wake Lock автоматически релизится когда вкладка становится hidden.
   // При возврате в visible — переподнимаем.
@@ -133,7 +108,6 @@ export async function deactivateVoiceGuard(): Promise<void> {
     _visListener = null;
   }
   teardownMediaSession();
-  stopSilentAudio();
   if (_wakeLock) {
     try { await _wakeLock.release(); } catch {}
     _wakeLock = null;

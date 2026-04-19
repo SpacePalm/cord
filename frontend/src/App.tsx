@@ -10,6 +10,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { useThemeStore } from './store/themeStore';
 import { useAuthStore } from './store/authStore';
 import { authApi } from './api/auth';
+import { applyServerPreferences, startPreferencesAutoSync } from './utils/preferencesSync';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CordWebSocketProvider } from './hooks/useWebSocket';
 import { CommandPalette } from './components/CommandPalette';
@@ -36,6 +37,11 @@ function ThemeInit() {
     if (token) {
       authApi.me().then((user) => {
         if (user.theme_json) loadFromServer(user.theme_json);
+        // Подтягиваем prefs с сервера (язык + уведомления + mute чатов).
+        // Порядок важен: сначала применяем серверные значения, потом включаем
+        // автосинк — иначе первое же применение могло бы перезаписать сервер.
+        applyServerPreferences(user.preferences_json);
+        startPreferencesAutoSync();
       }).catch(() => {});
     }
   }, [initTheme, loadFromServer, token]);
