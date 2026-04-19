@@ -236,9 +236,13 @@ export function CommandPalette() {
     })),
   });
 
+  // Для поиска каналов исключаем DM-группы: их "каналы" (text + voice) —
+  // это внутренняя структура личных сообщений, а не отдельные места навигации.
+  // Навигация к DM идёт через фильтр "Люди" (@) + выбор собеседника.
   const channels = useMemo(() => {
     const out: Array<{ chat: Chat; group: Group }> = [];
     groups.forEach((g, i) => {
+      if (g.is_dm) return;
       const list = (channelQueries[i]?.data ?? []) as Chat[];
       list.forEach((c) => out.push({ chat: c, group: g }));
     });
@@ -330,8 +334,10 @@ export function CommandPalette() {
       }
     }
 
-    // Группы
+    // Группы — DM-группы не показываем как "сервер", переход в DM идёт через
+    // фильтр "Люди" + выбор собеседника (см. pickUser).
     for (const g of groups) {
+      if (g.is_dm) continue;
       if (match(g.name)) {
         result.push({
           key: `g:${g.id}`,
