@@ -13,6 +13,7 @@ import { UserPanel } from './ChannelSidebar';
 interface Props {
   selectedChannelId: string | null;
   onSelect: (dm: DMItem) => void;
+  onExpandCall?: () => void;
 }
 
 function DMRow({ dm, selected, onClick, locale }: {
@@ -74,7 +75,7 @@ function DMRow({ dm, selected, onClick, locale }: {
   );
 }
 
-export function DMListPanel({ selectedChannelId, onSelect }: Props) {
+export function DMListPanel({ selectedChannelId, onSelect, onExpandCall }: Props) {
   const t = useT();
   const locale = useLocale();
   const user = useAuthStore((s) => s.user);
@@ -122,7 +123,7 @@ export function DMListPanel({ selectedChannelId, onSelect }: Props) {
       </div>
 
       {/* Панель текущего голосового звонка (mute/disconnect) — если активен */}
-      <VoicePresencePanel />
+      <VoicePresencePanel onExpand={onExpandCall} />
 
       {/* Панель пользователя — статус и настройки. Та же что в ChannelSidebar. */}
       {user && (

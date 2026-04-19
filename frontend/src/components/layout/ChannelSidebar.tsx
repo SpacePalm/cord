@@ -34,6 +34,8 @@ interface ChannelSidebarProps {
   isDm?: boolean;
   dmPeerName?: string;
   onStartCall?: () => void;
+  // Развернуть активный звонок на весь экран (клик по кнопке в VoicePresencePanel)
+  onExpandCall?: () => void;
 }
 
 function TextChannelItem({ channel, selected, onClick, unreadCount = 0 }: {
@@ -290,6 +292,7 @@ export function ChannelSidebar({
   isDm,
   dmPeerName,
   onStartCall,
+  onExpandCall,
 }: ChannelSidebarProps) {
   const t = useT();
   const user = useAuthStore((s) => s.user);
@@ -385,7 +388,7 @@ export function ChannelSidebar({
       </div>
 
       {/* Панель голосового канала (если подключён) */}
-      <VoicePresencePanel />
+      <VoicePresencePanel onExpand={onExpandCall} />
 
       {/* Панель пользователя */}
       {user && (

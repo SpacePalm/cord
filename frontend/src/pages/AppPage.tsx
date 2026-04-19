@@ -18,7 +18,6 @@ import type { Group, Chat, Message } from '../types';
 import { Hash, Volume2, LogIn, Search, Paperclip, Users, Plus, ArrowLeft, Pin, Phone, Bell, BellOff } from 'lucide-react';
 import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
-import { FloatingCallBar } from '../components/FloatingCallBar';
 import { useT } from '../i18n';
 import { useUnreadCounts } from '../hooks/useUnreadCounts';
 import { useWs, useTypingUsers } from '../hooks/useWebSocket';
@@ -464,6 +463,21 @@ export function AppPage() {
     setReplyTo(null);
   };
 
+  // Развернуть активный звонок на весь экран — переключает выбор на voice-канал.
+  // Для DM-звонков включаем dmMode, чтобы сайдбар остался DM-овский.
+  const handleExpandCall = () => {
+    if (!voicePresence) return;
+    const callGroup = groupList.find((g) => g.id === voicePresence.groupId);
+    if (callGroup?.is_dm) {
+      useSessionStore.getState().setDmMode(true);
+    }
+    setSelectedGroupId(voicePresence.groupId);
+    setSelectedChannelId(voicePresence.channelId);
+    setLastGroup(voicePresence.groupId);
+    setLastChannel(voicePresence.channelId);
+    if (isMobile) setMobileView('chat');
+  };
+
   return (
     <div className="flex h-[100dvh] overflow-hidden fixed inset-0">
       {/* Сайдбар: группы + каналы (на мобильных скрывается при открытом чате) */}
@@ -489,6 +503,7 @@ export function AppPage() {
                 markRead(dm.chat_id);
                 if (isMobile) setMobileView('chat');
               }}
+              onExpandCall={handleExpandCall}
             />
           ) : selectedGroup ? (
             <ChannelSidebar
@@ -503,6 +518,7 @@ export function AppPage() {
               isDm={selectedGroup.is_dm}
               dmPeerName={dmPeerName}
               onStartCall={selectedGroup.is_dm ? handleStartDMCall : undefined}
+              onExpandCall={handleExpandCall}
             />
           ) : (
             <div className={`${isMobile ? 'flex-1' : 'w-60'} bg-[var(--bg-secondary)]`} />
@@ -677,26 +693,6 @@ export function AppPage() {
             </div>
           )}
         </div>
-
-        {/* Плавающая панель звонка — когда ты в голосе, но смотришь другой канал/чат.
-            Клик "развернуть" переключает на voice-канал, и VoiceRoom выше показывается на весь экран. */}
-        {voicePresence && selectedChannel?.id !== voicePresence.channelId && (
-          <FloatingCallBar
-            onExpand={() => {
-              // Если звонок в DM-группе — включаем dmMode, чтобы слева оставался
-              // правильный DM-сайдбар, а не каналы группы.
-              const callGroup = groupList.find((g) => g.id === voicePresence.groupId);
-              if (callGroup?.is_dm) {
-                useSessionStore.getState().setDmMode(true);
-              }
-              setSelectedGroupId(voicePresence.groupId);
-              setSelectedChannelId(voicePresence.channelId);
-              setLastGroup(voicePresence.groupId);
-              setLastChannel(voicePresence.channelId);
-              if (isMobile) setMobileView('chat');
-            }}
-          />
-        )}
 
         {/* Боковые панели */}
         {selectedChannel?.type === 'text' && sidePanel === 'search' && (
