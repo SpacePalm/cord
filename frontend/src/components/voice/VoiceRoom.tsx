@@ -26,6 +26,7 @@ import { useSessionStore } from '../../store/sessionStore';
 import { useAuthStore } from '../../store/authStore';
 import { useNotificationStore } from '../../store/notificationStore';
 import { playVoiceJoinSound, playVoiceLeaveSound } from '../../utils/notificationSound';
+import { activateVoiceGuard, deactivateVoiceGuard } from '../../utils/voiceBackgroundGuard';
 import { useT } from '../../i18n';
 
 import '@livekit/components-styles';
@@ -1110,6 +1111,16 @@ export function VoiceRoom({ channelId }: VoiceRoomProps) {
     fetchToken();
     return () => { cancelled = true; };
   }, [channelId, setCallStartedAt]);
+
+  // Защита от усыпления на мобильных: Wake Lock + Media Session + silent-audio.
+  // Активируем после mount'а (user gesture «Join» уже был), снимаем на unmount.
+  useEffect(() => {
+    const presence = useSessionStore.getState().voicePresence;
+    const title = presence?.channelName || 'Voice call';
+    const subtitle = presence?.groupName || '';
+    activateVoiceGuard(title, subtitle).catch(() => {});
+    return () => { deactivateVoiceGuard().catch(() => {}); };
+  }, []);
 
   const handleLeave = useCallback(() => {
     // Если это DM-звонок — сообщаем второй стороне отмену (её оверлей и рингтон
