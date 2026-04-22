@@ -173,14 +173,9 @@ def _to_out(msg: Message, user_id: uuid.UUID | None = None) -> MessageOut:
     )
 
 
-# Разрешённые MIME-типы вложений. SVG намеренно исключён — в нём может быть
-# исполняемый JS (XSS при просмотре в браузере через <img> в некоторых контекстах).
-_ALLOWED_MIME_PREFIXES = ('image/', 'audio/', 'video/')
-_ALLOWED_MIME_EXACT = {
-    'application/pdf', 'application/zip', 'application/x-zip-compressed',
-    'application/x-tar', 'application/x-rar-compressed', 'application/octet-stream',
-    'text/plain', 'text/markdown', 'text/csv',
-}
+# Белый список MIME отключён — разрешены любые вложения.
+# Оставлен только blacklist для SVG: в нём может быть исполняемый JS
+# (XSS при просмотре в браузере через <img> в некоторых контекстах).
 _BLOCKED_MIME = {'image/svg+xml', 'image/svg'}
 
 
@@ -201,8 +196,6 @@ def _validate_upload(file: UploadFile) -> None:
     ct = (file.content_type or '').split(';')[0].strip().lower()
     if ct in _BLOCKED_MIME:
         raise HTTPException(status_code=415, detail=f'Blocked MIME type: {ct}')
-    if ct and not ct.startswith(_ALLOWED_MIME_PREFIXES) and ct not in _ALLOWED_MIME_EXACT:
-        raise HTTPException(status_code=415, detail=f'Unsupported file type: {ct}')
 
 
 def _save_upload_sync(message_id: uuid.UUID, data: bytes, filename: str) -> str:
