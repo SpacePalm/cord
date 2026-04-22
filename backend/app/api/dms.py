@@ -12,7 +12,7 @@ Direct Messages — личная переписка 1-к-1.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
@@ -312,8 +312,11 @@ async def list_my_dms(
             unread_count=unread_counts.get(chat.id, 0),
         ))
 
-    # Сортировка: с активностью — по времени последнего, без — просто в конец
-    out.sort(key=lambda d: (d.last_message_at or datetime.min), reverse=True)
+    # Сортировка: с активностью — по времени последнего, без — просто в конец.
+    # datetime.min — naive, а last_message_at приходит из БД как aware (timestamptz).
+    # Прямое сравнение naive↔aware кидает TypeError, поэтому fallback тоже делаем aware.
+    _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+    out.sort(key=lambda d: (d.last_message_at or _EPOCH), reverse=True)
     return out
 
 
