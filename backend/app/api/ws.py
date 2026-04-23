@@ -70,6 +70,18 @@ async def websocket_endpoint(ws: WebSocket):
                 continue
 
             action = msg.get("action")
+
+            # Ping/pong — клиент шлёт каждые 25 сек, мы отвечаем pong'ом.
+            # Без активности идёт молчаливый дисконнект через 30 сек → клиент
+            # переподключается и подтягивает пропущенное. Держит соединение
+            # живым через nginx/мобильные прокси (они рубят idle WS).
+            if action == "ping":
+                try:
+                    await ws.send_json({"type": "pong"})
+                except Exception:
+                    pass
+                continue
+
             chat_id_str = msg.get("chat_id")
             if not action or not chat_id_str:
                 continue

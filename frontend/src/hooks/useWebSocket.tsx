@@ -136,14 +136,30 @@ export function useTypingUsers(chatId: string): string[] {
   return Array.from(users.values()).map((u) => u.name);
 }
 
+// Heartbeat: клиент шлёт ping каждые 25с, ждёт pong в течение 10с.
+// Если pong не пришёл — считаем сокет мёртвым, закрываем → авто-reconnect.
+// Без этого «тихо умершие» WS (nginx idle-timeout, мобильные NAT'ы) могут
+// висеть минутами без событий, а пользователь думает что всё работает.
+const HEARTBEAT_INTERVAL_MS = 25_000;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
+
 export function useCordWebSocket() {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const reconnectDelay = useRef(1000);
+  const pingTimer = useRef<ReturnType<typeof setInterval>>();
+  const pongTimer = useRef<ReturnType<typeof setTimeout>>();
   // Было ли это переподключение (а не первый коннект) — при reconnect-е нужно
   // подтянуть всё, что могло прийти во время дисконнекта.
   const reconnectedRef = useRef(false);
+
+  const clearHeartbeat = () => {
+    if (pingTimer.current) clearInterval(pingTimer.current);
+    if (pongTimer.current) clearTimeout(pongTimer.current);
+    pingTimer.current = undefined;
+    pongTimer.current = undefined;
+  };
 
   const connect = useCallback(() => {
     const token = localStorage.getItem('access_token');
@@ -162,15 +178,41 @@ export function useCordWebSocket() {
         queryClient.invalidateQueries({ queryKey: ['dms'] });
       }
       reconnectedRef.current = true;
+
+      // Запускаем heartbeat
+      clearHeartbeat();
+      pingTimer.current = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        try {
+          ws.send(JSON.stringify({ action: 'ping' }));
+        } catch {
+          return;
+        }
+        // Ждём pong; если не пришёл за 10с — закрываем, onclose триггерит reconnect.
+        if (pongTimer.current) clearTimeout(pongTimer.current);
+        pongTimer.current = setTimeout(() => {
+          try { ws.close(); } catch {}
+        }, HEARTBEAT_TIMEOUT_MS);
+      }, HEARTBEAT_INTERVAL_MS);
     };
 
     ws.onmessage = (ev) => {
-      let event: WsEvent;
+      let event: WsEvent | { type: 'pong' };
       try {
         event = JSON.parse(ev.data);
       } catch {
         return;
       }
+
+      // Pong — сервер подтвердил что соединение живо. Гасим таймер «нет pong'а».
+      if ((event as { type: string }).type === 'pong') {
+        if (pongTimer.current) clearTimeout(pongTimer.current);
+        pongTimer.current = undefined;
+        return;
+      }
+
+      // Далее обычные WS-события — type-narrowing уже сузил pong выше.
+      event = event as WsEvent;
 
       if (event.type === 'message_created') {
         // Уведомляем подписчиков (MessageNotifier) — они сами отфильтруют по настройкам
@@ -278,6 +320,7 @@ export function useCordWebSocket() {
 
     ws.onclose = (ev) => {
       wsRef.current = null;
+      clearHeartbeat();
       if (ev.code === 4001) return; // auth failure
       reconnectTimer.current = setTimeout(() => {
         reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30000);
@@ -312,9 +355,30 @@ export function useCordWebSocket() {
     return () => {
       clearTimeout(delay);
       clearTimeout(reconnectTimer.current);
+      clearHeartbeat();
       wsRef.current?.close();
     };
   }, [connect]);
+
+  // Когда вкладка возвращается в foreground — форсим refetch ключевых кэшей
+  // И проверяем WS: если в CLOSED/CLOSING — переоткрываем. Мобильные браузеры
+  // и OS любят усыплять фоновые вкладки, WS может быть «живым» на сервере, но
+  // события в очереди — либо наоборот, WS уже умер но onclose ещё не долетел.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      queryClient.invalidateQueries({ queryKey: ['unread'] });
+      queryClient.invalidateQueries({ queryKey: ['dms'] });
+      const ws = wsRef.current;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        clearTimeout(reconnectTimer.current);
+        connect();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [connect, queryClient]);
 
   return { reconnect, sendTyping, sendStopTyping };
 }
