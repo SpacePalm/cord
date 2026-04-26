@@ -178,15 +178,7 @@ function ProtectedImage({ url, onZoom }: { url: string; onZoom: (u: string) => v
     return <div className="mt-1 h-32 w-48 rounded bg-white/5 animate-pulse" />;
   }
   return (
-    <button
-      onClick={() => onZoom(src)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        downloadAttachment(url);
-      }}
-      className="block mt-1 rounded overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-    >
+    <button onClick={() => onZoom(src)} className="block mt-1 rounded overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
       <img src={src} alt="вложение" loading="lazy" className="max-h-64 max-w-sm rounded object-cover hover:brightness-90 transition-[filter] cursor-zoom-in" />
     </button>
   );
