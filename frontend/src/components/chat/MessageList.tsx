@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Pencil, Trash2, Forward, Check, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile } from 'lucide-react';
+import { X, Pencil, Trash2, Forward, Check, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile, Download } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
 import { pollsApi } from '../../api/polls';
 import { useAuthStore } from '../../store/authStore';
@@ -152,13 +152,41 @@ function VoicePlayer({ url }: { url: string }) {
 const AUDIO_RE = /\.(webm|ogg|mp3|wav|m4a|mp4|aac|opus)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg)$/i;
 
+function downloadAttachment(url: string) {
+  const rawName = decodeURIComponent(url.split('/').pop() ?? 'file');
+  const displayName = rawName.replace(/^[0-9a-f]{8}_/, '');
+  const token = localStorage.getItem('access_token');
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', toProtectedUrl(url));
+  if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+  xhr.responseType = 'blob';
+  xhr.addEventListener('load', () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(xhr.response);
+      a.download = displayName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+  });
+  xhr.send();
+}
+
 function ProtectedImage({ url, onZoom }: { url: string; onZoom: (u: string) => void }) {
   const src = useProtectedUrl(toProtectedUrl(url));
   if (!src) {
     return <div className="mt-1 h-32 w-48 rounded bg-white/5 animate-pulse" />;
   }
   return (
-    <button onClick={() => onZoom(src)} className="block mt-1 rounded overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
+    <button
+      onClick={() => onZoom(src)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        downloadAttachment(url);
+      }}
+      className="block mt-1 rounded overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+    >
       <img src={src} alt="вложение" loading="lazy" className="max-h-64 max-w-sm rounded object-cover hover:brightness-90 transition-[filter] cursor-zoom-in" />
     </button>
   );
@@ -625,6 +653,18 @@ function MessageContextMenu({
       <button onClick={handleCopy} className={menuItem}>
         <Copy size={14} /> {t('chat.copy')}
       </button>
+      {msg.attachments.length > 0 && (
+        <button
+          onClick={() => {
+            for (const url of msg.attachments) downloadAttachment(url);
+            onClose();
+          }}
+          className={menuItem}
+        >
+          <Download size={14} />
+          {msg.attachments.length > 1 ? `${t('chat.download')} (${msg.attachments.length})` : t('chat.download')}
+        </button>
+      )}
       <button onClick={() => { onPin(); onClose(); }} className={menuItem}>
         <Pin size={14} className={msg.is_pinned ? 'text-yellow-400' : ''} />
         {msg.is_pinned ? t('chat.unpin') : t('chat.pin')}

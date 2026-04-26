@@ -12,7 +12,7 @@ import {
   useTracks,
   useRoomContext,
 } from '@livekit/components-react';
-import { ConnectionState, Track, RemoteParticipant, RemoteAudioTrack, ScreenSharePresets, VideoPreset } from 'livekit-client';
+import { ConnectionState, Track, RemoteParticipant, RemoteAudioTrack, ScreenSharePresets, VideoPreset, AudioPresets, type RoomOptions } from 'livekit-client';
 import {
   Mic, MicOff, PhoneOff, Loader2, WifiOff,
   MonitorUp, MonitorOff, X, Volume2, VolumeX,
@@ -22,6 +22,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { voiceApi } from '../../api/voice';
 import { dmsApi } from '../../api/dms';
+import { pushRichToast } from '../../hooks/useUnreadCounts';
 import { useSessionStore } from '../../store/sessionStore';
 import { useAuthStore } from '../../store/authStore';
 import { useNotificationStore } from '../../store/notificationStore';
@@ -1004,13 +1005,30 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
               height: { ideal: preset.resolution.height },
             });
           }
+          await localParticipant.publishTrack(track, preset ? {
+            videoEncoding: preset.encoding,
+          } : undefined);
+        } else if (track.kind === 'audio') {
+          // Музыка/системный звук: высокое качество, без DTX (он рубит "тихую" музыку),
+          // RED для устойчивости к потерям, стерео.
+          await localParticipant.publishTrack(track, {
+            audioPreset: AudioPresets.musicHighQualityStereo,
+            dtx: false,
+            red: true,
+            forceStereo: true,
+          });
         }
-        await localParticipant.publishTrack(track, preset ? {
-          videoEncoding: preset.encoding,
-        } : undefined);
+      }
+      // Если юзер просил аудио, но браузер его не захватил — обычно из-за того,
+      // что в диалоге share-screen не отмечен чекбокс "Поделиться аудио".
+      if (settings.audio && !tracks.some((tr) => tr.kind === 'audio')) {
+        pushRichToast({
+          title: t('voice.screenShare'),
+          message: t('voice.screenAudioNotCaptured'),
+        });
       }
     } catch { /* cancelled */ }
-  }, [localParticipant]);
+  }, [localParticipant, t]);
 
   return (
     <>
@@ -1132,6 +1150,14 @@ export function VoiceRoom({ channelId }: VoiceRoomProps) {
   }, [leaveVoice, channelId]);
   const handleError = useCallback((err: Error) => console.error('[VoiceRoom] LiveKit error:', err), []);
 
+  const roomOptions: RoomOptions = {
+    publishDefaults: {
+      red: true,
+      // dtx: false,
+      audioPreset: AudioPresets.speech,
+    },
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
@@ -1154,7 +1180,7 @@ export function VoiceRoom({ channelId }: VoiceRoomProps) {
   return (
     <div className="flex-1 h-0 flex flex-col overflow-hidden">
       <VolumeContext.Provider value={volumeCtx} >
-        <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={autoMic} video={false} onError={handleError} className="flex-1 h-0 flex flex-col overflow-hidden">
+        <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={autoMic} video={false} onError={handleError} options={roomOptions} className="flex-1 h-0 flex flex-col overflow-hidden">
           <RoomAudioRenderer />
           <ParticipantSync />
           <VolumeApplier />
