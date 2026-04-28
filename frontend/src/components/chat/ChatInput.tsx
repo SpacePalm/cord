@@ -251,6 +251,7 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
   const [pollDraft, setPollDraft] = useState<PollDraft>({ question: '', options: ['', ''] });
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [codeLangOpen, setCodeLangOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const codeBtnRef = useRef<HTMLButtonElement>(null);
 
   const draft = useSessionStore((s) => s.drafts[channelId] ?? '');
@@ -404,17 +405,19 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
-    const imageFiles: File[] = [];
+    const pastedFiles: File[] = [];
     for (const item of e.clipboardData.items) {
+      if (item.kind !== 'file') continue;
+      const file = item.getAsFile();
+      if (!file) continue;
       if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          const ext = item.type.split('/')[1] ?? 'png';
-          imageFiles.push(new File([file], `screenshot-${Date.now()}.${ext}`, { type: item.type }));
-        }
+        const ext = item.type.split('/')[1] ?? 'png';
+        pastedFiles.push(new File([file], `screenshot-${Date.now()}.${ext}`, { type: item.type }));
+      } else {
+        pastedFiles.push(file);
       }
     }
-    if (imageFiles.length > 0) { e.preventDefault(); addAttachments(channelId, imageFiles); }
+    if (pastedFiles.length > 0) { e.preventDefault(); addAttachments(channelId, pastedFiles); }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -478,10 +481,19 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
         {/* Live formatting preview */}
         {draft.trim() && hasFormatting(draft) && (
           <div className="px-3 pt-2 pb-1">
-            <p className="text-[10px] text-[var(--text-muted)] mb-1 uppercase tracking-wide">{t('chat.preview')}</p>
-            <p className="text-sm text-[var(--text-secondary)] leading-relaxed break-words whitespace-pre-wrap">
-              {renderContent(draft)}
-            </p>
+            <button
+              type="button"
+              onClick={() => setPreviewOpen((v) => !v)}
+              className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide hover:text-[var(--text-secondary)] transition-colors mb-1"
+            >
+              <span>{previewOpen ? '▾' : '▸'}</span>
+              <span>{t('chat.preview')}</span>
+            </button>
+            {previewOpen && (
+              <p className="text-sm text-[var(--text-secondary)] leading-relaxed break-words whitespace-pre-wrap">
+                {renderContent(draft)}
+              </p>
+            )}
           </div>
         )}
 

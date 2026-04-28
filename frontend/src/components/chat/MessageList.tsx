@@ -957,6 +957,7 @@ function MessageList({ chatId, onReply }, ref) {
   const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [forwardMsgs, setForwardMsgs] = useState<Message[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -974,7 +975,15 @@ function MessageList({ chatId, onReply }, ref) {
     setHasMore(true);
     setHasNewer(false);
     setJumped(false);
+    setLoadingMore(false);
+    setLoadingNewer(false);
   }, [chatId]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
 
   const { data: latest = [], isLoading } = useQuery({
     queryKey: ['messages', chatId],
@@ -1108,7 +1117,8 @@ function MessageList({ chatId, onReply }, ref) {
     const el = document.getElementById(`msg-${messageId}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setHighlightId(messageId);
-    setTimeout(() => setHighlightId(null), 1500);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightId(null), 1500);
   }, []);
 
   const scrollAndHighlight = useCallback((msgId: string) => {
@@ -1116,7 +1126,8 @@ function MessageList({ chatId, onReply }, ref) {
     if (!el) return false;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setHighlightId(msgId);
-    setTimeout(() => setHighlightId(null), 1800);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightId(null), 1800);
     return true;
   }, []);
 

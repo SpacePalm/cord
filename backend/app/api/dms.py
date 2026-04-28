@@ -266,18 +266,6 @@ async def list_my_dms(
     unread_counts: dict[uuid.UUID, int] = {}
     if chat_ids:
         epoch = datetime(1970, 1, 1)
-        count_stmt = (
-            select(
-                Message.chat_id,
-                sa_func.count(Message.id).label('cnt'),
-            )
-            .where(Message.chat_id.in_(chat_ids))
-            .group_by(Message.chat_id)
-        )
-        # Дополнительно фильтруем каждое по своему last_read_at
-        for row in (await db.execute(count_stmt)).all():
-            # Подсчёт тут без фильтра — пересчитаем ниже отдельно
-            pass
         # Точный подсчёт с учётом last_read_at:
         for cid in chat_ids:
             last_read = ucs_map.get(cid).last_read_at if cid in ucs_map else epoch
