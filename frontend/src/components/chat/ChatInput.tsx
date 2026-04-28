@@ -9,13 +9,16 @@
 //  - Voice messages: microphone recording button
 //  - Polls: poll creation form with question and options
 
-import { useRef, useEffect, useCallback, useState, type RefObject } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Paperclip, X, FileText, Send, CornerUpLeft, Mic, MicOff, BarChart2, Plus, Trash2, Code } from 'lucide-react';
 import { useSessionStore } from '../../store/sessionStore';
+import { useAuthStore } from '../../store/authStore';
 import { renderContent, hasFormatting } from '../../utils/renderContent';
-import type { Message } from '../../types';
+import type { Message, Member } from '../../types';
 import { useT } from '../../i18n';
+import { useQuery } from '@tanstack/react-query';
+import { groupsApi } from '../../api/groups';
 
 interface PollDraft {
   question: string;
@@ -25,11 +28,15 @@ interface PollDraft {
 interface ChatInputProps {
   channelId: string;
   channelName: string;
+  /** ID группы, в которой находится канал — нужен для автокомплита @упоминаний. */
+  groupId?: string;
   replyTo?: Message | null;
   onClearReply?: () => void;
   onFocus?: () => void;
   onTyping?: () => void;
   onStopTyping?: () => void;
+  /** ↑ при пустом инпуте — попросить родителя включить редактирование последнего своего сообщения. */
+  onEditLast?: () => void;
   onSend: (
     text: string,
     attachments: File[],
@@ -233,7 +240,7 @@ function ChatEmojiPicker({ visible, onSelect, onClose, anchorRef }: { visible: b
 // После этого периода бездействия шлём stop_typing, чтобы у собеседников не висел индикатор.
 const TYPING_IDLE_MS = 4000;
 
-export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFocus, onTyping, onStopTyping, onSend }: ChatInputProps) {
+export function ChatInput({ channelId, channelName, groupId, replyTo, onClearReply, onFocus, onTyping, onStopTyping, onEditLast, onSend }: ChatInputProps) {
   const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -254,6 +261,7 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
   const [previewOpen, setPreviewOpen] = useState(false);
   const codeBtnRef = useRef<HTMLButtonElement>(null);
 
+  const selfUsername = useAuthStore((s) => s.user?.username);
   const draft = useSessionStore((s) => s.drafts[channelId] ?? '');
   const setDraft = useSessionStore((s) => s.setDraft);
   const clearDraft = useSessionStore((s) => s.clearDraft);
@@ -274,11 +282,101 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
   useEffect(() => {
     setPollOpen(false);
     setPollDraft({ question: '', options: ['', ''] });
+    setMention(null);
   }, [channelId]);
 
   const adjustHeight = (el: HTMLTextAreaElement) => {
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  };
+
+  // ── @mention автокомплит ───────────────────────────────────────────────
+  // mention.start — позиция `@` в draft; query — текст после `@` до каретки.
+  // null — автокомплит выключен. Открывается при наборе `@` после пробела/начала.
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
+
+  const { data: members = [] } = useQuery<Member[]>({
+    queryKey: ['members', groupId],
+    queryFn: () => groupsApi.getMembers(groupId!),
+    enabled: !!groupId && !!mention,
+    staleTime: 60_000,
+  });
+
+  // Кандидаты: префиксное совпадение по username/display_name приоритетнее substring.
+  // Себя из списка убираем — упоминать самого себя бессмысленно.
+  const mentionCandidates = useMemo<Member[]>(() => {
+    if (!mention) return [];
+    const q = mention.query.toLowerCase();
+    const filtered = members.filter((m) => {
+      if (m.username === selfUsername) return false;
+      if (!q) return true;
+      return m.username.toLowerCase().includes(q)
+          || m.display_name.toLowerCase().includes(q);
+    });
+    filtered.sort((a, b) => {
+      const aPref = a.username.toLowerCase().startsWith(q) ? 0 : 1;
+      const bPref = b.username.toLowerCase().startsWith(q) ? 0 : 1;
+      if (aPref !== bPref) return aPref - bPref;
+      return a.username.localeCompare(b.username);
+    });
+    return filtered.slice(0, 8);
+  }, [members, mention, selfUsername]);
+
+  useEffect(() => { setMentionIdx(0); }, [mention?.query]);
+
+  // Координаты дропдауна — пересчитываются по позиции textarea при открытии/изменении.
+  const [mentionPos, setMentionPos] = useState<{ bottom: number; left: number; width: number } | null>(null);
+  useEffect(() => {
+    if (!mention || !textareaRef.current) { setMentionPos(null); return; }
+    const rect = textareaRef.current.getBoundingClientRect();
+    setMentionPos({
+      bottom: window.innerHeight - rect.top + 6,
+      left: rect.left,
+      width: Math.max(240, Math.min(rect.width, 360)),
+    });
+  }, [mention]);
+
+  // Поиск активного @-токена непосредственно перед кареткой.
+  // Возвращает позицию `@` и query, либо null если токена нет.
+  const detectMention = (text: string, caret: number): { start: number; query: string } | null => {
+    let i = caret - 1;
+    while (i >= 0) {
+      const ch = text[i];
+      if (ch === '@') {
+        // Перед @ должен быть пробел/перенос или начало строки. Иначе это часть слова (e-mail).
+        const prev = i > 0 ? text[i - 1] : ' ';
+        if (/\s/.test(prev) || i === 0) {
+          return { start: i, query: text.slice(i + 1, caret) };
+        }
+        return null;
+      }
+      // Допустимые символы внутри username — A-Za-z0-9_; всё остальное закрывает токен.
+      if (!/[A-Za-z0-9_]/.test(ch)) return null;
+      i--;
+    }
+    return null;
+  };
+
+  const closeMention = () => setMention(null);
+
+  const insertMention = (member: Member) => {
+    if (!mention) return;
+    const el = textareaRef.current;
+    const caret = el?.selectionStart ?? draft.length;
+    const before = draft.slice(0, mention.start);
+    const after = draft.slice(caret);
+    const insert = `@${member.username} `;
+    const newText = before + insert + after;
+    setDraft(channelId, newText);
+    closeMention();
+    requestAnimationFrame(() => {
+      if (!el) return;
+      const pos = before.length + insert.length;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+      adjustHeight(el);
+    });
   };
 
   // Состояние "печатает": активно от первого нажатия до TYPING_IDLE_MS без ввода или отправки.
@@ -297,9 +395,14 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
   }, [onStopTyping]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setDraft(channelId, e.target.value);
+    const value = e.target.value;
+    setDraft(channelId, value);
     adjustHeight(e.target);
-    if (e.target.value.length === 0) {
+    // Детект @-токена под кареткой — открываем/обновляем дропдаун.
+    const caret = e.target.selectionStart ?? value.length;
+    const m = detectMention(value, caret);
+    setMention(m);
+    if (value.length === 0) {
       stopTyping();
       return;
     }
@@ -309,6 +412,14 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
     }
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(stopTyping, TYPING_IDLE_MS);
+  };
+
+  // При перемещении каретки (стрелки, клик) — пересчитываем токен.
+  const handleSelectionChange = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    const caret = el.selectionStart ?? draft.length;
+    const m = detectMention(draft, caret);
+    setMention(m);
   };
 
   // При смене канала / размонтировании — гасим индикатор
@@ -401,7 +512,54 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
   }, [draft, attachments, channelId, replyTo, pollOpen, pollDraft, onSend, clearDraft, clearAttachments, onClearReply, stopTyping]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    // Навигация автокомплита @упоминаний — выше всех остальных хоткеев.
+    if (mention && mentionCandidates.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIdx((i) => Math.min(i + 1, mentionCandidates.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIdx((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertMention(mentionCandidates[mentionIdx]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMention();
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); return; }
+
+    // Esc — отмена reply (приоритет над редактированием, которое идёт внутри сообщения).
+    if (e.key === 'Escape' && replyTo) {
+      e.preventDefault();
+      onClearReply?.();
+      return;
+    }
+
+    // ↑ при пустом инпуте — редактировать последнее своё сообщение.
+    if (e.key === 'ArrowUp' && draft.length === 0 && !replyTo && onEditLast) {
+      e.preventDefault();
+      onEditLast();
+      return;
+    }
+
+    // Ctrl/Cmd-форматирование. На Mac и Win/Linux одинаковые комбинации.
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase();
+      // Учитываем ru-раскладку: и/ш/у — те же позиции что b/i/e на en.
+      if (k === 'b' || k === 'и') { e.preventDefault(); wrapSelection('**', '**'); return; }
+      if (k === 'i' || k === 'ш') { e.preventDefault(); wrapSelection('*', '*'); return; }
+      if (k === 'e' || k === 'у') { e.preventDefault(); wrapSelection('`', '`'); return; }
+    }
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -491,7 +649,7 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
             </button>
             {previewOpen && (
               <p className="text-sm text-[var(--text-secondary)] leading-relaxed break-words whitespace-pre-wrap">
-                {renderContent(draft)}
+                {renderContent(draft, selfUsername)}
               </p>
             )}
           </div>
@@ -655,14 +813,59 @@ export function ChatInput({ channelId, channelName, replyTo, onClearReply, onFoc
               value={draft}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
+              onKeyUp={handleSelectionChange}
+              onClick={handleSelectionChange}
               onPaste={handlePaste}
               onFocus={onFocus}
-              onBlur={stopTyping}
+              onBlur={(e) => {
+                stopTyping();
+                // Не закрываем mention сразу — пользователь может кликать в дропдаун.
+                // Поэтому отложим: если фокус ушёл вне textarea, mention закроется
+                // через клик-обработчик в портале. Здесь только typing.
+                void e;
+              }}
               placeholder={`${t('chat.writeTo')}${channelName}`}
               rows={1}
               className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-sm outline-none resize-none leading-5 py-1"
               style={{ maxHeight: '200px' }}
             />
+
+            {mention && mentionCandidates.length > 0 && mentionPos && createPortal(
+              <>
+                <div className="fixed inset-0 z-40" onMouseDown={closeMention} />
+                <div
+                  className="fixed z-50 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl py-1 max-h-64 overflow-y-auto"
+                  style={{ bottom: mentionPos.bottom, left: mentionPos.left, width: mentionPos.width }}
+                  onMouseDown={(e) => e.preventDefault() /* не теряем фокус textarea */}
+                >
+                  {mentionCandidates.map((m, i) => (
+                    <button
+                      key={m.user_id}
+                      type="button"
+                      onMouseEnter={() => setMentionIdx(i)}
+                      onClick={() => insertMention(m)}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors ${
+                        i === mentionIdx
+                          ? 'bg-[var(--accent)]/15 text-[var(--text-primary)]'
+                          : 'text-[var(--text-secondary)] hover:bg-white/5'
+                      }`}
+                    >
+                      {m.image_path ? (
+                        <img src={m.image_path} alt="" className="w-5 h-5 rounded-full object-cover shrink-0" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-[var(--accent)] flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                          {(m.display_name || m.username).slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="font-medium truncate">{m.display_name || m.username}</span>
+                      <span className="text-xs text-[var(--text-muted)] truncate">@{m.username}</span>
+                      {m.is_online && <span className="ml-auto w-2 h-2 rounded-full bg-green-500 shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </>,
+              document.body,
+            )}
 
             {/* Voice recording */}
             <button

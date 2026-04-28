@@ -105,9 +105,11 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
 // renderContent — code blocks, inline code, URL, **bold**, *italic*, ||spoiler||
 // ---------------------------------------------------------------------------
 const CODE_BLOCK_RE = /```(\w*)\n?([\s\S]*?)```/g;
-const INLINE_RE = /(`[^`\n]+?`|\|\|(.+?)\|\||\*\*(.+?)\*\*|\*([^*\n]+?)\*|_([^_\n]+?)_|https?:\/\/[^\s<>"']+)/gs;
+// Lookbehind (?<!\w) защищает от ложных срабатываний на e-mail и подобных:
+// `email@example.com` не превращается в упоминание.
+const INLINE_RE = /(`[^`\n]+?`|\|\|(.+?)\|\||\*\*(.+?)\*\*|\*([^*\n]+?)\*|_([^_\n]+?)_|https?:\/\/[^\s<>"']+|(?<!\w)@[A-Za-z0-9_]{2,32})/gs;
 
-function renderInline(text: string): React.ReactNode[] {
+function renderInline(text: string, selfUsername?: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const re = new RegExp(INLINE_RE.source, INLINE_RE.flags);
   let last = 0;
@@ -141,6 +143,20 @@ function renderInline(text: string): React.ReactNode[] {
         </a>
       );
       if (tail) nodes.push(tail);
+    } else if (full.startsWith('@')) {
+      const username = full.slice(1);
+      const isSelf = !!selfUsername && username.toLowerCase() === selfUsername.toLowerCase();
+      nodes.push(
+        <span
+          key={key++}
+          className={isSelf
+            ? 'rounded px-1 -mx-0.5 bg-[var(--accent)]/25 text-[var(--accent)] font-semibold'
+            : 'text-[var(--accent)] font-medium hover:underline cursor-pointer'
+          }
+        >
+          {full}
+        </span>
+      );
     }
     last = m.index + full.length;
   }
@@ -149,7 +165,7 @@ function renderInline(text: string): React.ReactNode[] {
   return nodes;
 }
 
-export function renderContent(text: string): React.ReactNode[] {
+export function renderContent(text: string, selfUsername?: string): React.ReactNode[] {
   // First split by fenced code blocks
   const parts: React.ReactNode[] = [];
   const re = new RegExp(CODE_BLOCK_RE.source, CODE_BLOCK_RE.flags);
@@ -159,14 +175,14 @@ export function renderContent(text: string): React.ReactNode[] {
 
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) {
-      parts.push(...renderInline(text.slice(last, m.index)));
+      parts.push(...renderInline(text.slice(last, m.index), selfUsername));
     }
     parts.push(<CodeBlock key={`cb${key++}`} lang={m[1] || undefined} code={m[2].replace(/\n$/, '')} />);
     last = m.index + m[0].length;
   }
 
   if (last < text.length) {
-    parts.push(...renderInline(text.slice(last)));
+    parts.push(...renderInline(text.slice(last), selfUsername));
   }
 
   return parts;

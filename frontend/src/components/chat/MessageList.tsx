@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Pencil, Trash2, Forward, Check, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile, Download } from 'lucide-react';
+import { X, Pencil, Trash2, Forward, Check, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile, Download, Bookmark } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
+import { bookmarksApi } from '../../api/bookmarks';
 import { pollsApi } from '../../api/polls';
 import { useAuthStore } from '../../store/authStore';
 import { ForwardModal } from './ForwardModal';
@@ -577,11 +578,11 @@ function ReactionBar({ msg, onReact }: { msg: Message; onReact: (emoji: string) 
 // MessageContextMenu — открывается по ПКМ, позиционируется у курсора
 // ---------------------------------------------------------------------------
 function MessageContextMenu({
-  x, y, msg, isOwn, onEdit, onDelete, onForward, onReply, onPin, onSelect, onReact, onClose,
+  x, y, msg, isOwn, isBookmarked, onEdit, onDelete, onForward, onReply, onPin, onBookmark, onSelect, onReact, onClose,
 }: {
-  x: number; y: number; msg: Message; isOwn: boolean;
+  x: number; y: number; msg: Message; isOwn: boolean; isBookmarked: boolean;
   onEdit: () => void; onDelete: () => void; onForward: () => void; onReply: () => void; onPin: () => void;
-  onSelect: () => void; onReact: (emoji: string) => void; onClose: () => void;
+  onBookmark: () => void; onSelect: () => void; onReact: (emoji: string) => void; onClose: () => void;
 }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -661,6 +662,10 @@ function MessageContextMenu({
         <Pin size={14} className={msg.is_pinned ? 'text-yellow-400' : ''} />
         {msg.is_pinned ? t('chat.unpin') : t('chat.pin')}
       </button>
+      <button onClick={() => { onBookmark(); onClose(); }} className={menuItem}>
+        <Bookmark size={14} className={isBookmarked ? 'text-yellow-400 fill-yellow-400' : ''} />
+        {isBookmarked ? t('chat.unbookmark') : t('chat.bookmark')}
+      </button>
       <button onClick={() => { onForward(); onClose(); }} className={menuItem}>
         <Forward size={14} /> {t('chat.forwardBtn')}
       </button>
@@ -680,11 +685,11 @@ function MessageContextMenu({
 // MessageActions
 // ---------------------------------------------------------------------------
 function MessageActions({
-  msg, isOwn, onEdit, onDelete, onForward, onReply, onPin, onSelect, onReact,
+  msg, isOwn, isBookmarked, onEdit, onDelete, onForward, onReply, onPin, onBookmark, onSelect, onReact,
 }: {
-  msg: Message; isOwn: boolean;
+  msg: Message; isOwn: boolean; isBookmarked: boolean;
   onEdit: () => void; onDelete: () => void; onForward: () => void; onReply: () => void; onPin: () => void;
-  onSelect: () => void; onReact: (emoji: string) => void;
+  onBookmark: () => void; onSelect: () => void; onReact: (emoji: string) => void;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -746,6 +751,10 @@ function MessageActions({
               <Pin size={14} className={msg.is_pinned ? 'text-yellow-400' : ''} />
               {msg.is_pinned ? t('chat.unpin') : t('chat.pin')}
             </button>
+            <button onClick={() => { onBookmark(); setMenuOpen(false); }} className={menuItem}>
+              <Bookmark size={14} className={isBookmarked ? 'text-yellow-400 fill-yellow-400' : ''} />
+              {isBookmarked ? t('chat.unbookmark') : t('chat.bookmark')}
+            </button>
             <button onClick={() => { onForward(); setMenuOpen(false); }} className={menuItem}>
               <Forward size={14} /> {t('chat.forwardBtn')}
             </button>
@@ -763,19 +772,25 @@ function MessageActions({
 // MessageItem
 // ---------------------------------------------------------------------------
 function MessageItem({
-  msg, prevMsg, highlighted, onZoom, onForward, onDelete, onReply, onScrollTo, onPin,
-  selecting, selected, onToggleSelect, onReact,
+  msg, prevMsg, highlighted, showUnreadDivider, onZoom, onForward, onDelete, onReply, onScrollTo, onPin,
+  selecting, selected, onToggleSelect, onReact, editing, onStartEdit, onEndEdit,
+  isBookmarked, onBookmark,
 }: {
   msg: Message; prevMsg?: Message; highlighted: boolean;
+  showUnreadDivider: boolean;
   onZoom: (url: string) => void; onForward: (msg: Message) => void;
   onDelete: (msg: Message) => void; onReply: (msg: Message) => void;
   onScrollTo: (messageId: string) => void; onPin: (msg: Message) => void;
-  selecting: boolean; selected: boolean; onToggleSelect: (msg: Message) => void;
+  selecting: boolean; selected: boolean;
+  onToggleSelect: (msg: Message, e?: React.MouseEvent) => void;
   onReact: (msg: Message, emoji: string) => void;
+  editing: boolean; onStartEdit: () => void; onEndEdit: () => void;
+  isBookmarked: boolean; onBookmark: (msg: Message) => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const t = useT();
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const currentUserId = useAuthStore((s) => s.user?.id);
+  const currentUser = useAuthStore((s) => s.user);
+  const currentUserId = currentUser?.id;
   const locale = useLocale();
   const isOwn = msg.author_id === currentUserId;
   const userActions = useUserActionsPopover();
@@ -809,10 +824,19 @@ function MessageItem({
           <div className="flex-1 h-px bg-[var(--border-color)]" />
         </div>
       )}
+      {showUnreadDivider && (
+        <div id="unread-divider" className="flex items-center gap-3 my-2 px-4">
+          <div className="flex-1 h-px bg-[var(--danger)]/60" />
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-[var(--danger)] whitespace-nowrap">
+            {t('chat.newMessages')}
+          </span>
+          <div className="flex-1 h-px bg-[var(--danger)]/60" />
+        </div>
+      )}
 
       <div
         id={`msg-${msg.id}`}
-        onClick={selecting ? () => onToggleSelect(msg) : undefined}
+        onClick={selecting ? (e) => onToggleSelect(msg, e) : undefined}
         onContextMenu={(e) => {
           if (selecting || editing) return;
           e.preventDefault();
@@ -829,12 +853,13 @@ function MessageItem({
         )}
         {!selecting && (
           <MessageActions
-            msg={msg} isOwn={isOwn}
-            onEdit={() => setEditing(true)}
+            msg={msg} isOwn={isOwn} isBookmarked={isBookmarked}
+            onEdit={onStartEdit}
             onDelete={() => onDelete(msg)}
             onForward={() => onForward(msg)}
             onReply={() => onReply(msg)}
             onPin={() => onPin(msg)}
+            onBookmark={() => onBookmark(msg)}
             onSelect={() => onToggleSelect(msg)}
             onReact={(emoji) => onReact(msg, emoji)}
           />
@@ -879,17 +904,20 @@ function MessageItem({
           <ForwardedBanner msg={msg} />
 
           {editing ? (
-            <EditForm msg={msg} onDone={() => setEditing(false)} />
+            <EditForm msg={msg} onDone={onEndEdit} />
           ) : (
             <>
               {msg.content && (
                 <div className="text-sm text-[var(--text-secondary)] leading-relaxed break-words whitespace-pre-wrap">
-                  {renderContent(msg.content)}
+                  {renderContent(msg.content, currentUser?.username)}
                   {msg.is_edited && (
                     <span className="ml-1 text-xs text-[var(--text-muted)]">(изм.)</span>
                   )}
                   {msg.is_pinned && (
                     <Pin size={10} className="inline ml-1 text-yellow-400" />
+                  )}
+                  {isBookmarked && (
+                    <Bookmark size={10} className="inline ml-1 text-yellow-400 fill-yellow-400" />
                   )}
                 </div>
               )}
@@ -923,12 +951,13 @@ function MessageItem({
       </div>
       {ctxMenu && (
         <MessageContextMenu
-          x={ctxMenu.x} y={ctxMenu.y} msg={msg} isOwn={isOwn}
-          onEdit={() => setEditing(true)}
+          x={ctxMenu.x} y={ctxMenu.y} msg={msg} isOwn={isOwn} isBookmarked={isBookmarked}
+          onEdit={onStartEdit}
           onDelete={() => onDelete(msg)}
           onForward={() => onForward(msg)}
           onReply={() => onReply(msg)}
           onPin={() => onPin(msg)}
+          onBookmark={() => onBookmark(msg)}
           onSelect={() => onToggleSelect(msg)}
           onReact={(emoji) => onReact(msg, emoji)}
           onClose={() => setCtxMenu(null)}
@@ -949,6 +978,8 @@ interface MessageListProps {
 
 export interface MessageListHandle {
   jumpTo: (msgId: string, createdAt: string) => void;
+  /** Включает режим редактирования для последнего своего сообщения; вернёт true, если такое нашлось. */
+  editLast: () => boolean;
 }
 
 export const MessageList = forwardRef<MessageListHandle, MessageListProps>(
@@ -969,6 +1000,16 @@ function MessageList({ chatId, onReply }, ref) {
   const [jumped, setJumped] = useState(false);
   const [hasNewer, setHasNewer] = useState(false);
   const [loadingNewer, setLoadingNewer] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  // ISO timestamp последнего прочитанного сообщения, зафиксированный при первом
+  // открытии чата. Разделитель «новые сообщения» рендерится перед первым
+  // сообщением с created_at > unreadAnchor. Сбрасывается при смене чата и при
+  // явном dismiss (скролл к низу).
+  const [unreadAnchor, setUnreadAnchor] = useState<string | null>(null);
+  // chatId, для которого state-запрос завершён (важно для логики первого скролла —
+  // ждём данные обоих запросов перед решением, куда скроллить).
+  const [stateLoadedFor, setStateLoadedFor] = useState<string | null>(null);
 
   useEffect(() => {
     setOlderMessages([]);
@@ -977,6 +1018,21 @@ function MessageList({ chatId, onReply }, ref) {
     setJumped(false);
     setLoadingMore(false);
     setLoadingNewer(false);
+    setEditingId(null);
+    setLastSelectedId(null);
+    setUnreadAnchor(null);
+    setStateLoadedFor(null);
+    // Получаем last_read_at чата — точку, до которой пользователь дочитал.
+    // Используем как якорь для разделителя «новые сообщения».
+    let cancelled = false;
+    messagesApi.state(chatId)
+      .then((s) => {
+        if (cancelled) return;
+        if (s?.last_read_at) setUnreadAnchor(s.last_read_at);
+        setStateLoadedFor(chatId);
+      })
+      .catch(() => { if (!cancelled) setStateLoadedFor(chatId); });
+    return () => { cancelled = true; };
   }, [chatId]);
 
   useEffect(() => {
@@ -1041,14 +1097,16 @@ function MessageList({ chatId, onReply }, ref) {
     if (el.scrollTop < 100 && hasMore && !loadingMore) {
       loadMore();
     }
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     // Подгрузка новых — скролл близко к низу (только в jumped-режиме)
-    if (jumped && hasNewer && !loadingNewer) {
-      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (distFromBottom < 100) {
-        loadNewer();
-      }
+    if (jumped && hasNewer && !loadingNewer && distFromBottom < 100) {
+      loadNewer();
     }
-  }, [hasMore, loadingMore, loadMore, jumped, hasNewer, loadingNewer, loadNewer]);
+    // Пользователь дочитал до низа — убираем разделитель «новые сообщения».
+    if (unreadAnchor && distFromBottom < 50) {
+      setUnreadAnchor(null);
+    }
+  }, [hasMore, loadingMore, loadMore, jumped, hasNewer, loadingNewer, loadNewer, unreadAnchor]);
 
   const prevLenRef = useRef(0);
   useEffect(() => {
@@ -1058,9 +1116,29 @@ function MessageList({ chatId, onReply }, ref) {
     prevLenRef.current = latest.length;
   }, [latest.length]);
 
+  // При открытии чата — если есть unread anchor и непрочитанные сообщения,
+  // скроллим к разделителю; иначе — вниз. Ждём загрузку и messages, и state,
+  // чтобы не упустить unreadAnchor из-за гонки запросов.
+  const initialScrollDoneRef = useRef<string | null>(null);
   useEffect(() => {
-    setTimeout(() => bottomRef.current?.scrollIntoView(), 0);
-  }, [chatId]);
+    if (initialScrollDoneRef.current === chatId) return;
+    if (isLoading || messages.length === 0) return;
+    if (stateLoadedFor !== chatId) return;
+    initialScrollDoneRef.current = chatId;
+    const firstUnread = unreadAnchor
+      ? messages.find((m) => new Date(m.created_at) > new Date(unreadAnchor))
+      : undefined;
+    setTimeout(() => {
+      if (firstUnread) {
+        const el = document.getElementById(`msg-${firstUnread.id}`);
+        if (el) {
+          el.scrollIntoView({ block: 'center' });
+          return;
+        }
+      }
+      bottomRef.current?.scrollIntoView();
+    }, 0);
+  }, [chatId, isLoading, messages, unreadAnchor, stateLoadedFor]);
 
   const handleDelete = useCallback((msg: Message) => {
     if (!confirm(t('chat.deleteConfirm'))) return;
@@ -1074,16 +1152,36 @@ function MessageList({ chatId, onReply }, ref) {
   const handleForward = useCallback((msg: Message) => setForwardMsgs([msg]), []);
   const handleReply = useCallback((msg: Message) => onReply(msg), [onReply]);
 
-  const handleToggleSelect = useCallback((msg: Message) => {
+  const handleToggleSelect = useCallback((msg: Message, e?: React.MouseEvent) => {
+    // Shift+click — выделить диапазон от lastSelectedId до текущего по индексу
+    // в текущем порядке messages. Cmd/Ctrl+click и обычный клик — toggle одного.
+    if (e?.shiftKey && lastSelectedId) {
+      const aIdx = messages.findIndex((m) => m.id === lastSelectedId);
+      const bIdx = messages.findIndex((m) => m.id === msg.id);
+      if (aIdx >= 0 && bIdx >= 0) {
+        const [from, to] = aIdx < bIdx ? [aIdx, bIdx] : [bIdx, aIdx];
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (let i = from; i <= to; i++) next.add(messages[i].id);
+          return next;
+        });
+        setLastSelectedId(msg.id);
+        return;
+      }
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(msg.id)) next.delete(msg.id);
       else next.add(msg.id);
       return next;
     });
-  }, []);
+    setLastSelectedId(msg.id);
+  }, [lastSelectedId, messages]);
 
-  const handleCancelSelection = useCallback(() => setSelectedIds(new Set()), []);
+  const handleCancelSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setLastSelectedId(null);
+  }, []);
 
   const handleBulkDelete = useCallback(() => {
     const count = selectedIds.size;
@@ -1113,6 +1211,29 @@ function MessageList({ chatId, onReply }, ref) {
     });
   }, [chatId, queryClient]);
 
+  // Закладки в текущем чате — Set для O(1) проверки в строках сообщений.
+  const { data: bookmarkedIds = [] } = useQuery<string[]>({
+    queryKey: ['bookmarks', chatId],
+    queryFn: () => bookmarksApi.inChat(chatId),
+    staleTime: 60_000,
+  });
+  const bookmarkedSet = useMemo(() => new Set(bookmarkedIds), [bookmarkedIds]);
+
+  const handleBookmark = useCallback((msg: Message) => {
+    const isBookmarked = bookmarkedSet.has(msg.id);
+    // Оптимистичное обновление: сразу меняем кэш, потом синхронизируем.
+    queryClient.setQueryData<string[]>(['bookmarks', chatId], (prev = []) =>
+      isBookmarked ? prev.filter((id) => id !== msg.id) : [...prev, msg.id],
+    );
+    const op = isBookmarked ? bookmarksApi.remove(msg.id) : bookmarksApi.add(msg.id);
+    op.then(() => {
+      queryClient.invalidateQueries({ queryKey: ['my-bookmarks'] });
+    }).catch(() => {
+      // Откатываем при ошибке.
+      queryClient.invalidateQueries({ queryKey: ['bookmarks', chatId] });
+    });
+  }, [bookmarkedSet, chatId, queryClient]);
+
   const handleScrollTo = useCallback((messageId: string) => {
     const el = document.getElementById(`msg-${messageId}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1139,6 +1260,22 @@ function MessageList({ chatId, onReply }, ref) {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 150);
   }, [chatId, queryClient]);
 
+  // Cmd/Ctrl+A в режиме выделения — отметить все видимые сообщения.
+  useEffect(() => {
+    if (!selecting) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A' || e.key === 'ф' || e.key === 'Ф')) {
+        const target = e.target as HTMLElement | null;
+        // Не перехватываем если фокус в текстовом инпуте — там Cmd+A это «выделить текст».
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+        e.preventDefault();
+        setSelectedIds(new Set(messages.map((m) => m.id)));
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [selecting, messages]);
+
   useImperativeHandle(ref, () => ({
     jumpTo: async (msgId: string, createdAt: string) => {
       // Сообщение уже в DOM — просто скроллим
@@ -1162,7 +1299,24 @@ function MessageList({ chatId, onReply }, ref) {
 
       setTimeout(() => scrollAndHighlight(msgId), 150);
     },
-  }), [chatId, scrollAndHighlight]);
+    editLast: () => {
+      // Последнее своё сообщение в текущем потоке. Ищем с конца.
+      const uid = useAuthStore.getState().user?.id;
+      if (!uid) return false;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].author_id === uid) {
+          setEditingId(messages[i].id);
+          // Скроллим к нему, чтобы пользователь увидел поле редактирования.
+          requestAnimationFrame(() => {
+            document.getElementById(`msg-${messages[i].id}`)
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          });
+          return true;
+        }
+      }
+      return false;
+    },
+  }), [chatId, scrollAndHighlight, messages]);
 
   if (isLoading) {
     return (
@@ -1192,24 +1346,39 @@ function MessageList({ chatId, onReply }, ref) {
           </div>
         )}
 
-        {messages.map((msg, i) => (
-          <MessageItem
-            key={msg.id}
-            msg={msg}
-            prevMsg={messages[i - 1]}
-            highlighted={highlightId === msg.id}
-            onZoom={handleZoom}
-            onForward={handleForward}
-            onDelete={handleDelete}
-            onReply={handleReply}
-            onScrollTo={handleScrollTo}
-            onPin={handlePin}
-            selecting={selecting}
-            selected={selectedIds.has(msg.id)}
-            onToggleSelect={handleToggleSelect}
-            onReact={handleReact}
-          />
-        ))}
+        {messages.map((msg, i) => {
+          const prev = messages[i - 1];
+          // Разделитель «новые сообщения» — перед первым сообщением, чьё
+          // created_at > unreadAnchor. Только при наличии якоря и наличии
+          // непрочитанных. Считается по реальной хронологии.
+          const showUnread = !!unreadAnchor
+            && new Date(msg.created_at) > new Date(unreadAnchor)
+            && (!prev || new Date(prev.created_at) <= new Date(unreadAnchor));
+          return (
+            <MessageItem
+              key={msg.id}
+              msg={msg}
+              prevMsg={prev}
+              highlighted={highlightId === msg.id}
+              showUnreadDivider={showUnread}
+              onZoom={handleZoom}
+              onForward={handleForward}
+              onDelete={handleDelete}
+              onReply={handleReply}
+              onScrollTo={handleScrollTo}
+              onPin={handlePin}
+              selecting={selecting}
+              selected={selectedIds.has(msg.id)}
+              onToggleSelect={handleToggleSelect}
+              onReact={handleReact}
+              editing={editingId === msg.id}
+              onStartEdit={() => setEditingId(msg.id)}
+              onEndEdit={() => setEditingId(null)}
+              isBookmarked={bookmarkedSet.has(msg.id)}
+              onBookmark={handleBookmark}
+            />
+          );
+        })}
         {loadingNewer && (
           <div className="flex justify-center my-2">
             <div className="w-4 h-4 rounded-full border-2 border-[var(--text-muted)] border-t-transparent animate-spin" />

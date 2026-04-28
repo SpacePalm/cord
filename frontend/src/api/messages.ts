@@ -83,4 +83,8 @@ export const messagesApi = {
     if (before) p.set('before', before);
     return api.get<Message[]>(`/chats/${chatId}/links?${p}`);
   },
+
+  /** Состояние пользователя в чате — last_read_at для разделителя «новые сообщения». */
+  state: (chatId: string) =>
+    api.get<{ last_read_at: string | null }>(`/chats/${chatId}/state`),
 };

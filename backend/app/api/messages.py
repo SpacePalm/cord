@@ -31,6 +31,7 @@ from app.models.group import Chat, GroupMember, Group
 from app.models.message import Message, MessageAttachment, MessageReaction
 from app.schemas.message import MessageOut, MessageEdit, MessageForward, MessageBulkForward, MessageBulkDelete, ForwardedFrom, ReplyTo, PollOut, PollOptionOut, EmbedOut, ReactionGroupOut, ReactionUserOut
 from app.models.poll import Poll, PollOption, PollVote
+from app.models.user_chat_state import UserChatState
 from app.cache import get_cached_messages, set_cached_messages, invalidate_messages, get_cached_search, set_cached_search, invalidate_unread
 from app.rate_limit import RateLimiter
 from app.ws_manager import manager
@@ -249,6 +250,27 @@ async def _load_messages_from_db(
 
 
 # GET messages (с кэшем на первую страницу)
+
+@router.get('/{chat_id}/state')
+async def get_chat_state(
+    chat_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Состояние пользователя в чате — last_read_at для разделителя «новые сообщения».
+
+    Возвращается без побочных эффектов: запрос НЕ обновляет last_read_at,
+    чтобы клиент мог показать якорь до того, как пользователь увидит сообщения.
+    """
+    await _require_chat_member(chat_id, user, db)
+    state = await db.scalar(
+        select(UserChatState).where(
+            UserChatState.user_id == user.id,
+            UserChatState.chat_id == chat_id,
+        )
+    )
+    return {'last_read_at': state.last_read_at.isoformat() if state and state.last_read_at else None}
+
 
 @router.get('/{chat_id}/messages', response_model=list[MessageOut])
 async def get_messages(

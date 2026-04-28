@@ -6,11 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base, AsyncSessionLocal
-from app.api import auth, groups, messages, admin, polls, media, voice, notifications, ws, users, dms
+from app.api import auth, groups, messages, admin, polls, media, voice, notifications, ws, users, dms, bookmarks
 from app.api.groups import invite_router
 from app.api.messages import search_router
 from app.models import poll as _poll_models  # noqa: F401 — registers Poll tables
 from app.models import user_chat_state as _user_chat_state_models  # noqa: F401 — registers UserChatState table
+from app.models import bookmark as _bookmark_models  # noqa: F401 — registers MessageBookmark table
 from app.config import settings
 
 app = FastAPI(title='Cord API')
@@ -37,6 +38,9 @@ app.include_router(admin.router)
 app.include_router(users.router)
 app.include_router(dms.router)
 app.include_router(search_router)
+app.include_router(bookmarks.message_bookmarks_router)
+app.include_router(bookmarks.me_bookmarks_router)
+app.include_router(bookmarks.chat_bookmarks_router)
 app.include_router(ws.router)
 
 # Static files
@@ -99,6 +103,11 @@ _RUNTIME_MIGRATIONS: list[str] = [
     # ─── User preferences ────────────────────────────────────────────
     # Кросс-девайсные настройки юзера (язык, уведомления, mute чатов).
     'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS preferences_json TEXT',
+
+    # ─── Bookmarks ───────────────────────────────────────────────────
+    # Индекс для пагинации /api/me/bookmarks по дате создания.
+    'CREATE INDEX IF NOT EXISTS idx_bookmark_user_created '
+    'ON message_bookmark (user_id, created_at DESC)',
 ]
 
 
