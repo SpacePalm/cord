@@ -129,7 +129,15 @@ export function ForwardModal({ messages, onClose }: ForwardModalProps) {
                       : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
                   }`}
                 >
-                  # {c.name}
+                  {c.color && (
+                    <span
+                      className="shrink-0 w-2 h-2 rounded-full"
+                      style={{ background: c.color }}
+                      aria-hidden
+                    />
+                  )}
+                  <span className="opacity-70">#</span>
+                  <span className="truncate">{c.name}</span>
                 </button>
               ))}
             </div>

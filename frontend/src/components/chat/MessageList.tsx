@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Pencil, Trash2, Forward, Check, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile, Download, Bookmark } from 'lucide-react';
+import { X, Pencil, Trash2, Forward, Check, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile, Download } from 'lucide-react';
 import { messagesApi } from '../../api/messages';
-import { bookmarksApi } from '../../api/bookmarks';
 import { pollsApi } from '../../api/polls';
 import { useAuthStore } from '../../store/authStore';
 import { ForwardModal } from './ForwardModal';
@@ -578,11 +577,11 @@ function ReactionBar({ msg, onReact }: { msg: Message; onReact: (emoji: string) 
 // MessageContextMenu — открывается по ПКМ, позиционируется у курсора
 // ---------------------------------------------------------------------------
 function MessageContextMenu({
-  x, y, msg, isOwn, isBookmarked, onEdit, onDelete, onForward, onReply, onPin, onBookmark, onSelect, onReact, onClose,
+  x, y, msg, isOwn, onEdit, onDelete, onForward, onReply, onPin, onSelect, onReact, onClose,
 }: {
-  x: number; y: number; msg: Message; isOwn: boolean; isBookmarked: boolean;
+  x: number; y: number; msg: Message; isOwn: boolean;
   onEdit: () => void; onDelete: () => void; onForward: () => void; onReply: () => void; onPin: () => void;
-  onBookmark: () => void; onSelect: () => void; onReact: (emoji: string) => void; onClose: () => void;
+  onSelect: () => void; onReact: (emoji: string) => void; onClose: () => void;
 }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -662,10 +661,6 @@ function MessageContextMenu({
         <Pin size={14} className={msg.is_pinned ? 'text-yellow-400' : ''} />
         {msg.is_pinned ? t('chat.unpin') : t('chat.pin')}
       </button>
-      <button onClick={() => { onBookmark(); onClose(); }} className={menuItem}>
-        <Bookmark size={14} className={isBookmarked ? 'text-yellow-400 fill-yellow-400' : ''} />
-        {isBookmarked ? t('chat.unbookmark') : t('chat.bookmark')}
-      </button>
       <button onClick={() => { onForward(); onClose(); }} className={menuItem}>
         <Forward size={14} /> {t('chat.forwardBtn')}
       </button>
@@ -685,11 +680,11 @@ function MessageContextMenu({
 // MessageActions
 // ---------------------------------------------------------------------------
 function MessageActions({
-  msg, isOwn, isBookmarked, onEdit, onDelete, onForward, onReply, onPin, onBookmark, onSelect, onReact,
+  msg, isOwn, onEdit, onDelete, onForward, onReply, onPin, onSelect, onReact,
 }: {
-  msg: Message; isOwn: boolean; isBookmarked: boolean;
+  msg: Message; isOwn: boolean;
   onEdit: () => void; onDelete: () => void; onForward: () => void; onReply: () => void; onPin: () => void;
-  onBookmark: () => void; onSelect: () => void; onReact: (emoji: string) => void;
+  onSelect: () => void; onReact: (emoji: string) => void;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -751,10 +746,6 @@ function MessageActions({
               <Pin size={14} className={msg.is_pinned ? 'text-yellow-400' : ''} />
               {msg.is_pinned ? t('chat.unpin') : t('chat.pin')}
             </button>
-            <button onClick={() => { onBookmark(); setMenuOpen(false); }} className={menuItem}>
-              <Bookmark size={14} className={isBookmarked ? 'text-yellow-400 fill-yellow-400' : ''} />
-              {isBookmarked ? t('chat.unbookmark') : t('chat.bookmark')}
-            </button>
             <button onClick={() => { onForward(); setMenuOpen(false); }} className={menuItem}>
               <Forward size={14} /> {t('chat.forwardBtn')}
             </button>
@@ -774,7 +765,6 @@ function MessageActions({
 function MessageItem({
   msg, prevMsg, highlighted, showUnreadDivider, onZoom, onForward, onDelete, onReply, onScrollTo, onPin,
   selecting, selected, onToggleSelect, onReact, editing, onStartEdit, onEndEdit,
-  isBookmarked, onBookmark,
 }: {
   msg: Message; prevMsg?: Message; highlighted: boolean;
   showUnreadDivider: boolean;
@@ -785,7 +775,6 @@ function MessageItem({
   onToggleSelect: (msg: Message, e?: React.MouseEvent) => void;
   onReact: (msg: Message, emoji: string) => void;
   editing: boolean; onStartEdit: () => void; onEndEdit: () => void;
-  isBookmarked: boolean; onBookmark: (msg: Message) => void;
 }) {
   const t = useT();
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -853,13 +842,12 @@ function MessageItem({
         )}
         {!selecting && (
           <MessageActions
-            msg={msg} isOwn={isOwn} isBookmarked={isBookmarked}
+            msg={msg} isOwn={isOwn}
             onEdit={onStartEdit}
             onDelete={() => onDelete(msg)}
             onForward={() => onForward(msg)}
             onReply={() => onReply(msg)}
             onPin={() => onPin(msg)}
-            onBookmark={() => onBookmark(msg)}
             onSelect={() => onToggleSelect(msg)}
             onReact={(emoji) => onReact(msg, emoji)}
           />
@@ -916,9 +904,6 @@ function MessageItem({
                   {msg.is_pinned && (
                     <Pin size={10} className="inline ml-1 text-yellow-400" />
                   )}
-                  {isBookmarked && (
-                    <Bookmark size={10} className="inline ml-1 text-yellow-400 fill-yellow-400" />
-                  )}
                 </div>
               )}
               {msg.poll && (
@@ -951,13 +936,12 @@ function MessageItem({
       </div>
       {ctxMenu && (
         <MessageContextMenu
-          x={ctxMenu.x} y={ctxMenu.y} msg={msg} isOwn={isOwn} isBookmarked={isBookmarked}
+          x={ctxMenu.x} y={ctxMenu.y} msg={msg} isOwn={isOwn}
           onEdit={onStartEdit}
           onDelete={() => onDelete(msg)}
           onForward={() => onForward(msg)}
           onReply={() => onReply(msg)}
           onPin={() => onPin(msg)}
-          onBookmark={() => onBookmark(msg)}
           onSelect={() => onToggleSelect(msg)}
           onReact={(emoji) => onReact(msg, emoji)}
           onClose={() => setCtxMenu(null)}
@@ -985,6 +969,7 @@ export interface MessageListHandle {
 export const MessageList = forwardRef<MessageListHandle, MessageListProps>(
 function MessageList({ chatId, onReply }, ref) {
   const t = useT();
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1053,6 +1038,19 @@ function MessageList({ chatId, onReply }, ref) {
     return [...olderMessages.filter((m) => !latestIds.has(m.id)), ...latest];
   }, [olderMessages, latest, jumped]);
 
+  // ID самого раннего «чужого» непрочитанного сообщения — место, где
+  // рендерится единственный разделитель «новые сообщения». Свои сообщения
+  // (написанные после якоря) не считаются непрочитанными.
+  const firstUnreadId = useMemo<string | null>(() => {
+    if (!unreadAnchor) return null;
+    const anchorTs = new Date(unreadAnchor).getTime();
+    for (const m of messages) {
+      if (m.author_id === currentUserId) continue;
+      if (new Date(m.created_at).getTime() > anchorTs) return m.id;
+    }
+    return null;
+  }, [messages, unreadAnchor, currentUserId]);
+
   const oldestCursor = messages[0]?.created_at;
   const newestCursor = jumped ? messages[messages.length - 1]?.created_at : null;
 
@@ -1116,7 +1114,7 @@ function MessageList({ chatId, onReply }, ref) {
     prevLenRef.current = latest.length;
   }, [latest.length]);
 
-  // При открытии чата — если есть unread anchor и непрочитанные сообщения,
+  // При открытии чата — если есть непрочитанные (от других пользователей),
   // скроллим к разделителю; иначе — вниз. Ждём загрузку и messages, и state,
   // чтобы не упустить unreadAnchor из-за гонки запросов.
   const initialScrollDoneRef = useRef<string | null>(null);
@@ -1125,12 +1123,9 @@ function MessageList({ chatId, onReply }, ref) {
     if (isLoading || messages.length === 0) return;
     if (stateLoadedFor !== chatId) return;
     initialScrollDoneRef.current = chatId;
-    const firstUnread = unreadAnchor
-      ? messages.find((m) => new Date(m.created_at) > new Date(unreadAnchor))
-      : undefined;
     setTimeout(() => {
-      if (firstUnread) {
-        const el = document.getElementById(`msg-${firstUnread.id}`);
+      if (firstUnreadId) {
+        const el = document.getElementById(`msg-${firstUnreadId}`);
         if (el) {
           el.scrollIntoView({ block: 'center' });
           return;
@@ -1138,7 +1133,7 @@ function MessageList({ chatId, onReply }, ref) {
       }
       bottomRef.current?.scrollIntoView();
     }, 0);
-  }, [chatId, isLoading, messages, unreadAnchor, stateLoadedFor]);
+  }, [chatId, isLoading, messages, firstUnreadId, stateLoadedFor]);
 
   const handleDelete = useCallback((msg: Message) => {
     if (!confirm(t('chat.deleteConfirm'))) return;
@@ -1210,29 +1205,6 @@ function MessageList({ chatId, onReply }, ref) {
       queryClient.invalidateQueries({ queryKey: ['pinned', chatId] });
     });
   }, [chatId, queryClient]);
-
-  // Закладки в текущем чате — Set для O(1) проверки в строках сообщений.
-  const { data: bookmarkedIds = [] } = useQuery<string[]>({
-    queryKey: ['bookmarks', chatId],
-    queryFn: () => bookmarksApi.inChat(chatId),
-    staleTime: 60_000,
-  });
-  const bookmarkedSet = useMemo(() => new Set(bookmarkedIds), [bookmarkedIds]);
-
-  const handleBookmark = useCallback((msg: Message) => {
-    const isBookmarked = bookmarkedSet.has(msg.id);
-    // Оптимистичное обновление: сразу меняем кэш, потом синхронизируем.
-    queryClient.setQueryData<string[]>(['bookmarks', chatId], (prev = []) =>
-      isBookmarked ? prev.filter((id) => id !== msg.id) : [...prev, msg.id],
-    );
-    const op = isBookmarked ? bookmarksApi.remove(msg.id) : bookmarksApi.add(msg.id);
-    op.then(() => {
-      queryClient.invalidateQueries({ queryKey: ['my-bookmarks'] });
-    }).catch(() => {
-      // Откатываем при ошибке.
-      queryClient.invalidateQueries({ queryKey: ['bookmarks', chatId] });
-    });
-  }, [bookmarkedSet, chatId, queryClient]);
 
   const handleScrollTo = useCallback((messageId: string) => {
     const el = document.getElementById(`msg-${messageId}`);
@@ -1348,12 +1320,10 @@ function MessageList({ chatId, onReply }, ref) {
 
         {messages.map((msg, i) => {
           const prev = messages[i - 1];
-          // Разделитель «новые сообщения» — перед первым сообщением, чьё
-          // created_at > unreadAnchor. Только при наличии якоря и наличии
-          // непрочитанных. Считается по реальной хронологии.
-          const showUnread = !!unreadAnchor
-            && new Date(msg.created_at) > new Date(unreadAnchor)
-            && (!prev || new Date(prev.created_at) <= new Date(unreadAnchor));
+          // Разделитель «новые сообщения» — ровно один, перед самым ранним
+          // чужим (не своим) сообщением с created_at > unreadAnchor.
+          // Свои сообщения не считаются «непрочитанными» и пропускаются.
+          const showUnread = msg.id === firstUnreadId;
           return (
             <MessageItem
               key={msg.id}
@@ -1374,8 +1344,6 @@ function MessageList({ chatId, onReply }, ref) {
               editing={editingId === msg.id}
               onStartEdit={() => setEditingId(msg.id)}
               onEndEdit={() => setEditingId(null)}
-              isBookmarked={bookmarkedSet.has(msg.id)}
-              onBookmark={handleBookmark}
             />
           );
         })}

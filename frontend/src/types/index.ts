@@ -26,6 +26,8 @@ export interface Chat {
   name: string;
   group_id: string;
   type: 'text' | 'voice';
+  /** Цветной индикатор (hex `#rgb`/`#rrggbb`) или null — без индикации. */
+  color?: string | null;
   created_at: string;
 }
 

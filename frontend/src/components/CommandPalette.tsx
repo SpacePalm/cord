@@ -323,12 +323,20 @@ export function CommandPalette() {
     // Каналы
     for (const { chat, group } of channels) {
       if (match(chat.name) || match(group.name)) {
+        const baseIcon = chat.type === 'voice' ? <Volume2 size={15} /> : <Hash size={15} />;
+        // Цветной кружок (если есть) рядом с иконкой канала.
+        const icon = chat.color ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: chat.color }} aria-hidden />
+            {baseIcon}
+          </span>
+        ) : baseIcon;
         result.push({
           key: `ch:${chat.id}`,
           kind: 'channel',
           label: chat.name,
           hint: group.name,
-          icon: chat.type === 'voice' ? <Volume2 size={15} /> : <Hash size={15} />,
+          icon,
           onSelect: () => goToChannel(group.id, chat.id),
         });
       }
@@ -388,15 +396,29 @@ export function CommandPalette() {
 
     // Сообщения (async). Превью — фрагмент вокруг первого совпадения, чтобы юзер
     // видел не «начало текста», а именно где матчится.
+    // Цвет канала резолвим из локального кэша каналов (groups → channels).
+    const chatColorById = new Map<string, string | null | undefined>();
+    for (const { chat } of channels) chatColorById.set(chat.id, chat.color);
     for (const m of messageHits) {
       const content = (m.content ?? '').replace(/\s+/g, ' ');
       const preview = _snippetAround(content, query, 80);
+      const color = chatColorById.get(m.chat_id);
+      const hintNode = (
+        <span className="inline-flex items-center gap-1.5">
+          <span>{m.author_display_name} ·</span>
+          {color && (
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} aria-hidden />
+          )}
+          <span>#{m.chat_name}</span>
+        </span>
+      );
       result.push({
         key: `m:${m.id}`,
         kind: 'message',
         label: preview || '…',
         labelNode: highlight(preview || '…', query),
         hint: `${m.author_display_name} · #${m.chat_name}`,
+        hintNode,
         icon: <MessageSquare size={15} />,
         onSelect: () => jumpToMessage(m),
       });

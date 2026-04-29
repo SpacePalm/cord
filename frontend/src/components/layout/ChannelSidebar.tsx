@@ -38,6 +38,17 @@ interface ChannelSidebarProps {
   onExpandCall?: () => void;
 }
 
+function ChannelColorDot({ color }: { color?: string | null }) {
+  if (!color) return null;
+  return (
+    <span
+      className="shrink-0 w-2 h-2 rounded-full"
+      style={{ background: color }}
+      aria-hidden
+    />
+  );
+}
+
 function TextChannelItem({ channel, selected, onClick, unreadCount = 0 }: {
   channel: Chat;
   selected: boolean;
@@ -57,6 +68,7 @@ function TextChannelItem({ channel, selected, onClick, unreadCount = 0 }: {
         }
       `}
     >
+      <ChannelColorDot color={channel.color} />
       <Hash size={16} className="shrink-0" />
       <span className="truncate">{channel.name}</span>
       {unreadCount > 0 && (
@@ -103,6 +115,7 @@ function VoiceChannelItem({ channel, selected, active, onSelect, onJoin }: {
         `}
         onClick={onSelect}
       >
+        <ChannelColorDot color={channel.color} />
         <Volume2 size={16} className={`shrink-0 ${active ? 'text-green-400' : ''}`} />
         <span className="truncate flex-1">{channel.name}</span>
 

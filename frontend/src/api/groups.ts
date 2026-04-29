@@ -9,8 +9,8 @@ export const groupsApi = {
   join: (groupId: string) => api.post<void>(`/groups/${groupId}/join`),
   leave: (groupId: string) => api.post<void>(`/groups/${groupId}/leave`),
   listChats: (groupId: string) => api.get<Chat[]>(`/groups/${groupId}/chats`),
-  createChat: (groupId: string, name: string, type: 'text' | 'voice') =>
-    api.post<Chat>(`/groups/${groupId}/chats`, { name, type }),
+  createChat: (groupId: string, name: string, type: 'text' | 'voice', color?: string | null) =>
+    api.post<Chat>(`/groups/${groupId}/chats`, { name, type, color: color ?? null }),
 
   deleteChat: (groupId: string, chatId: string) =>
     api.delete<void>(`/groups/${groupId}/chats/${chatId}`),
@@ -29,6 +29,10 @@ export const groupsApi = {
 
   renameChat: (groupId: string, chatId: string, name: string) =>
     api.patch<Chat>(`/groups/${groupId}/chats/${chatId}`, { name }),
+
+  /** Частичное обновление канала. Передача `color: null` сбрасывает цвет. */
+  updateChat: (groupId: string, chatId: string, patch: { name?: string; color?: string | null }) =>
+    api.patch<Chat>(`/groups/${groupId}/chats/${chatId}`, patch),
 
   getInvite: (code: string) => api.get<{ group_name: string; member_count: number }>(`/invite/${code}`),
 

@@ -7,7 +7,6 @@ import { ChatInput } from '../components/chat/ChatInput';
 import { MessageList, type MessageListHandle } from '../components/chat/MessageList';
 import { SearchPanel } from '../components/chat/SearchPanel';
 import { MediaPanel } from '../components/chat/MediaPanel';
-import { BookmarksPanel } from '../components/chat/BookmarksPanel';
 import { GroupSettingsModal } from '../components/settings/GroupSettingsModal';
 import { useSessionStore } from '../store/sessionStore';
 import { useNotificationStore } from '../store/notificationStore';
@@ -16,7 +15,7 @@ import { groupsApi } from '../api/groups';
 import { messagesApi } from '../api/messages';
 import { dmsApi } from '../api/dms';
 import type { Group, Chat, Message } from '../types';
-import { Hash, Volume2, LogIn, Search, Paperclip, Users, Plus, ArrowLeft, Pin, Phone, Bell, BellOff, Bookmark } from 'lucide-react';
+import { Hash, Volume2, LogIn, Search, Paperclip, Users, Plus, ArrowLeft, Pin, Phone, Bell, BellOff } from 'lucide-react';
 import { MemberListPanel } from '../components/layout/MemberListPanel';
 import { VoiceRoom } from '../components/voice/VoiceRoom';
 import { useT } from '../i18n';
@@ -24,7 +23,7 @@ import { useUnreadCounts } from '../hooks/useUnreadCounts';
 import { useWs, useTypingUsers } from '../hooks/useWebSocket';
 import { ToastContainer } from '../components/ui/ToastContainer';
 
-type SidePanel = 'search' | 'media' | 'members' | 'bookmarks' | null;
+type SidePanel = 'search' | 'media' | 'members' | null;
 
 // Кнопка mute/unmute уведомлений для конкретного чата.
 // Хранит per-chat флаг в notificationStore, mutedChats.
@@ -601,17 +600,6 @@ export function AppPage() {
                       >
                         <Paperclip size={18} />
                       </button>
-                      <button
-                        onClick={() => togglePanel('bookmarks')}
-                        title={t('chat.bookmarks')}
-                        className={`p-1.5 rounded transition-colors ${
-                          sidePanel === 'bookmarks'
-                            ? 'bg-[var(--accent)] text-white'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5'
-                        }`}
-                      >
-                        <Bookmark size={18} />
-                      </button>
                     </>
                   )}
                   {selectedChannel.type === 'text' && (
@@ -718,9 +706,6 @@ export function AppPage() {
               messageListRef.current?.jumpTo(msg.id, msg.created_at);
             }}
           />
-        )}
-        {sidePanel === 'bookmarks' && (
-          <BookmarksPanel onClose={() => setSidePanel(null)} />
         )}
         {selectedChannel?.type === 'text' && sidePanel === 'media' && (
           <MediaPanel chatId={selectedChannel.id} onClose={() => setSidePanel(null)} />

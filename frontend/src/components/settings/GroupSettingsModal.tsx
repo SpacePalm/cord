@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useT, useLocale } from '../../i18n';
 import type { Group, Chat } from '../../types';
 import { ImageCropModal } from '../ui/ImageCropModal';
+import { ChannelColorPicker } from '../ui/ChannelColorPicker';
 
 type Tab = 'overview' | 'members' | 'channels' | 'invite';
 
@@ -310,6 +311,7 @@ function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }:
   const [editName, setEditName] = useState('');
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<'text' | 'voice'>('text');
+  const [newColor, setNewColor] = useState<string | null>(null);
   const textChannelCount = channels.filter((c) => c.type === 'text').length;
 
   const renameMutation = useMutation({
@@ -321,16 +323,25 @@ function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }:
     },
   });
 
+  // Изменение цвета — отдельная мутация. Оптимистично можно не делать,
+  // т.к. /chats список рефетчится через onChannelsChanged.
+  const colorMutation = useMutation({
+    mutationFn: ({ chatId, color }: { chatId: string; color: string | null }) =>
+      groupsApi.updateChat(group.id, chatId, { color }),
+    onSuccess: () => onChannelsChanged(),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (chatId: string) => groupsApi.deleteChat(group.id, chatId),
     onSuccess: () => onChannelsChanged(),
   });
 
   const createMutation = useMutation({
-    mutationFn: () => groupsApi.createChat(group.id, newName.trim(), newType),
+    mutationFn: () => groupsApi.createChat(group.id, newName.trim(), newType, newColor),
     onSuccess: () => {
       onChannelsChanged();
       setNewName('');
+      setNewColor(null);
     },
   });
 
@@ -351,6 +362,11 @@ function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }:
       <div className="flex flex-col gap-1">
         {channels.map((ch) => (
           <div key={ch.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[var(--bg-input)] group/row">
+            <ChannelColorPicker
+              value={ch.color}
+              onChange={(color) => colorMutation.mutate({ chatId: ch.id, color })}
+              title={t('group.color') ?? 'Color'}
+            />
             {ch.type === 'voice' ? (
               <Volume2 size={15} className="text-[var(--text-muted)] shrink-0" />
             ) : (
@@ -396,7 +412,8 @@ function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }:
       {/* Add channel form */}
       <div className="border-t border-[var(--border-color)] pt-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-2">{t('group.add')}</p>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <ChannelColorPicker value={newColor} onChange={setNewColor} title={t('group.color') ?? 'Color'} />
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}

@@ -421,7 +421,7 @@ async def create_chat(
     # В личной группе (Сохранённые) допустимы только текстовые чаты
     chat_type = 'text' if group.is_personal else body.type
 
-    chat = Chat(name=body.name, group_id=group_id, type=chat_type)
+    chat = Chat(name=body.name, group_id=group_id, type=chat_type, color=body.color)
     db.add(chat)
     await db.commit()
     await db.refresh(chat)
@@ -429,13 +429,18 @@ async def create_chat(
 
 
 @router.patch('/{group_id}/chats/{chat_id}', response_model=ChatOut)
-async def rename_chat(
+async def update_chat(
     group_id: uuid.UUID,
     chat_id: uuid.UUID,
     body: ChatUpdate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """Частичное обновление канала (имя и/или цвет).
+
+    Передача `color: null` явно сбрасывает цвет; отсутствие поля — не трогает.
+    Различаем через `model_fields_set`.
+    """
     group = await _require_editor_or_above(group_id, user, db)
     if group.is_dm:
         raise HTTPException(status_code=400, detail='Cannot rename DM chats')
@@ -444,7 +449,11 @@ async def rename_chat(
     if not chat or chat.group_id != group_id:
         raise HTTPException(status_code=404, detail='Chat not found')
 
-    chat.name = body.name.strip()
+    fields = body.model_fields_set
+    if 'name' in fields and body.name is not None:
+        chat.name = body.name.strip()
+    if 'color' in fields:
+        chat.color = body.color
     await db.commit()
     await db.refresh(chat)
     return chat

@@ -62,6 +62,9 @@ class Chat(Base):
         UUID(as_uuid=True), ForeignKey('group.id', ondelete='CASCADE'), nullable=False
     )
     type: Mapped[Literal['text', 'voice']] = mapped_column(String(10), nullable=False)
+    # Цветной индикатор в сайдбаре. Hex `#RRGGBB`/`#RGB` либо NULL (без индикации).
+    # Хранится строкой а не enum'ом — даём пользователю произвольный цвет.
+    color: Mapped[str | None] = mapped_column(String(9), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     group: Mapped['Group'] = relationship('Group', back_populates='chats')
