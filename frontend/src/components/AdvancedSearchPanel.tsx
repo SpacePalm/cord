@@ -10,7 +10,7 @@
 // Сохранённые поиски: хранятся в preferences_json (синкаются между девайсами).
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   X, Search, Hash, Image as ImageIcon, Paperclip, Mic, Link2,
   BarChart2, Pin, AtSign, Edit3, Forward, Save, Trash2, ChevronDown, ChevronRight,
@@ -198,11 +198,23 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onBackToSimple, onJ
     queryFn: ({ pageParam = 0 }) =>
       searchApi.messages({ ...params, limit: PAGE_SIZE, offset: pageParam as number }),
     initialPageParam: 0,
-    // Если страница пришла полная — есть следующая. Иначе достигли конца.
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.length < PAGE_SIZE ? undefined : allPages.length * PAGE_SIZE,
+    getNextPageParam: (lastPage, allPages) => {
+      // Конец данных по размеру страницы — главный индикатор.
+      if (lastPage.length < PAGE_SIZE) return undefined;
+      // Защита от бэка-кривляки: если последняя страница не добавила ни одного
+      // нового id (бэк вернул дубли) — считаем что дошли до конца.
+      if (allPages.length >= 2) {
+        const seenBefore = new Set(allPages.slice(0, -1).flat().map((h) => h.id));
+        const newOnes = lastPage.filter((h) => !seenBefore.has(h.id));
+        if (newOnes.length === 0) return undefined;
+      }
+      return allPages.length * PAGE_SIZE;
+    },
     enabled: !empty,
     staleTime: 10_000,
+    // При смене queryKey (другая сортировка/фильтры) показываем старые
+    // результаты пока не придёт новый ответ — без мигания пустоты.
+    placeholderData: keepPreviousData,
   });
 
   // Дедуп: если бэкенд из-за равных рангов вернёт один и тот же id на разных
