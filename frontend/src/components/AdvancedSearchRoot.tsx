@@ -14,6 +14,7 @@ export function AdvancedSearchRoot() {
   const location = useLocation();
   const open = useSessionStore((s) => s.uiAdvancedSearchOpen);
   const closeAdvanced = useSessionStore((s) => s.closeAdvancedSearch);
+  const openPalette = useSessionStore((s) => s.openPalette);
   const closePalette = useSessionStore((s) => s.closePalette);
   const setLastGroup = useSessionStore((s) => s.setLastGroup);
   const setLastChannel = useSessionStore((s) => s.setLastChannel);
@@ -24,6 +25,11 @@ export function AdvancedSearchRoot() {
   return (
     <AdvancedSearchPanel
       onClose={closeAdvanced}
+      onBackToSimple={() => {
+        // Возврат к простой палитре: закрываем расширенный, открываем палитру.
+        closeAdvanced();
+        openPalette();
+      }}
       onJumpToMessage={(hit) => {
         setLastGroup(hit.group_id);
         setLastChannel(hit.chat_id);

@@ -762,7 +762,12 @@ export function CommandPalette() {
           <span>↵ {t('palette.hintSelect')}</span>
           <span>⇥ {t('palette.hintFilter')}</span>
           <button
-            onClick={openAdvancedSearch}
+            onClick={() => {
+              // Открываем расширенный поиск ВМЕСТО палитры — палитра сразу прячется,
+              // а кнопкой «← Назад» в advanced пользователь может вернуться сюда.
+              openAdvancedSearch();
+              setOpen(false);
+            }}
             className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded hover:bg-white/5 hover:text-[var(--accent)] transition-colors"
             title={t('palette.advancedHint')}
           >

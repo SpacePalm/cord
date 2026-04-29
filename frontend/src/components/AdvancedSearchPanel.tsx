@@ -12,8 +12,9 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  X, Search, Hash, Volume2, Image as ImageIcon, Paperclip, Mic, Link2,
+  X, Search, Hash, Image as ImageIcon, Paperclip, Mic, Link2,
   BarChart2, Pin, AtSign, Edit3, Forward, Save, Trash2, ChevronDown, ChevronRight,
+  ArrowLeft,
 } from 'lucide-react';
 import { searchApi, type GlobalMessageHit, type MessageSearchParams, type ScopeOut } from '../api/search';
 import { useAuthStore } from '../store/authStore';
@@ -23,6 +24,8 @@ import { useT, useLocale } from '../i18n';
 interface Props {
   initialQuery?: string;
   onClose: () => void;
+  /** Назад к простой палитре (опц.). Если не передан — кнопка не рисуется. */
+  onBackToSimple?: () => void;
   onJumpToMessage: (hit: GlobalMessageHit) => void;
 }
 
@@ -136,7 +139,7 @@ function isEmptySearch(s: FilterState): boolean {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
-export function AdvancedSearchPanel({ initialQuery, onClose, onJumpToMessage }: Props) {
+export function AdvancedSearchPanel({ initialQuery, onClose, onBackToSimple, onJumpToMessage }: Props) {
   const t = useT();
   const locale = useLocale();
   const currentUserId = useAuthStore((s) => s.user?.id);
@@ -161,17 +164,22 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onJumpToMessage }: 
     staleTime: 5 * 60_000,
   });
 
-  // Видимые каналы — фильтруем по выбранным группам, иначе показываем все.
-  // DM-группы скрываем — их «каналы» внутренние.
-  const visibleChats = useMemo(() => {
-    if (!scope) return [];
+  // Видимые группы (без DM) и видимые каналы (без voice и без DM-групп) для tree-фильтра.
+  // Голосовые каналы исключаем целиком — поиск по сообщениям в них не имеет смысла.
+  const scopeTree = useMemo(() => {
+    if (!scope) return [] as { group: ScopeOut['groups'][number]; chats: ScopeOut['chats'] }[];
     const dmGroupIds = new Set(scope.groups.filter((g) => g.is_dm).map((g) => g.id));
-    return scope.chats.filter((c) => {
-      if (dmGroupIds.has(c.group_id)) return false;
-      if (filters.groupIds.length === 0) return true;
-      return filters.groupIds.includes(c.group_id);
-    });
-  }, [scope, filters.groupIds]);
+    const groups = scope.groups.filter((g) => !g.is_dm);
+    const chatsByGroup = new Map<string, ScopeOut['chats']>();
+    for (const c of scope.chats) {
+      if (dmGroupIds.has(c.group_id)) continue;
+      if (c.type !== 'text') continue;  // только текстовые
+      const arr = chatsByGroup.get(c.group_id) ?? [];
+      arr.push(c);
+      chatsByGroup.set(c.group_id, arr);
+    }
+    return groups.map((group) => ({ group, chats: chatsByGroup.get(group.id) ?? [] }));
+  }, [scope]);
 
   // Поисковый запрос
   const params = useMemo(() => filtersToParams(debouncedFilters), [debouncedFilters]);
@@ -249,6 +257,16 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onJumpToMessage }: 
       <div className="w-[min(95vw,1100px)] h-[calc(100dvh-12vh)] bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-color)]">
+          {onBackToSimple && (
+            <button
+              onClick={onBackToSimple}
+              title={t('search.backToSimple')}
+              className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <ArrowLeft size={14} />
+              <span>{t('search.backToSimple')}</span>
+            </button>
+          )}
           <Search size={18} className="text-[var(--accent)]" />
           <span className="font-semibold text-[var(--text-primary)]">{t('search.advancedTitle')}</span>
           <span className="ml-auto text-xs text-[var(--text-muted)]">
@@ -288,56 +306,17 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onJumpToMessage }: 
               </FilterSection>
             )}
 
-            {/* Группы */}
-            {scope && scope.groups.filter((g) => !g.is_dm).length > 0 && (
-              <FilterSection title={t('search.filterGroups')}>
-                <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
-                  {scope.groups.filter((g) => !g.is_dm).map((g) => (
-                    <label key={g.id} className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)]">
-                      <input
-                        type="checkbox"
-                        checked={filters.groupIds.includes(g.id)}
-                        onChange={(e) => setFilters((f) => ({
-                          ...f,
-                          groupIds: e.target.checked ? [...f.groupIds, g.id] : f.groupIds.filter((x) => x !== g.id),
-                          // При смене групп очищаем выбор каналов из других групп
-                          chatIds: f.chatIds.filter((cid) => {
-                            const c = scope.chats.find((x) => x.id === cid);
-                            if (!c) return false;
-                            const newGroupIds = e.target.checked ? [...f.groupIds, g.id] : f.groupIds.filter((x) => x !== g.id);
-                            return newGroupIds.length === 0 || newGroupIds.includes(c.group_id);
-                          }),
-                        }))}
-                        className="accent-[var(--accent)]"
-                      />
-                      <span className="truncate">{g.is_personal ? t('saved.title') : g.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </FilterSection>
-            )}
-
-            {/* Каналы */}
-            {visibleChats.length > 0 && (
-              <FilterSection title={t('search.filterChats')}>
-                <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-                  {visibleChats.map((c) => (
-                    <label key={c.id} className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)]">
-                      <input
-                        type="checkbox"
-                        checked={filters.chatIds.includes(c.id)}
-                        onChange={(e) => setFilters((f) => ({
-                          ...f,
-                          chatIds: e.target.checked ? [...f.chatIds, c.id] : f.chatIds.filter((x) => x !== c.id),
-                        }))}
-                        className="accent-[var(--accent)]"
-                      />
-                      {c.color && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c.color }} />}
-                      {c.type === 'voice' ? <Volume2 size={10} className="shrink-0" /> : <Hash size={10} className="shrink-0" />}
-                      <span className="truncate">{c.name}</span>
-                    </label>
-                  ))}
-                </div>
+            {/* Скоуп: группы с вложенными каналами + поиск по названию */}
+            {scopeTree.length > 0 && (
+              <FilterSection title={t('search.filterScope')}>
+                <ScopeTree
+                  tree={scopeTree}
+                  groupIds={filters.groupIds}
+                  chatIds={filters.chatIds}
+                  onChange={(groupIds, chatIds) => setFilters((f) => ({ ...f, groupIds, chatIds }))}
+                  personalLabel={t('saved.title')}
+                  searchPlaceholder={t('search.scopeSearch')}
+                />
               </FilterSection>
             )}
 
@@ -520,6 +499,160 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onJumpToMessage }: 
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────
+
+// Иерархический tree-фильтр групп и каналов с поиском по названию.
+// - Чекбокс на группе ставит/снимает все её каналы (tristate visual).
+// - Чекбокс на канале — индивидуально.
+// - Поиск фильтрует и группы (по имени), и каналы (по имени) — если совпадает
+//   только канал, его группа автоматически разворачивается.
+function ScopeTree({ tree, groupIds, chatIds, onChange, personalLabel, searchPlaceholder }: {
+  tree: { group: ScopeOut['groups'][number]; chats: ScopeOut['chats'] }[];
+  groupIds: string[];
+  chatIds: string[];
+  onChange: (groupIds: string[], chatIds: string[]) => void;
+  personalLabel: string;
+  searchPlaceholder: string;
+}) {
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const q = search.toLowerCase().trim();
+  const filteredTree = useMemo(() => {
+    if (!q) return tree;
+    return tree
+      .map(({ group, chats }) => {
+        const groupMatch = (group.is_personal ? personalLabel : group.name).toLowerCase().includes(q);
+        const matchedChats = chats.filter((c) => c.name.toLowerCase().includes(q));
+        if (groupMatch) return { group, chats };  // вся группа — все каналы
+        if (matchedChats.length > 0) return { group, chats: matchedChats };
+        return null;
+      })
+      .filter((x): x is { group: ScopeOut['groups'][number]; chats: ScopeOut['chats'] } => x !== null);
+  }, [tree, q, personalLabel]);
+
+  // При активном поиске автоматически разворачиваем все группы со совпадениями.
+  const isExpanded = (gid: string) => (q ? true : expanded.has(gid));
+  const toggleExpand = (gid: string) =>
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (next.has(gid)) next.delete(gid); else next.add(gid);
+      return next;
+    });
+
+  // Состояние чекбокса группы:
+  //   'all'  — выбраны все каналы группы (или group_id в groupIds, или chatIds покрывают все)
+  //   'some' — выбрана часть каналов
+  //   'none' — ничего не выбрано
+  const groupState = (group: ScopeOut['groups'][number], chats: ScopeOut['chats']): 'all' | 'some' | 'none' => {
+    if (groupIds.includes(group.id)) return 'all';
+    const selectedHere = chats.filter((c) => chatIds.includes(c.id));
+    if (selectedHere.length === 0) return 'none';
+    if (selectedHere.length === chats.length) return 'all';
+    return 'some';
+  };
+
+  const toggleGroup = (group: ScopeOut['groups'][number], chats: ScopeOut['chats']) => {
+    const state = groupState(group, chats);
+    // Если все выбраны → снимаем (и сам group_id, и каналы).
+    // Если none/some → выбираем group_id (он покрывает все), очищая индивидуальные.
+    const groupChatIds = new Set(chats.map((c) => c.id));
+    if (state === 'all') {
+      onChange(
+        groupIds.filter((gid) => gid !== group.id),
+        chatIds.filter((cid) => !groupChatIds.has(cid)),
+      );
+    } else {
+      onChange(
+        [...groupIds.filter((gid) => gid !== group.id), group.id],
+        chatIds.filter((cid) => !groupChatIds.has(cid)),
+      );
+    }
+  };
+
+  const toggleChat = (group: ScopeOut['groups'][number], chat: ScopeOut['chats'][number], allChats: ScopeOut['chats']) => {
+    // Если group_id уже в groupIds (= все каналы выбраны), переход к индивидуальному
+    // выбору: убираем group_id и добавляем все остальные каналы кроме переключаемого.
+    if (groupIds.includes(group.id)) {
+      const others = allChats.filter((c) => c.id !== chat.id).map((c) => c.id);
+      onChange(
+        groupIds.filter((gid) => gid !== group.id),
+        Array.from(new Set([...chatIds, ...others])),
+      );
+      return;
+    }
+    if (chatIds.includes(chat.id)) {
+      onChange(groupIds, chatIds.filter((cid) => cid !== chat.id));
+    } else {
+      onChange(groupIds, [...chatIds, chat.id]);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="relative">
+        <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={searchPlaceholder}
+          className="w-full pl-7 pr-2 py-1 rounded bg-[var(--bg-input)] text-xs text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent)]"
+        />
+      </div>
+      <div className="max-h-64 overflow-y-auto flex flex-col">
+        {filteredTree.length === 0 ? (
+          <p className="text-xs text-[var(--text-muted)] text-center py-2">—</p>
+        ) : (
+          filteredTree.map(({ group, chats }) => {
+            const state = groupState(group, chats);
+            const expanded = isExpanded(group.id);
+            return (
+              <div key={group.id} className="flex flex-col">
+                <div className="flex items-center gap-1 hover:bg-white/5 rounded px-1 py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(group.id)}
+                    className="text-[var(--text-muted)] shrink-0"
+                    title={expanded ? 'Collapse' : 'Expand'}
+                  >
+                    {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  </button>
+                  <input
+                    type="checkbox"
+                    checked={state === 'all'}
+                    ref={(el) => { if (el) el.indeterminate = state === 'some'; }}
+                    onChange={() => toggleGroup(group, chats)}
+                    className="accent-[var(--accent)]"
+                  />
+                  <span className="text-xs font-medium text-[var(--text-secondary)] truncate flex-1">
+                    {group.is_personal ? personalLabel : group.name}
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)] shrink-0">{chats.length}</span>
+                </div>
+                {expanded && chats.map((c) => (
+                  <label
+                    key={c.id}
+                    className="flex items-center gap-2 pl-6 pr-1 py-0.5 text-xs text-[var(--text-secondary)] hover:bg-white/5 rounded cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={groupIds.includes(group.id) || chatIds.includes(c.id)}
+                      onChange={() => toggleChat(group, c, chats)}
+                      className="accent-[var(--accent)]"
+                    />
+                    {c.color && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c.color }} />}
+                    <Hash size={10} className="shrink-0" />
+                    <span className="truncate">{c.name}</span>
+                  </label>
+                ))}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
 
 function UsersMultiSelect({ members, selected, currentUserId, onChange }: {
   members: ScopeOut['members'];

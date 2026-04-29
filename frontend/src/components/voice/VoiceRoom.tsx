@@ -736,19 +736,34 @@ function ScreenShareView({ trackRef, isFullscreen, onToggleFullscreen }: {
   const handleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
     if (document.fullscreenElement) {
-      document.exitFullscreen();
+      document.exitFullscreen().catch(() => {});
     } else {
-      containerRef.current.requestFullscreen();
+      containerRef.current.requestFullscreen().catch(() => {});
     }
   }, []);
 
+  // Keyboard Lock API: пока элемент в fullscreen, Esc не закрывает его.
+  // Поддерживается Chrome/Edge; в Firefox/Safari тихо отваливается — там
+  // Esc продолжит выходить из fullscreen, это известное ограничение браузера.
   useEffect(() => {
+    type KbAPI = { lock: (keys: string[]) => Promise<void>; unlock: () => void };
+    const getKb = () => (navigator as Navigator & { keyboard?: KbAPI }).keyboard;
+
     const handler = () => {
-      if (!document.fullscreenElement && isFullscreen) onToggleFullscreen();
+      if (document.fullscreenElement) {
+        getKb()?.lock(['Escape']).catch(() => {});
+      } else {
+        getKb()?.unlock?.();
+        if (isFullscreen) onToggleFullscreen();
+      }
     };
     document.addEventListener('fullscreenchange', handler);
-    return () => document.removeEventListener('fullscreenchange', handler);
+    return () => {
+      document.removeEventListener('fullscreenchange', handler);
+      getKb()?.unlock?.();
+    };
   }, [isFullscreen, onToggleFullscreen]);
+
 
   const wrapperClass = isFullscreen
     ? 'fixed inset-0 z-50 flex flex-col bg-black'
