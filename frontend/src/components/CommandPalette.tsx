@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Search, Hash, Volume2, Server, Shield, LogOut, Settings, Languages, Plus, MessageSquare, User as UserIcon } from 'lucide-react';
+import { Search, Hash, Volume2, Server, Shield, LogOut, Settings, Languages, Plus, MessageSquare, User as UserIcon, Filter } from 'lucide-react';
 import type { Chat, Group } from '../types';
 import { useAuthStore } from '../store/authStore';
 import { useSessionStore } from '../store/sessionStore';
@@ -124,24 +124,33 @@ function saveHistory(q: string): string[] {
   return updated;
 }
 
-// Палитра хранит своё состояние в sessionStore — чтобы её могла открывать и кнопка,
-// и любой другой компонент. Хоткей Ctrl/Cmd+K просто тогглит тот же флаг.
+// Палитра хранит своё состояние в sessionStore. Хоткеи:
+//   Cmd/Ctrl+K — тоггл палитры
+//   Cmd/Ctrl+Shift+F — расширенный поиск напрямую
 function usePaletteOpenState() {
   const open = useSessionStore((s) => s.uiPaletteOpen);
   const togglePalette = useSessionStore((s) => s.togglePalette);
   const closePalette = useSessionStore((s) => s.closePalette);
+  const openAdvancedSearch = useSessionStore((s) => s.openAdvancedSearch);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const isToggle = (e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K' || e.key === 'л' || e.key === 'Л');
-      if (isToggle) {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const k = e.key.toLowerCase();
+      if (e.shiftKey && (k === 'f' || k === 'а')) {
+        e.preventDefault();
+        openAdvancedSearch();
+        return;
+      }
+      if (!e.shiftKey && (k === 'k' || k === 'л')) {
         e.preventDefault();
         togglePalette();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [togglePalette]);
+  }, [togglePalette, openAdvancedSearch]);
 
   return [open, (v: boolean) => (v ? useSessionStore.getState().openPalette() : closePalette())] as const;
 }
@@ -170,6 +179,7 @@ export function CommandPalette() {
   const [activeIdx, setActiveIdx] = useState(0);
   // Какие секции раскрыты («Показать ещё» нажата для этого kind)
   const [expanded, setExpanded] = useState<Set<ItemKind>>(new Set());
+  const openAdvancedSearch = useSessionStore((s) => s.openAdvancedSearch);
   const [history, setHistory] = useState<string[]>(() => loadHistory());
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -212,7 +222,7 @@ export function CommandPalette() {
 
   const { data: messageHits = [], isFetching: messagesLoading } = useQuery({
     queryKey: ['palette-messages', debouncedQuery],
-    queryFn: () => searchApi.messages(debouncedQuery),
+    queryFn: () => searchApi.messages({ q: debouncedQuery, limit: 25 }),
     enabled: wantMessages,
     staleTime: 10_000,
   });
@@ -751,9 +761,17 @@ export function CommandPalette() {
           <span>↑↓ {t('palette.hintNavigate')}</span>
           <span>↵ {t('palette.hintSelect')}</span>
           <span>⇥ {t('palette.hintFilter')}</span>
-          <span className="ml-auto">⌘K / Ctrl+K</span>
+          <button
+            onClick={openAdvancedSearch}
+            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded hover:bg-white/5 hover:text-[var(--accent)] transition-colors"
+            title={t('palette.advancedHint')}
+          >
+            <Filter size={11} />
+            <span>{t('palette.advanced')}</span>
+          </button>
         </div>
       </div>
+
     </div>,
     document.body,
   );

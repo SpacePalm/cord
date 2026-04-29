@@ -1011,6 +1011,98 @@ async def get_links(
 # ─── Глобальный поиск сообщений (для CommandPalette) ──────────────────────
 
 from pydantic import BaseModel, ConfigDict  # noqa: E402  (локальный импорт, чтобы не замусоривать верх)
+from typing import Literal as _Literal  # noqa: E402
+
+# ── Расширенные фильтры ────────────────────────────────────────────────────
+# Helpers для расширенного поиска: распознавание типов вложений и применение
+# фильтров к SELECT над Message. Используется только в /api/search/messages.
+_IMAGE_EXT_REGEX = r'\.(jpg|jpeg|png|gif|webp|svg|heic|heif|bmp|avif)$'
+_VOICE_PREFIX_REGEX = r'/voice_[^/]*$'
+
+
+def _apply_search_filters(
+    stmt,
+    *,
+    from_user_ids: list[uuid.UUID] | None = None,
+    chat_ids: list[uuid.UUID] | None = None,
+    group_ids: list[uuid.UUID] | None = None,
+    before: datetime | None = None,
+    after: datetime | None = None,
+    has_image: bool = False,
+    has_file: bool = False,
+    has_link: bool = False,
+    has_voice: bool = False,
+    has_poll: bool = False,
+    pinned_only: bool = False,
+    is_edited: bool = False,
+    is_forwarded: bool = False,
+    mentions_username: str | None = None,
+    min_length: int | None = None,
+    max_length: int | None = None,
+):
+    """Применяет фильтры расширенного поиска к SELECT над Message.
+
+    Все аргументы независимы и комбинируются через AND.
+    """
+    if from_user_ids:
+        stmt = stmt.where(Message.user_id.in_(from_user_ids))
+    if chat_ids:
+        stmt = stmt.where(Message.chat_id.in_(chat_ids))
+    if group_ids:
+        # Подзапрос: chat_id принадлежит выбранным группам.
+        chats_in_groups = select(Chat.id).where(Chat.group_id.in_(group_ids))
+        stmt = stmt.where(Message.chat_id.in_(chats_in_groups))
+    if before:
+        stmt = stmt.where(Message.created_at < before)
+    if after:
+        stmt = stmt.where(Message.created_at > after)
+    if has_image:
+        stmt = stmt.where(
+            select(MessageAttachment.id)
+            .where(
+                MessageAttachment.message_id == Message.id,
+                MessageAttachment.file_path.op('~*')(_IMAGE_EXT_REGEX),
+            ).exists()
+        )
+    if has_file:
+        stmt = stmt.where(
+            select(MessageAttachment.id)
+            .where(
+                MessageAttachment.message_id == Message.id,
+                MessageAttachment.file_path.op('!~*')(_IMAGE_EXT_REGEX),
+                MessageAttachment.file_path.op('!~*')(_VOICE_PREFIX_REGEX),
+            ).exists()
+        )
+    if has_voice:
+        stmt = stmt.where(
+            select(MessageAttachment.id)
+            .where(
+                MessageAttachment.message_id == Message.id,
+                MessageAttachment.file_path.op('~*')(_VOICE_PREFIX_REGEX),
+            ).exists()
+        )
+    if has_link:
+        stmt = stmt.where(Message.content.op('~*')(r'https?://'))
+    if has_poll:
+        stmt = stmt.where(
+            select(Poll.id).where(Poll.message_id == Message.id).exists()
+        )
+    if pinned_only:
+        stmt = stmt.where(Message.is_pinned.is_(True))
+    if is_edited:
+        stmt = stmt.where(Message.is_edited.is_(True))
+    if is_forwarded:
+        stmt = stmt.where(Message.forwarded_from_id.isnot(None))
+    if mentions_username:
+        # @username с границей слова. Защита от инъекций — только [\w].
+        safe = re.sub(r'[^A-Za-z0-9_]', '', mentions_username)
+        if safe:
+            stmt = stmt.where(Message.content.op('~*')(rf'(^|[^A-Za-z0-9_])@{safe}\M'))
+    if min_length is not None:
+        stmt = stmt.where(sa_func.char_length(sa_func.coalesce(Message.content, '')) >= min_length)
+    if max_length is not None:
+        stmt = stmt.where(sa_func.char_length(sa_func.coalesce(Message.content, '')) <= max_length)
+    return stmt
 
 
 class GlobalMessageHit(BaseModel):
@@ -1021,70 +1113,297 @@ class GlobalMessageHit(BaseModel):
     id: uuid.UUID
     chat_id: uuid.UUID
     chat_name: str
+    chat_color: str | None = None
     group_id: uuid.UUID
     group_name: str
     author_id: uuid.UUID
+    author_username: str
     author_display_name: str
+    author_image_path: str | None = None
     content: str | None
+    has_image: bool = False
+    has_file: bool = False
+    has_voice: bool = False
+    has_link: bool = False
+    has_poll: bool = False
+    is_pinned: bool = False
+    is_edited: bool = False
+    is_forwarded: bool = False
     created_at: datetime
 
 
 @search_router.get('/messages', response_model=list[GlobalMessageHit])
 async def search_messages_global(
     http_request: Request,
-    q: str = Query(..., min_length=2, max_length=100),
-    limit: int = Query(10, ge=1, le=25),
+    # `q` опционален: если есть фильтры, можно искать без текста.
+    q: str = Query('', max_length=200),
+    limit: int = Query(25, ge=1, le=100),
+    cursor: datetime | None = Query(None, description='Пагинация: created_at <'),
+    # ── Скоуп ────────────────────────────────────────────────────────
+    group_ids: list[uuid.UUID] | None = Query(None),
+    chat_ids: list[uuid.UUID] | None = Query(None),
+    from_user_ids: list[uuid.UUID] | None = Query(None),
+    # ── Дата ─────────────────────────────────────────────────────────
+    before: datetime | None = Query(None),
+    after: datetime | None = Query(None),
+    # ── Контент ──────────────────────────────────────────────────────
+    has_image: bool = Query(False),
+    has_file: bool = Query(False),
+    has_link: bool = Query(False),
+    has_voice: bool = Query(False),
+    has_poll: bool = Query(False),
+    pinned_only: bool = Query(False),
+    is_edited: bool = Query(False),
+    is_forwarded: bool = Query(False),
+    mentions_me: bool = Query(False),
+    # ── Длина (опц.) ─────────────────────────────────────────────────
+    min_length: int | None = Query(None, ge=0, le=10000),
+    max_length: int | None = Query(None, ge=0, le=10000),
+    # ── Сортировка ───────────────────────────────────────────────────
+    sort: _Literal['relevance', 'newest', 'oldest'] = Query('relevance'),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """
-    Ищет сообщения по всем чатам, в которых состоит пользователь.
-    Права: фильтрация через GroupMember — виден только контент своих групп.
-    Результат кэшируется в Redis на 30с по (user_id, q, limit).
+    Ищет сообщения по всем чатам пользователя с поддержкой расширенных фильтров.
+
+    Используется и палитрой команд (простой режим: q + 1-2 фильтра), и
+    расширенной модалкой поиска (все фильтры + сортировка + пагинация).
+
+    FTS — websearch_to_tsquery: поддерживает фразы "...", OR, NOT, унарный -.
+    Если q пуст — fallback на отдачу по дате/фильтрам.
     """
     await search_limiter.check(http_request)
-    cache_params = {'q': q.strip().lower(), 'limit': limit}
-    cached = await get_cached_search('msg_global', str(user.id), cache_params)
-    if cached is not None:
-        return [GlobalMessageHit.model_validate(d) for d in cached]
 
+    q_stripped = q.strip()
+    has_any_filter = bool(
+        from_user_ids or chat_ids or group_ids or before or after
+        or has_image or has_file or has_link or has_voice or has_poll
+        or pinned_only or is_edited or is_forwarded or mentions_me
+        or min_length is not None or max_length is not None
+    )
+    if not q_stripped and not has_any_filter:
+        raise HTTPException(status_code=422, detail='Provide q (>=2 chars) or at least one filter')
+    if q_stripped and len(q_stripped) < 2:
+        raise HTTPException(status_code=422, detail='q must be >= 2 chars')
+
+    # Кэшируем только первую страницу (без cursor): кэш с курсором даёт большую
+    # размытость — реальные пользователи редко листают глубже.
+    use_cache = cursor is None
+    cache_params = {
+        'q': q_stripped.lower(), 'limit': limit, 'sort': sort,
+        'g': sorted(str(g) for g in (group_ids or [])),
+        'c': sorted(str(c) for c in (chat_ids or [])),
+        'u': sorted(str(u) for u in (from_user_ids or [])),
+        'b': before.isoformat() if before else '',
+        'a': after.isoformat() if after else '',
+        'hi': has_image, 'hf': has_file, 'hl': has_link, 'hv': has_voice, 'hp': has_poll,
+        'pin': pinned_only, 'ed': is_edited, 'fw': is_forwarded, 'me': mentions_me,
+        'minl': min_length, 'maxl': max_length,
+    }
+    if use_cache:
+        cached = await get_cached_search('msg_global', str(user.id), cache_params)
+        if cached is not None:
+            return [GlobalMessageHit.model_validate(d) for d in cached]
+
+    # Скоуп: только чаты пользователя — security boundary.
     my_chat_ids = (
         select(Chat.id)
         .join(GroupMember, GroupMember.group_id == Chat.group_id)
         .where(GroupMember.user_id == user.id)
     )
 
-    # FTS-запрос: plainto_tsquery разбивает q по пробелам и соединяет AND,
-    # автоматически применяет стеммер ('тестирую' → 'тестир') и убирает stop-words.
-    # @@ — оператор сопоставления. ts_rank — релевантность (0..1).
-    tsq = sa_func.plainto_tsquery('russian', q)
-
     stmt = (
-        select(Message, Chat, Group, User, sa_func.ts_rank(Message.content_tsv, tsq).label('rank'))
+        select(Message, Chat, Group, User)
         .join(Chat, Chat.id == Message.chat_id)
         .join(Group, Group.id == Chat.group_id)
         .join(User, User.id == Message.user_id)
-        .where(
-            Message.chat_id.in_(my_chat_ids),
-            Message.content_tsv.op('@@')(tsq),
-        )
-        # Сначала по релевантности, при равенстве — по свежести.
-        .order_by(sa_text('rank DESC'), Message.created_at.desc())
-        .limit(limit)
+        .where(Message.chat_id.in_(my_chat_ids))
     )
+
+    if q_stripped:
+        # websearch_to_tsquery: поддерживает фразы, OR, NOT, унарный -.
+        # Fallback на ILIKE для случаев когда tsquery пустой (только stop-words).
+        tsq = sa_func.websearch_to_tsquery('russian', q_stripped)
+        esc = _escape_ilike(q_stripped)
+        pattern = f'%{esc}%'
+        stmt = stmt.where(or_(
+            Message.content_tsv.op('@@')(tsq),
+            Message.content.ilike(pattern, escape='\\'),
+        ))
+        rank = sa_func.coalesce(sa_func.ts_rank(Message.content_tsv, tsq), 0.0).label('rank')
+        stmt = stmt.add_columns(rank)
+
+    # Применяем все остальные фильтры. mentions_me разворачивается в username.
+    stmt = _apply_search_filters(
+        stmt,
+        from_user_ids=from_user_ids,
+        chat_ids=chat_ids,
+        group_ids=group_ids,
+        before=before, after=after,
+        has_image=has_image, has_file=has_file, has_link=has_link,
+        has_voice=has_voice, has_poll=has_poll,
+        pinned_only=pinned_only, is_edited=is_edited, is_forwarded=is_forwarded,
+        mentions_username=user.username if mentions_me else None,
+        min_length=min_length, max_length=max_length,
+    )
+
+    if cursor is not None:
+        stmt = stmt.where(Message.created_at < cursor)
+
+    # Сортировка
+    if sort == 'newest':
+        stmt = stmt.order_by(Message.created_at.desc())
+    elif sort == 'oldest':
+        stmt = stmt.order_by(Message.created_at.asc())
+    else:  # relevance
+        if q_stripped:
+            stmt = stmt.order_by(sa_text('rank DESC'), Message.created_at.desc())
+        else:
+            # Без q релевантность бессмысленна — по дате убыванию.
+            stmt = stmt.order_by(Message.created_at.desc())
+
+    stmt = stmt.limit(limit)
+
     result = await db.execute(stmt)
-    hits = []
-    for msg, chat, group, author, _rank in result.all():
+    hits: list[GlobalMessageHit] = []
+
+    # Сразу подгрузим вложения для проставления флагов has_*. Чтобы не делать
+    # N+1 — один запрос на батч ID.
+    rows = result.all()
+    msg_ids = [row[0].id for row in rows]
+    attachments_by_msg: dict[uuid.UUID, list[str]] = {}
+    if msg_ids:
+        att_result = await db.execute(
+            select(MessageAttachment.message_id, MessageAttachment.file_path)
+            .where(MessageAttachment.message_id.in_(msg_ids))
+        )
+        for mid, path in att_result.all():
+            attachments_by_msg.setdefault(mid, []).append(path)
+
+    # Polls — один select для проверки наличия.
+    poll_msg_ids: set[uuid.UUID] = set()
+    if msg_ids:
+        poll_res = await db.execute(
+            select(Poll.message_id).where(Poll.message_id.in_(msg_ids))
+        )
+        poll_msg_ids = {pid for (pid,) in poll_res.all()}
+
+    image_re = re.compile(_IMAGE_EXT_REGEX, re.IGNORECASE)
+    voice_re = re.compile(_VOICE_PREFIX_REGEX, re.IGNORECASE)
+    link_re = re.compile(r'https?://')
+
+    for row in rows:
+        msg, chat, group, author = row[0], row[1], row[2], row[3]
+        atts = attachments_by_msg.get(msg.id, [])
+        h_image = any(image_re.search(p) for p in atts)
+        h_voice = any(voice_re.search(p) for p in atts)
+        h_file = any((not image_re.search(p)) and (not voice_re.search(p)) for p in atts)
+        h_link = bool(msg.content and link_re.search(msg.content))
+
         hits.append(GlobalMessageHit(
             id=msg.id,
             chat_id=chat.id,
             chat_name=chat.name,
+            chat_color=chat.color,
             group_id=group.id,
             group_name=group.name,
             author_id=author.id,
+            author_username=author.username,
             author_display_name=author.display_name or author.username,
+            author_image_path=author.image_path or None,
             content=msg.content,
+            has_image=h_image,
+            has_file=h_file,
+            has_voice=h_voice,
+            has_link=h_link,
+            has_poll=msg.id in poll_msg_ids,
+            is_pinned=msg.is_pinned,
+            is_edited=msg.is_edited,
+            is_forwarded=msg.forwarded_from_id is not None,
             created_at=msg.created_at,
         ))
-    await set_cached_search('msg_global', str(user.id), cache_params, [h.model_dump(mode='json') for h in hits])
+
+    if use_cache:
+        await set_cached_search('msg_global', str(user.id), cache_params, [h.model_dump(mode='json') for h in hits])
     return hits
+
+
+# ─── Scope endpoint: данные для UI расширенного поиска ────────────────────
+
+class ScopeChat(BaseModel):
+    id: uuid.UUID
+    name: str
+    type: str
+    color: str | None = None
+    group_id: uuid.UUID
+
+
+class ScopeGroup(BaseModel):
+    id: uuid.UUID
+    name: str
+    is_personal: bool = False
+    is_dm: bool = False
+
+
+class ScopeUser(BaseModel):
+    id: uuid.UUID
+    username: str
+    display_name: str
+    image_path: str | None = None
+
+
+class ScopeOut(BaseModel):
+    groups: list[ScopeGroup]
+    chats: list[ScopeChat]
+    members: list[ScopeUser]
+
+
+@search_router.get('/scope', response_model=ScopeOut)
+async def search_scope(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Один запрос с данными для фильтров расширенного поиска: все группы пользователя,
+    все каналы, и все участники этих групп (для multi-select по автору).
+
+    Кэш не делаем — дёшево, инвалидация сложная (вступление/выход из групп).
+    """
+    # Группы пользователя
+    groups_res = await db.execute(
+        select(Group)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .where(GroupMember.user_id == user.id)
+        .order_by(Group.name)
+    )
+    groups = groups_res.scalars().all()
+    group_ids = [g.id for g in groups]
+
+    # Все каналы этих групп
+    chats: list[Chat] = []
+    if group_ids:
+        chats_res = await db.execute(
+            select(Chat).where(Chat.group_id.in_(group_ids)).order_by(Chat.name)
+        )
+        chats = list(chats_res.scalars().all())
+
+    # Уникальные участники этих групп — для multi-select по автору.
+    members: list[User] = []
+    if group_ids:
+        members_res = await db.execute(
+            select(User)
+            .join(GroupMember, GroupMember.user_id == User.id)
+            .where(GroupMember.group_id.in_(group_ids))
+            .distinct()
+            .order_by(User.display_name)
+        )
+        members = list(members_res.scalars().all())
+
+    return ScopeOut(
+        groups=[ScopeGroup(id=g.id, name=g.name, is_personal=g.is_personal, is_dm=g.is_dm) for g in groups],
+        chats=[ScopeChat(id=c.id, name=c.name, type=c.type, color=c.color, group_id=c.group_id) for c in chats],
+        members=[ScopeUser(
+            id=m.id, username=m.username, display_name=m.display_name or m.username,
+            image_path=m.image_path or None,
+        ) for m in members],
+    )

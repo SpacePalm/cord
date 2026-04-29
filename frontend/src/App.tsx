@@ -14,6 +14,7 @@ import { applyServerPreferences, startPreferencesAutoSync } from './utils/prefer
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CordWebSocketProvider } from './hooks/useWebSocket';
 import { CommandPalette } from './components/CommandPalette';
+import { AdvancedSearchRoot } from './components/AdvancedSearchRoot';
 import { IncomingCallOverlay } from './components/IncomingCallOverlay';
 import { OutgoingCallWatcher } from './components/OutgoingCallWatcher';
 import { MessageNotifier } from './components/MessageNotifier';
@@ -66,6 +67,7 @@ function AuthenticatedOverlays() {
   return (
     <>
       <CommandPalette />
+      <AdvancedSearchRoot />
       <IncomingCallOverlay />
       <OutgoingCallWatcher />
       <MessageNotifier />

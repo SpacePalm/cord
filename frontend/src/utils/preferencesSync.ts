@@ -10,6 +10,7 @@
 
 import { useLangStore } from '../i18n';
 import { useNotificationStore } from '../store/notificationStore';
+import { useSavedSearchesStore, type SavedSearch } from '../store/savedSearchesStore';
 import { authApi } from '../api/auth';
 
 // Громкости (soundVolume, ringtoneVolume) намеренно НЕ синкаются —
@@ -22,6 +23,7 @@ interface Preferences {
     browserEnabled?: boolean;
   };
   mutedChats?: Record<string, boolean>;
+  savedSearches?: SavedSearch[];
 }
 
 function collectCurrentPreferences(): Preferences {
@@ -34,6 +36,7 @@ function collectCurrentPreferences(): Preferences {
       browserEnabled: notif.browserEnabled,
     },
     mutedChats: notif.mutedChats,
+    savedSearches: useSavedSearchesStore.getState().items,
   };
 }
 
@@ -64,6 +67,11 @@ export function applyServerPreferences(preferencesJson: string | null | undefine
   // mutedChats — перезаписываем целиком
   if (prefs.mutedChats && typeof prefs.mutedChats === 'object') {
     useNotificationStore.setState({ mutedChats: prefs.mutedChats });
+  }
+
+  // Сохранённые поиски — массив; перезаписываем целиком
+  if (Array.isArray(prefs.savedSearches)) {
+    useSavedSearchesStore.getState().setAll(prefs.savedSearches);
   }
 }
 
@@ -101,4 +109,5 @@ export function startPreferencesAutoSync(): void {
 
   useLangStore.subscribe(scheduleSave);
   useNotificationStore.subscribe(scheduleSave);
+  useSavedSearchesStore.subscribe(scheduleSave);
 }

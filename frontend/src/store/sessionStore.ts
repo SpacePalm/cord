@@ -79,6 +79,10 @@ interface SessionState {
   openPalette: () => void;
   closePalette: () => void;
   togglePalette: () => void;
+  // Расширенный поиск (открывается из палитры или хоткеем Cmd+Shift+F)
+  uiAdvancedSearchOpen: boolean;
+  openAdvancedSearch: () => void;
+  closeAdvancedSearch: () => void;
 
   // DM-режим: включён — вместо обычного ChannelSidebar показывается список DM.
   // Выбор DM сохраняет режим, выбор обычной группы — выключает.
@@ -193,6 +197,9 @@ export const useSessionStore = create<SessionState>()(
       openPalette: () => set({ uiPaletteOpen: true }),
       closePalette: () => set({ uiPaletteOpen: false }),
       togglePalette: () => set((s) => ({ uiPaletteOpen: !s.uiPaletteOpen })),
+      uiAdvancedSearchOpen: false,
+      openAdvancedSearch: () => set({ uiAdvancedSearchOpen: true }),
+      closeAdvancedSearch: () => set({ uiAdvancedSearchOpen: false }),
 
       dmMode: false,
       setDmMode: (v) => set({ dmMode: v }),
