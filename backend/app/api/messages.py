@@ -1248,17 +1248,18 @@ async def search_messages_global(
         min_length=min_length, max_length=max_length,
     )
 
-    # Сортировка
+    # Сортировка. Message.id как финальный tiebreaker — гарантирует стабильный
+    # порядок строк при равных значениях created_at/rank, иначе OFFSET может
+    # вернуть один и тот же ряд на соседних страницах.
     if sort == 'newest':
-        stmt = stmt.order_by(Message.created_at.desc())
+        stmt = stmt.order_by(Message.created_at.desc(), Message.id.desc())
     elif sort == 'oldest':
-        stmt = stmt.order_by(Message.created_at.asc())
+        stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc())
     else:  # relevance
         if q_stripped:
-            stmt = stmt.order_by(sa_text('rank DESC'), Message.created_at.desc())
+            stmt = stmt.order_by(sa_text('rank DESC'), Message.created_at.desc(), Message.id.desc())
         else:
-            # Без q релевантность бессмысленна — по дате убыванию.
-            stmt = stmt.order_by(Message.created_at.desc())
+            stmt = stmt.order_by(Message.created_at.desc(), Message.id.desc())
 
     stmt = stmt.offset(offset).limit(limit)
 

@@ -205,21 +205,40 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onBackToSimple, onJ
     staleTime: 10_000,
   });
 
-  const hits = useMemo<GlobalMessageHit[]>(
-    () => (data?.pages ?? []).flat(),
-    [data],
-  );
-
-  // Автоподгрузка следующей страницы при скролле к низу.
-  const resultsRef = useRef<HTMLDivElement>(null);
-  const handleResultsScroll = useCallback(() => {
-    const el = resultsRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom < 200 && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
+  // Дедуп: если бэкенд из-за равных рангов вернёт один и тот же id на разных
+  // страницах — не показываем дубликат и не множим ряды.
+  const hits = useMemo<GlobalMessageHit[]>(() => {
+    const seen = new Set<string>();
+    const out: GlobalMessageHit[] = [];
+    for (const page of data?.pages ?? []) {
+      for (const h of page) {
+        if (seen.has(h.id)) continue;
+        seen.add(h.id);
+        out.push(h);
+      }
     }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+    return out;
+  }, [data]);
+
+  // Автоподгрузка через IntersectionObserver на «sentinel»-элемент в конце списка.
+  // В отличие от scroll-event'а, observer не срабатывает повторно после загрузки
+  // пока sentinel не выйдет и снова не зайдёт во view — что и нужно для бесконечного
+  // скролла без fire-loop'а.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasNextPage || isFetchingNextPage) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, hits.length]);
 
   // Группировка результатов
   const grouped = useMemo(() => {
@@ -496,7 +515,7 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onBackToSimple, onJ
             </div>
 
             {/* Результаты */}
-            <div ref={resultsRef} onScroll={handleResultsScroll} className="flex-1 overflow-y-auto p-3">
+            <div className="flex-1 overflow-y-auto p-3">
               {empty ? (
                 <p className="text-center text-sm text-[var(--text-muted)] mt-12">{t('search.advancedHint')}</p>
               ) : isFetching && hits.length === 0 ? (
@@ -519,6 +538,8 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onBackToSimple, onJ
                       />
                     ))}
                   </div>
+                  {/* Sentinel — пересечение со scroll-областью триггерит fetchNextPage */}
+                  {hasNextPage && <div ref={sentinelRef} className="h-1" />}
                   {isFetchingNextPage && (
                     <div className="flex justify-center py-3">
                       <div className="w-4 h-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
