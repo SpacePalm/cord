@@ -208,11 +208,13 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onJumpToMessage }: 
   const handleSave = useCallback(() => {
     const name = window.prompt(t('search.savePrompt'));
     if (!name?.trim()) return;
-    addSaved({ id: crypto.randomUUID(), name: name.trim(), filters });
+    // FilterState — конкретный тип, SavedSearch.filters — расширяемый Record.
+    // Каст безопасен: ключи FilterState — это подмножество строк.
+    addSaved({ id: crypto.randomUUID(), name: name.trim(), filters: filters as unknown as Record<string, unknown> });
   }, [filters, addSaved, t]);
 
   const applySaved = useCallback((s: SavedSearch) => {
-    setFilters({ ...DEFAULT_FILTERS, ...s.filters });
+    setFilters({ ...DEFAULT_FILTERS, ...(s.filters as Partial<FilterState>) });
   }, []);
 
   const reset = () => setFilters({ ...DEFAULT_FILTERS });
