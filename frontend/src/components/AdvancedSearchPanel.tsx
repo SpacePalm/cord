@@ -9,8 +9,8 @@
 //
 // Сохранённые поиски: хранятся в preferences_json (синкаются между девайсами).
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import {
   X, Search, Hash, Image as ImageIcon, Paperclip, Mic, Link2,
   BarChart2, Pin, AtSign, Edit3, Forward, Save, Trash2, ChevronDown, ChevronRight,
@@ -181,16 +181,45 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onBackToSimple, onJ
     return groups.map((group) => ({ group, chats: chatsByGroup.get(group.id) ?? [] }));
   }, [scope]);
 
-  // Поисковый запрос
+  // Поисковый запрос — пагинация через useInfiniteQuery.
+  // PAGE_SIZE — размер одной страницы. hasNextPage = последняя страница пришла «полной».
+  const PAGE_SIZE = 25;
   const params = useMemo(() => filtersToParams(debouncedFilters), [debouncedFilters]);
   const empty = isEmptySearch(debouncedFilters);
 
-  const { data: hits = [], isFetching } = useQuery<GlobalMessageHit[]>({
+  const {
+    data,
+    isFetching,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery<GlobalMessageHit[]>({
     queryKey: ['advanced-search', params],
-    queryFn: () => searchApi.messages({ ...params, limit: 50 }),
+    queryFn: ({ pageParam = 0 }) =>
+      searchApi.messages({ ...params, limit: PAGE_SIZE, offset: pageParam as number }),
+    initialPageParam: 0,
+    // Если страница пришла полная — есть следующая. Иначе достигли конца.
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length < PAGE_SIZE ? undefined : allPages.length * PAGE_SIZE,
     enabled: !empty,
     staleTime: 10_000,
   });
+
+  const hits = useMemo<GlobalMessageHit[]>(
+    () => (data?.pages ?? []).flat(),
+    [data],
+  );
+
+  // Автоподгрузка следующей страницы при скролле к низу.
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const handleResultsScroll = useCallback(() => {
+    const el = resultsRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 200 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Группировка результатов
   const grouped = useMemo(() => {
@@ -467,7 +496,7 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onBackToSimple, onJ
             </div>
 
             {/* Результаты */}
-            <div className="flex-1 overflow-y-auto p-3">
+            <div ref={resultsRef} onScroll={handleResultsScroll} className="flex-1 overflow-y-auto p-3">
               {empty ? (
                 <p className="text-center text-sm text-[var(--text-muted)] mt-12">{t('search.advancedHint')}</p>
               ) : isFetching && hits.length === 0 ? (
@@ -477,18 +506,30 @@ export function AdvancedSearchPanel({ initialQuery, onClose, onBackToSimple, onJ
               ) : hits.length === 0 ? (
                 <p className="text-center text-sm text-[var(--text-muted)] mt-12">{t('search.noResults')}</p>
               ) : (
-                <div className="flex flex-col gap-3">
-                  {grouped.map((g) => (
-                    <ResultGroup
-                      key={g.key}
-                      label={g.label}
-                      hits={g.hits}
-                      query={filters.q}
-                      locale={locale}
-                      onJump={onJumpToMessage}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-col gap-3">
+                    {grouped.map((g) => (
+                      <ResultGroup
+                        key={g.key}
+                        label={g.label}
+                        hits={g.hits}
+                        query={filters.q}
+                        locale={locale}
+                        onJump={onJumpToMessage}
+                      />
+                    ))}
+                  </div>
+                  {isFetchingNextPage && (
+                    <div className="flex justify-center py-3">
+                      <div className="w-4 h-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
+                    </div>
+                  )}
+                  {!hasNextPage && hits.length >= PAGE_SIZE && (
+                    <p className="text-center text-xs text-[var(--text-muted)] py-3 opacity-60">
+                      {t('search.endOfResults')}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>

@@ -1138,7 +1138,7 @@ async def search_messages_global(
     # `q` опционален: если есть фильтры, можно искать без текста.
     q: str = Query('', max_length=200),
     limit: int = Query(25, ge=1, le=100),
-    cursor: datetime | None = Query(None, description='Пагинация: created_at <'),
+    offset: int = Query(0, ge=0, le=10000, description='Пагинация: смещение от начала'),
     # ── Скоуп ────────────────────────────────────────────────────────
     group_ids: list[uuid.UUID] | None = Query(None),
     chat_ids: list[uuid.UUID] | None = Query(None),
@@ -1187,9 +1187,9 @@ async def search_messages_global(
     if q_stripped and len(q_stripped) < 2:
         raise HTTPException(status_code=422, detail='q must be >= 2 chars')
 
-    # Кэшируем только первую страницу (без cursor): кэш с курсором даёт большую
-    # размытость — реальные пользователи редко листают глубже.
-    use_cache = cursor is None
+    # Кэшируем только первую страницу (offset=0): глубокие страницы редкие,
+    # ключ с offset раздул бы кэш и снизил hit-rate.
+    use_cache = offset == 0
     cache_params = {
         'q': q_stripped.lower(), 'limit': limit, 'sort': sort,
         'g': sorted(str(g) for g in (group_ids or [])),
@@ -1248,9 +1248,6 @@ async def search_messages_global(
         min_length=min_length, max_length=max_length,
     )
 
-    if cursor is not None:
-        stmt = stmt.where(Message.created_at < cursor)
-
     # Сортировка
     if sort == 'newest':
         stmt = stmt.order_by(Message.created_at.desc())
@@ -1263,7 +1260,7 @@ async def search_messages_global(
             # Без q релевантность бессмысленна — по дате убыванию.
             stmt = stmt.order_by(Message.created_at.desc())
 
-    stmt = stmt.limit(limit)
+    stmt = stmt.offset(offset).limit(limit)
 
     result = await db.execute(stmt)
     hits: list[GlobalMessageHit] = []

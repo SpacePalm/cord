@@ -41,7 +41,7 @@ export interface GlobalMessageHit {
 export interface MessageSearchParams {
   q?: string;
   limit?: number;
-  cursor?: string;            // ISO created_at для пагинации
+  offset?: number;            // Смещение от начала; 0 — первая страница
   group_ids?: string[];
   chat_ids?: string[];
   from_user_ids?: string[];
@@ -93,7 +93,7 @@ function buildSearchParams(p: MessageSearchParams): URLSearchParams {
   const sp = new URLSearchParams();
   if (p.q) sp.set('q', p.q);
   if (p.limit !== undefined) sp.set('limit', String(p.limit));
-  if (p.cursor) sp.set('cursor', p.cursor);
+  if (p.offset !== undefined && p.offset > 0) sp.set('offset', String(p.offset));
   for (const id of p.group_ids ?? []) sp.append('group_ids', id);
   for (const id of p.chat_ids ?? []) sp.append('chat_ids', id);
   for (const id of p.from_user_ids ?? []) sp.append('from_user_ids', id);
