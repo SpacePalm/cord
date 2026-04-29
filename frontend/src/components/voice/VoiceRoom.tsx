@@ -1142,7 +1142,7 @@ export function VoiceRoom({ channelId }: VoiceRoomProps) {
 
   const handleLeave = useCallback(() => {
     // Если это DM-звонок — сообщаем второй стороне отмену (её оверлей и рингтон
-    // остановятся). Для обычной групповой голосовой — endpoint 404, молча игнор.
+    // остановятся). Для обычной групповой голосовой — endpoint 404, молча игнор
     const presence = useSessionStore.getState().voicePresence;
     if (presence) dmsApi.cancelCall(presence.groupId).catch(() => {});
     voiceApi.leave(channelId).catch(() => {});
