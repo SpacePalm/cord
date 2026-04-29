@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir .
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-RUN chmod 666 -R /app/media
+RUN mkdir -p media && chmod 666 -R media
 
 ENTRYPOINT ["/entrypoint.sh"]
 # --workers 1 — каждый Python-воркер держит ~100-150 MB, для большинства deploy'ев
