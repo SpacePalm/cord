@@ -728,7 +728,7 @@ export function CommandPalette() {
           </kbd>
         </div>
 
-        {/* Чипы фильтров */}
+        {/* Чипы фильтров + кнопка расширенного поиска справа */}
         <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border-color)] overflow-x-auto">
           {FILTERS.map((f) => {
             const active = effectiveFilter === f.key;
@@ -747,6 +747,17 @@ export function CommandPalette() {
               </button>
             );
           })}
+          <button
+            onClick={() => {
+              openAdvancedSearch();
+              setOpen(false);
+            }}
+            title={t('palette.advancedHint')}
+            className="ml-auto shrink-0 flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-white/5 transition-colors"
+          >
+            <Filter size={11} />
+            <span>{t('palette.advanced')}</span>
+          </button>
         </div>
 
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto py-1">
@@ -761,19 +772,7 @@ export function CommandPalette() {
           <span>↑↓ {t('palette.hintNavigate')}</span>
           <span>↵ {t('palette.hintSelect')}</span>
           <span>⇥ {t('palette.hintFilter')}</span>
-          <button
-            onClick={() => {
-              // Открываем расширенный поиск ВМЕСТО палитры — палитра сразу прячется,
-              // а кнопкой «← Назад» в advanced пользователь может вернуться сюда.
-              openAdvancedSearch();
-              setOpen(false);
-            }}
-            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded hover:bg-white/5 hover:text-[var(--accent)] transition-colors"
-            title={t('palette.advancedHint')}
-          >
-            <Filter size={11} />
-            <span>{t('palette.advanced')}</span>
-          </button>
+          <span className="ml-auto">⌘K / Ctrl+K</span>
         </div>
       </div>
 

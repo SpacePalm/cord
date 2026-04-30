@@ -1216,7 +1216,10 @@ async def search_messages_global(
         'minl': min_length, 'maxl': max_length,
     }
     if use_cache:
-        cached = await get_cached_search('msg_global', str(user.id), cache_params)
+        # 'msg_global_v2' — бамп при изменении схемы GlobalMessageHit (добавили
+        # attachment_names). Старые записи под ключом 'msg_global' просто
+        # доживут TTL и удалятся.
+        cached = await get_cached_search('msg_global_v2', str(user.id), cache_params)
         if cached is not None:
             return [GlobalMessageHit.model_validate(d) for d in cached]
 
@@ -1348,7 +1351,7 @@ async def search_messages_global(
         ))
 
     if use_cache:
-        await set_cached_search('msg_global', str(user.id), cache_params, [h.model_dump(mode='json') for h in hits])
+        await set_cached_search('msg_global_v2', str(user.id), cache_params, [h.model_dump(mode='json') for h in hits])
     return hits
 
 
