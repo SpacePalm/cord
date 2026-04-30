@@ -849,9 +849,9 @@ function ResultCard({ hit, query, locale, onClick }: {
           {highlight(hit.content, query)}
         </p>
       )}
-      {hit.attachment_names.length > 0 && (
+      {(hit.attachment_names?.length ?? 0) > 0 && (
         <div className="flex flex-col gap-1 mt-1.5">
-          {hit.attachment_names.map((name, i) => {
+          {hit.attachment_names!.map((name, i) => {
             const lower = name.toLowerCase();
             const isImage = /\.(jpg|jpeg|png|gif|webp|svg|heic|heif|bmp|avif)$/i.test(lower);
             const isVoice = lower.startsWith('voice_');
