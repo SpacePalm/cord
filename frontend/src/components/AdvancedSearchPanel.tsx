@@ -849,10 +849,23 @@ function ResultCard({ hit, query, locale, onClick }: {
           {highlight(hit.content, query)}
         </p>
       )}
+      {hit.attachment_names.length > 0 && (
+        <div className="flex flex-col gap-1 mt-1.5">
+          {hit.attachment_names.map((name, i) => {
+            const lower = name.toLowerCase();
+            const isImage = /\.(jpg|jpeg|png|gif|webp|svg|heic|heif|bmp|avif)$/i.test(lower);
+            const isVoice = lower.startsWith('voice_');
+            const Icon = isImage ? ImageIcon : isVoice ? Mic : Paperclip;
+            return (
+              <div key={i} className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] bg-white/[.03] border border-[var(--border-color)] rounded px-2 py-1 max-w-fit">
+                <Icon size={11} className="shrink-0" />
+                <span className="truncate max-w-[260px]">{highlight(name, query)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div className="flex items-center gap-1.5 mt-1.5 text-[var(--text-muted)]">
-        {hit.has_image && <ImageIcon size={11} />}
-        {hit.has_file && <Paperclip size={11} />}
-        {hit.has_voice && <Mic size={11} />}
         {hit.has_link && <Link2 size={11} />}
         {hit.has_poll && <BarChart2 size={11} />}
         {hit.is_pinned && <Pin size={11} className="text-yellow-400" />}

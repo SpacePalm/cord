@@ -26,6 +26,7 @@ export interface GlobalMessageHit {
   author_display_name: string;
   author_image_path?: string | null;
   content: string | null;
+  attachment_names: string[];
   has_image: boolean;
   has_file: boolean;
   has_voice: boolean;

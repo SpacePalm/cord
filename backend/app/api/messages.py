@@ -1106,8 +1106,7 @@ def _apply_search_filters(
 
 
 class GlobalMessageHit(BaseModel):
-    """Лёгкий превью-формат для палитры. Без реакций, вложений, embed — только то,
-    что нужно показать в строке результата и перепрыгнуть к сообщению."""
+    """Лёгкий превью-формат для палитры и расширенного поиска."""
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -1121,6 +1120,8 @@ class GlobalMessageHit(BaseModel):
     author_display_name: str
     author_image_path: str | None = None
     content: str | None
+    # Имена вложений (без internal-префиксов) — для отображения и индикации.
+    attachment_names: list[str] = []
     has_image: bool = False
     has_file: bool = False
     has_voice: bool = False
@@ -1130,6 +1131,19 @@ class GlobalMessageHit(BaseModel):
     is_edited: bool = False
     is_forwarded: bool = False
     created_at: datetime
+
+
+def _display_attachment_name(file_path: str) -> str:
+    """Превращает storage-путь в человекочитаемое имя.
+
+    Формат на диске: `messages/{message_id}/{uuid8}_{original_name}`.
+    Снимаем uuid8-префикс — он добавлен только для уникальности на диске.
+    Голосовые сообщения именуются `voice_{timestamp}.{ext}` — оставляем как есть.
+    """
+    base = file_path.rsplit('/', 1)[-1]
+    if len(base) > 9 and base[8] == '_' and all(c in '0123456789abcdef' for c in base[:8].lower()):
+        return base[9:]
+    return base
 
 
 @search_router.get('/messages', response_model=list[GlobalMessageHit])
@@ -1227,9 +1241,19 @@ async def search_messages_global(
         tsq = sa_func.websearch_to_tsquery('russian', q_stripped)
         esc = _escape_ilike(q_stripped)
         pattern = f'%{esc}%'
+        # Дополнительно матчим по имени файла во вложениях — пользователь
+        # часто помнит имя документа, но не текст сопровождения.
+        attachment_match = (
+            select(MessageAttachment.id)
+            .where(
+                MessageAttachment.message_id == Message.id,
+                MessageAttachment.file_path.ilike(pattern, escape='\\'),
+            ).exists()
+        )
         stmt = stmt.where(or_(
             Message.content_tsv.op('@@')(tsq),
             Message.content.ilike(pattern, escape='\\'),
+            attachment_match,
         ))
         rank = sa_func.coalesce(sa_func.ts_rank(Message.content_tsv, tsq), 0.0).label('rank')
         stmt = stmt.add_columns(rank)
@@ -1311,6 +1335,7 @@ async def search_messages_global(
             author_display_name=author.display_name or author.username,
             author_image_path=author.image_path or None,
             content=msg.content,
+            attachment_names=[_display_attachment_name(p) for p in atts],
             has_image=h_image,
             has_file=h_file,
             has_voice=h_voice,
