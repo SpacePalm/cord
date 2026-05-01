@@ -1,4 +1,5 @@
 // При 401 — автоматически разлогиниваем и редиректим на /login.
+// При 403 detail.code === 'blocked_by_security' — logout + редирект на /blocked.
 
 import { useAuthStore } from '../store/authStore';
 
@@ -9,6 +10,19 @@ function handleUnauthorized() {
   // Используем location.replace чтобы убрать текущий URL из истории
   if (window.location.pathname !== '/login') {
     window.location.replace('/login');
+  }
+}
+
+function handleBlocked(detail: { kind?: string; expires_at?: string | null } | null) {
+  // Сценарий: админ забанил IP → следующий API-запрос с этого IP получает 403
+  // с blocked_by_security → выкидываем пользователя из сессии и показываем
+  // страницу с обратным отсчётом до разблокировки.
+  useAuthStore.getState().logout();
+  const sp = new URLSearchParams();
+  if (detail?.kind) sp.set('kind', detail.kind);
+  if (detail?.expires_at) sp.set('until', detail.expires_at);
+  if (window.location.pathname !== '/blocked') {
+    window.location.replace(`/blocked?${sp}`);
   }
 }
 
@@ -46,6 +60,9 @@ async function request<T>(
     const message = typeof error.detail === 'string'
       ? error.detail
       : (error.detail?.code ?? 'Request failed');
+    if (response.status === 403 && typeof error.detail === 'object' && error.detail?.code === 'blocked_by_security') {
+      handleBlocked(error.detail);
+    }
     throw new ApiError(response.status, message, error.detail);
   }
 
@@ -81,6 +98,9 @@ export async function postForm<T>(path: string, form: FormData): Promise<T> {
     const message = typeof error.detail === 'string'
       ? error.detail
       : (error.detail?.code ?? 'Request failed');
+    if (response.status === 403 && typeof error.detail === 'object' && error.detail?.code === 'blocked_by_security') {
+      handleBlocked(error.detail);
+    }
     throw new ApiError(response.status, message, error.detail);
   }
 
@@ -112,7 +132,10 @@ export function postFormWithProgress<T>(
           try { return JSON.parse(xhr.responseText)?.detail ?? 'Request failed'; }
           catch { return 'Request failed'; }
         })();
-        reject(new ApiError(xhr.status, detail));
+        if (xhr.status === 403 && typeof detail === 'object' && detail?.code === 'blocked_by_security') {
+          handleBlocked(detail);
+        }
+        reject(new ApiError(xhr.status, typeof detail === 'string' ? detail : (detail?.code ?? 'Request failed'), detail));
         return;
       }
       if (xhr.status === 204) { resolve({} as T); return; }

@@ -481,7 +481,11 @@ function LogGrouped() {
                 g={g}
                 fmt={fmt}
                 t={t}
-                onBlock={() => block.mutate({ ip: g.ip, reason: `Manual: ${g.failed} failed attempts`, duration_seconds: 3600 })}
+                onBlock={(durationSeconds) => block.mutate({
+                  ip: g.ip,
+                  reason: `Manual: ${g.failed} failed attempts`,
+                  duration_seconds: durationSeconds,
+                })}
                 onUnblock={() => unblock.mutate(g.ip)}
               />
             ))}
@@ -496,10 +500,12 @@ function GroupRow({ g, fmt, t, onBlock, onUnblock }: {
   g: GroupedIp;
   fmt: (s: string | null) => string;
   t: (k: string, p?: Record<string, string | number>) => string;
-  onBlock: () => void;
+  onBlock: (durationSeconds: number | null) => void;
   onUnblock: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // duration в виде строки чтобы '' = вечный бан (null на бэке).
+  const [duration, setDuration] = useState<string>('3600');
   const lastAtRel = useMemo(() => {
     const ms = Date.now() - new Date(g.last_at).getTime();
     const min = Math.floor(ms / 60000);
@@ -538,13 +544,26 @@ function GroupRow({ g, fmt, t, onBlock, onUnblock }: {
             {t('security.unblock')}
           </button>
         ) : (
-          <button
-            onClick={(e) => { e.stopPropagation(); onBlock(); }}
-            title={t('security.blockHourly')}
-            className="ml-2 px-2 py-0.5 rounded text-[10px] text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors"
-          >
-            {t('security.block')}
-          </button>
+          <div className="ml-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <select
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-input)] text-[var(--text-secondary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent)]"
+            >
+              <option value="3600">1 ч</option>
+              <option value="86400">1 д</option>
+              <option value="604800">7 д</option>
+              <option value="2592000">30 д</option>
+              <option value="">{t('security.permanent')}</option>
+            </select>
+            <button
+              onClick={() => onBlock(duration ? parseInt(duration, 10) : null)}
+              title={t('security.block')}
+              className="px-2 py-0.5 rounded text-[10px] text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors"
+            >
+              {t('security.block')}
+            </button>
+          </div>
         )}
       </div>
       {open && (
