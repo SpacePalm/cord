@@ -34,6 +34,15 @@ export function LoginPage() {
     },
     onError: (err) => {
       if (err instanceof ApiError) {
+        // Fail2ban: бэк отдаёт detail = {code: 'blocked_by_security', kind, expires_at}.
+        const d = err.detail as { code?: string; kind?: string; expires_at?: string | null } | null;
+        if (d && d.code === 'blocked_by_security') {
+          const sp = new URLSearchParams();
+          if (d.kind) sp.set('kind', d.kind);
+          if (d.expires_at) sp.set('until', d.expires_at);
+          navigate(`/blocked?${sp}`);
+          return;
+        }
         setError(err.message);
       } else {
         setError(t('login.networkError'));

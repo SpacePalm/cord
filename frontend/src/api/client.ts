@@ -13,9 +13,12 @@ function handleUnauthorized() {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  /** Иногда detail приходит объектом (например fail2ban: {code, kind, expires_at}). */
+  public detail: unknown;
+  constructor(public status: number, message: string, detail?: unknown) {
     super(message);
     this.name = 'ApiError';
+    this.detail = detail;
   }
 }
 
@@ -39,7 +42,11 @@ async function request<T>(
   if (!response.ok) {
     if (response.status === 401) handleUnauthorized();
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new ApiError(response.status, error.detail ?? 'Request failed');
+    // detail может быть строкой (стандарт) или объектом (наши structured errors).
+    const message = typeof error.detail === 'string'
+      ? error.detail
+      : (error.detail?.code ?? 'Request failed');
+    throw new ApiError(response.status, message, error.detail);
   }
 
   // 204 No Content — возвращаем пустой объект
@@ -71,7 +78,10 @@ export async function postForm<T>(path: string, form: FormData): Promise<T> {
   if (!response.ok) {
     if (response.status === 401) handleUnauthorized();
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new ApiError(response.status, error.detail ?? 'Request failed');
+    const message = typeof error.detail === 'string'
+      ? error.detail
+      : (error.detail?.code ?? 'Request failed');
+    throw new ApiError(response.status, message, error.detail);
   }
 
   if (response.status === 204) return {} as T;

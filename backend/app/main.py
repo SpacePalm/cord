@@ -7,10 +7,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base, AsyncSessionLocal
 from app.api import auth, groups, messages, admin, polls, media, voice, notifications, ws, users, dms
+from app.api import admin_fail2ban
 from app.api.groups import invite_router
 from app.api.messages import search_router
 from app.models import poll as _poll_models  # noqa: F401 — registers Poll tables
 from app.models import user_chat_state as _user_chat_state_models  # noqa: F401 — registers UserChatState table
+from app.models import fail2ban as _fail2ban_models  # noqa: F401 — registers LoginAttempt + IpBlock
 from app.config import settings
 
 app = FastAPI(title='Cord API')
@@ -34,6 +36,7 @@ app.include_router(media.router)
 app.include_router(voice.router)
 app.include_router(notifications.router)
 app.include_router(admin.router)
+app.include_router(admin_fail2ban.router)
 app.include_router(users.router)
 app.include_router(dms.router)
 app.include_router(search_router)
@@ -99,6 +102,13 @@ _RUNTIME_MIGRATIONS: list[str] = [
     # ─── User preferences ────────────────────────────────────────────
     # Кросс-девайсные настройки юзера (язык, уведомления, mute чатов).
     'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS preferences_json TEXT',
+
+    # ─── Fail2ban: блокировки аккаунтов ──────────────────────────────
+    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS last_failed_at TIMESTAMP WITH TIME ZONE',
+    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP WITH TIME ZONE',
+    # Индекс для быстрой выборки заблокированных аккаунтов в админке.
+    'CREATE INDEX IF NOT EXISTS idx_user_locked_until ON "user" (locked_until) WHERE locked_until IS NOT NULL',
 
     # ─── Channel color tag ───────────────────────────────────────────
     # Цветной индикатор канала в сайдбаре. Hex или NULL.

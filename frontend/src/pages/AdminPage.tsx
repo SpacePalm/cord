@@ -4,8 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Shield, Users, Server, Settings, ArrowLeft, Trash2, UserX,
   Search, RefreshCw, HardDrive, MessageSquare, Paperclip,
-  ChevronDown, ChevronRight, Check, AlertTriangle,
+  ChevronDown, ChevronRight, Check, AlertTriangle, Lock,
 } from 'lucide-react';
+import { SecurityTab } from '../components/admin/SecurityTab';
 import { adminApi } from '../api/admin';
 import type { AdminUser } from '../api/admin';
 import { useAuthStore } from '../store/authStore';
@@ -565,7 +566,7 @@ function SystemTab() {
 // ---------------------------------------------------------------------------
 // AdminPage
 // ---------------------------------------------------------------------------
-type Tab = 'users' | 'groups' | 'system';
+type Tab = 'users' | 'groups' | 'system' | 'security';
 
 export function AdminPage() {
   const t = useT();
@@ -574,7 +575,7 @@ export function AdminPage() {
   // Начальная вкладка из query-параметра ?tab=... (используется CommandPalette)
   const initialTab: Tab = (() => {
     const q = new URLSearchParams(window.location.search).get('tab');
-    return q === 'groups' || q === 'system' ? (q as Tab) : 'users';
+    return q === 'groups' || q === 'system' || q === 'security' ? (q as Tab) : 'users';
   })();
   const [tab, setTab] = useState<Tab>(initialTab);
 
@@ -585,6 +586,7 @@ export function AdminPage() {
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: 'users', label: t('admin.users'), icon: Users },
     { id: 'groups', label: t('admin.servers'), icon: Server },
+    { id: 'security', label: t('admin.security'), icon: Lock },
     { id: 'system', label: t('admin.system'), icon: Settings },
   ];
 
@@ -636,6 +638,7 @@ export function AdminPage() {
         <div className="max-w-4xl w-full mx-auto">
           {tab === 'users' && <UsersTab />}
           {tab === 'groups' && <GroupsTab />}
+          {tab === 'security' && <SecurityTab />}
           {tab === 'system' && <SystemTab />}
         </div>
       </div>

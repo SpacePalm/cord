@@ -1,4 +1,5 @@
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request, UploadFile, File
@@ -11,6 +12,7 @@ from app.models.user import User
 from app.models.app_settings import AppSetting
 from app.auth import hash_password, verify_password, create_access_token, get_current_user
 from app.rate_limit import RateLimiter
+from app import fail2ban
 
 MEDIA_ROOT = Path('/app/media')
 
@@ -229,13 +231,54 @@ async def register(request: RegisterRequest, http_request: Request, db: AsyncSes
 @router.post("/login")
 async def login(request: LoginRequest, http_request: Request, db: AsyncSession = Depends(get_db)):
     await login_limiter.check(http_request)
+
+    ip = fail2ban.get_client_ip(http_request)
+    ua = http_request.headers.get('user-agent')
+
+    # 1. IP в блоке? — отказ ещё до похода в БД за пользователем.
+    await fail2ban.assert_not_blocked(db, ip=ip)
+
     user_result = await db.execute(select(User).where(User.email == request.email))
     user = user_result.scalar_one_or_none()
 
-    if not user or not verify_password(request.password, user.hashed_password):
+    # 2. Если пользователь существует — проверяем блокировку аккаунта до verify.
+    if user is not None:
+        await fail2ban.assert_not_blocked(db, ip=ip, user=user)
+
+    password_ok = bool(user) and verify_password(request.password, user.hashed_password)
+
+    if not password_ok:
+        # Логируем попытку, эскалируем при необходимости. Коммитим даже на фейле.
+        await fail2ban.log_attempt(
+            db, ip=ip, username=request.email, success=False,
+            user_id=user.id if user else None, user_agent=ua,
+        )
+        if user is not None:
+            user.failed_attempts = (user.failed_attempts or 0) + 1
+            user.last_failed_at = datetime.now(timezone.utc)
+            settings = await fail2ban.get_settings(db)
+            if fail2ban._as_bool(settings.get('auth.enabled'), True):
+                await fail2ban.maybe_lock_account(user, settings)
+                await fail2ban.maybe_block_ip(db, ip, settings)
+        else:
+            settings = await fail2ban.get_settings(db)
+            if fail2ban._as_bool(settings.get('auth.enabled'), True):
+                await fail2ban.maybe_block_ip(db, ip, settings)
+        await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if not user.is_active:
+        await fail2ban.log_attempt(
+            db, ip=ip, username=request.email, success=False, user_id=user.id, user_agent=ua,
+        )
+        await db.commit()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
+
+    # 3. Успех: лог + сброс счётчика.
+    await fail2ban.log_attempt(
+        db, ip=ip, username=user.email, success=True, user_id=user.id, user_agent=ua,
+    )
+    user.failed_attempts = 0
+    user.locked_until = None
 
     # Снимаем значения в локальные переменные ДО любого commit — после commit
     # ORM-объект user становится expired и доступ к атрибутам вызовет ленивый

@@ -35,6 +35,11 @@ class User(Base):
     # Кросс-девайсные настройки: язык, уведомления, mute чатов и т.п.
     # Единый JSON-блоб, чтобы не плодить миграции под каждую настройку.
     preferences_json: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    # Fail2ban-поля. failed_attempts сбрасывается при успешном логине.
+    # locked_until — момент окончания блокировки; null = не заблокирован.
+    failed_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
+    last_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

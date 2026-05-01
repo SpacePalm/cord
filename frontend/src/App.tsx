@@ -6,6 +6,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { AppPage } from './pages/AppPage';
 import { AdminPage } from './pages/AdminPage';
 import { InvitePage } from './pages/InvitePage';
+import { BlockedPage } from './pages/BlockedPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { useThemeStore } from './store/themeStore';
 import { useAuthStore } from './store/authStore';
@@ -89,6 +90,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/invite/:code" element={<InvitePage />} />
+          <Route path="/blocked" element={<BlockedPage />} />
 
           {/* Protected pages — auth required */}
           <Route element={<ProtectedRoute />}>
