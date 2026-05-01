@@ -13,9 +13,14 @@
   <img src="docs/screenshots/chat.png" width="900" alt="Main chat view with replies, reactions, code blocks, polls and link previews" />
 </p>
 
+<p align="center"><b>Voice rooms</b> — LiveKit-powered, active-speaker highlight, per-user volume, screen sharing</p>
 <p align="center">
-  <img src="docs/screenshots/voice.png" width="440" alt="Voice room with active speaker indicator" />
-  <img src="docs/screenshots/search.png" width="440" alt="Advanced cross-server message search with filters" />
+  <img src="docs/screenshots/voice.png" width="900" alt="Voice room with active speaker indicator" />
+</p>
+
+<p align="center"><b>Advanced search</b> — cross-server full-text search with filters by author, date, content type, flags</p>
+<p align="center">
+  <img src="docs/screenshots/search.png" width="900" alt="Advanced cross-server message search with filters" />
 </p>
 
 <details>
@@ -33,7 +38,7 @@
 
 <p align="center"><b>Built-in brute-force protection</b> — auto-ban IPs and lock accounts on failed-login thresholds, manual blocks with custom durations, attempt log grouped by IP</p>
 <p align="center">
-  <img src="docs/screenshots/security.png" width="800" alt="Admin panel: Security tab with fail2ban configuration" />
+  <img src="docs/screenshots/security.png" width="900" alt="Admin panel: Security tab with fail2ban configuration" />
 </p>
 
 <p align="center"><b>Themes</b> — 14 built-in presets, full color customization, 22 fonts, live preview</p>
