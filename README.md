@@ -105,6 +105,9 @@
 - **Group Management** — view all non-system groups (DM and personal groups are hidden)
 - **System Settings** — toggle registration, view disk/DB statistics
 - **Granular Cleanup** — delete old messages with independent toggles for including personal messages and direct messages
+- **Brute-force Protection (fail2ban)** — auto-ban IPs and lock accounts after failed login thresholds, configurable from the admin panel
+- **Login Attempt Log** — append-only audit log of all login attempts (success + fail), grouped by IP, showing which usernames were tried from which address
+- **IP Blocking** — manual block/unblock of individual IPs (1h / 1d / 7d / 30d / permanent) from the log view or the blocked-list table; banned IPs are kicked from active sessions on the next API call
 
 ---
 
@@ -335,6 +338,25 @@ Indexes can also be created manually with `CREATE INDEX CONCURRENTLY` on large p
   - **Include personal saved messages** — when OFF, each user's Saved Messages are preserved
   - **Include direct messages** — when OFF, private DM conversations are preserved
 - **Cleanup: Orphaned Attachments** — remove files on disk without matching database records
+
+### Security Tab
+
+Brute-force protection (fail2ban-style) and login audit. Settings persist in `app_settings` and apply globally.
+
+- **Settings**
+  - Master **Enabled** toggle — when off, no auto-bans/locks happen and active blocks are ignored
+  - **Attempts per IP before ban** (default 10) — IP gets auto-banned after N failed logins in the window
+  - **Attempts per account before lock** (default 5) — account gets locked after N failed logins
+  - **Window** (default 300s) — sliding window for counting failures
+  - **IP ban duration** (default 3600s) and **Account lock duration** (default 1800s)
+  - Log retention is fixed at 30 days; manual purge endpoint is available but not wired to UI
+- **Blocked IPs table** — list of all active (and optionally expired) bans with reason, source (`auto`/`manual`), expiry, attempts counter, unblock button. Manual block form below the table accepts IP + reason + duration (1h / 1d / 7d / 30d / permanent)
+- **Locked accounts table** — accounts auto-locked by failed attempts; click "Unlock" to reset `failed_attempts` and clear `locked_until`
+- **Login attempt log** — two views:
+  - **List** — flat log filterable by IP, username, success/fail, time range
+  - **By IP** (default) — grouped by source IP with failure/success counters, distinct usernames tried, expand-arrow to see per-username breakdown. Each row has an inline duration selector + Block / Unblock button
+
+When an IP is banned, every subsequent authenticated API request from that IP returns `403 blocked_by_security`. The frontend catches this globally and redirects the user to `/blocked` with a countdown to unblock.
 
 ---
 
@@ -698,6 +720,23 @@ All admin endpoints require `role == "admin"`.
 | `POST` | `/api/admin/cleanup/messages` | Body: `{days, include_personal, include_dm}`. Delete messages older than N days with independent toggles for personal (Saved) and DM conversations |
 | `POST` | `/api/admin/cleanup/attachments` | Find and delete orphaned files |
 
+### Security / Fail2ban (`/api/admin/auth`)
+
+All endpoints require `role == "admin"`. Settings live in the `app_settings` table under the `auth.*` keys.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/admin/auth/settings` | Get current fail2ban settings (enabled, thresholds, durations, retention) |
+| `PATCH` | `/api/admin/auth/settings` | Update any subset of settings; missing keys keep their value |
+| `GET` | `/api/admin/auth/log?ip=&username=&success=&after=&before=&limit=&offset=` | Flat list of login attempts; filterable, ordered by time desc |
+| `GET` | `/api/admin/auth/log/grouped?after=&limit=` | Login attempts aggregated by IP with totals, distinct usernames, last_at, current block status, top usernames per IP |
+| `POST` | `/api/admin/auth/log/cleanup` | Purge attempts older than `auth.log_retention_days`; returns count |
+| `GET` | `/api/admin/auth/blocks?only_active=` | List IP blocks (active by default) |
+| `POST` | `/api/admin/auth/blocks` | Manually block an IP. Body: `{ip, reason, duration_seconds?}` (`null` = permanent). IP is validated server-side |
+| `DELETE` | `/api/admin/auth/blocks/{ip}` | Remove an IP block (auto or manual) |
+| `GET` | `/api/admin/auth/locked-users` | List accounts currently locked by `locked_until > now()` |
+| `DELETE` | `/api/admin/auth/locked-users/{user_id}` | Unlock an account (clears `failed_attempts` and `locked_until`) |
+
 ---
 
 ## Database Schema
@@ -715,12 +754,17 @@ User ─────────────────────────
  status      VARCHAR(20)  ["online","idle","dnd","invisible"]
  status_text VARCHAR(128)
  theme_json  TEXT
+ preferences_json TEXT             ← cross-device prefs (lang, notifications, mutes)
+ failed_attempts INTEGER           ← fail2ban counter, reset on success
+ last_failed_at  TIMESTAMP
+ locked_until    TIMESTAMP         ← null = not locked
  created_at  TIMESTAMP
  updated_at  TIMESTAMP
 
  Indexes:
    idx_user_username_trgm       GIN gin_trgm_ops
    idx_user_display_name_trgm   GIN gin_trgm_ops
+   idx_user_locked_until        partial WHERE locked_until IS NOT NULL
 
 Group ─────────────────────────────────────────
  id          UUID PK
@@ -788,7 +832,32 @@ UserChatState ──────────────────────
  user_id PK, chat_id PK, last_read_at
 
 AppSetting ────────────────────────────────────
- key PK, value
+ key PK, value                     ← also stores fail2ban settings (auth.*)
+
+LoginAttempt ──────────────────────────────────
+ id           UUID PK
+ ip           INET                 ← native PG type, validated + compact
+ username_attempted VARCHAR(100)   ← what was typed (may be unknown user)
+ success      BOOLEAN
+ user_agent   VARCHAR(500)
+ user_id      UUID FK → User (SET NULL on delete) ← null if email unknown
+ created_at   TIMESTAMP
+
+ Indexes:
+   idx_login_attempt_ip_created       (ip, created_at)        ← hot path: recent failures per IP
+   idx_login_attempt_username_created (username_attempted, created_at)
+   idx_login_attempt_created          (created_at)            ← retention sweep
+
+IpBlock ───────────────────────────────────────
+ ip            INET PK
+ reason        VARCHAR(255)
+ expires_at    TIMESTAMP            ← null = permanent ban
+ blocked_by    VARCHAR(20)          ["auto", "manual"]
+ attempts_count INTEGER
+ blocked_at    TIMESTAMP
+
+ Indexes:
+   idx_ip_block_expires (expires_at NULLS LAST)
 ```
 
 ---
@@ -848,6 +917,18 @@ Buckets: `login`, `register`, `search`. Honors `X-Forwarded-For` / `X-Real-IP` f
 - Automatic logout on 401 response
 - `is_active` is checked on every request — deactivating a user immediately invalidates their token (no waiting for expiry)
 - Startup banner warns if `CORD_JWT_SECRET` or `CORD_ADMIN_PASSWORD` are defaults
+
+### Brute-force Protection (fail2ban)
+
+- Every login attempt is logged to `login_attempt` (success + fail) with IP, attempted username, user-agent, and FK to user if known
+- Two independent thresholds, both configurable from the admin Security tab:
+  - **Per-IP**: N failed attempts inside `window_seconds` → IP added to `ip_block` for `ip_block_seconds`
+  - **Per-account**: M failed attempts → `User.locked_until` is set for `account_lock_seconds`
+- Already-banned IP is rejected at the very start of `/api/auth/login` with `403 {"code": "blocked_by_security", "kind": "ip", "expires_at": "..."}` — no DB lookup of the user, no password check
+- Same `blocked_by_security` enforcement runs inside `get_current_user`, so an IP that gets banned mid-session is **kicked from active sessions** on the next API request — frontend redirects to `/blocked` with a live countdown
+- Manual blocks (`blocked_by='manual'`) and auto-blocks (`blocked_by='auto'`) coexist in the same table; manual entries can be permanent (`expires_at=null`)
+- Master toggle (`auth.enabled`) disables both the auto-escalation and the runtime block enforcement without dropping existing rows
+- Login rate-limiter (10/5min/IP) sits in front and absorbs the bulk of brute-force traffic before fail2ban gets involved — the two layers are complementary
 
 ### Authorization
 
@@ -941,10 +1022,12 @@ cord/
 │   │   │   ├── polls.py        # Poll voting
 │   │   │   ├── media.py        # Protected file serving (path-traversal safe)
 │   │   │   ├── ws.py           # WebSocket endpoint with membership re-checks
-│   │   │   └── admin.py        # Admin panel endpoints
-│   │   ├── models/             # SQLAlchemy ORM models
+│   │   │   ├── admin.py        # Admin panel endpoints
+│   │   │   └── admin_fail2ban.py # Security tab: settings, log, IP blocks, locked users
+│   │   ├── models/             # SQLAlchemy ORM models (incl. fail2ban: LoginAttempt, IpBlock)
 │   │   ├── schemas/            # Pydantic request/response schemas
-│   │   ├── auth.py             # JWT, bcrypt, get_current_user (is_active check)
+│   │   ├── auth.py             # JWT, bcrypt, get_current_user (is_active + IP-block check)
+│   │   ├── fail2ban.py         # Brute-force protection: settings, attempt logging, auto-escalation
 │   │   ├── cache.py            # Redis helpers (messages, online, unread, search, calls)
 │   │   ├── rate_limit.py       # Redis-based sliding window rate limiter
 │   │   ├── config.py           # Pydantic Settings (env vars)
@@ -968,11 +1051,12 @@ cord/
 │   │   │   ├── chat/                    # ChatInput, MessageList, SearchPanel, MediaPanel
 │   │   │   ├── layout/                  # GroupSidebar, ChannelSidebar, DMListPanel, MemberListPanel
 │   │   │   ├── settings/                # SettingsModal, GroupSettingsModal
+│   │   │   ├── admin/                   # SecurityTab (fail2ban settings, log, blocks)
 │   │   │   ├── ui/                      # Button, Input, ImageCropModal, ToastContainer
 │   │   │   └── voice/                   # VoiceRoom (LiveKit integration)
 │   │   ├── hooks/              # useWebSocket, useUnreadCounts, useProtectedUrl
 │   │   ├── i18n/               # Translation files (en.ts, ru.ts) + useLocale hook
-│   │   ├── pages/              # LoginPage, RegisterPage, AppPage, AdminPage, InvitePage
+│   │   ├── pages/              # LoginPage, RegisterPage, AppPage, AdminPage, InvitePage, BlockedPage
 │   │   ├── store/              # Zustand stores (auth, session, theme, notification, lang)
 │   │   ├── types/              # TypeScript interfaces
 │   │   └── utils/
