@@ -143,10 +143,22 @@ function SettingsSection() {
   );
 }
 
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+// Контейнер для контрола в строке настройки. Фиксированная ширина, чтобы
+// инпуты, тогглы и суффиксы во всех строках сетки совпадали по краям.
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex items-center justify-between gap-3 py-1">
       <span className="text-sm text-[var(--text-secondary)]">{label}</span>
+      <div className="flex items-center justify-end gap-1.5 shrink-0 w-32">
+        {children}
+      </div>
+    </label>
+  );
+}
+
+function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <FieldRow label={label}>
       <button
         type="button"
         onClick={() => onChange(!value)}
@@ -154,24 +166,22 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
       >
         <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all ${value ? 'left-[22px]' : 'left-0.5'}`} />
       </button>
-    </label>
+    </FieldRow>
   );
 }
 
 function NumField({ label, value, onChange, suffix }: { label: string; value: number; onChange: (v: number) => void; suffix: string }) {
   return (
-    <label className="flex items-center justify-between gap-3 py-1">
-      <span className="text-sm text-[var(--text-secondary)]">{label}</span>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <input
-          type="number"
-          value={value}
-          onChange={(e) => onChange(Math.max(0, parseInt(e.target.value || '0', 10)))}
-          className="w-24 px-2 py-1 rounded bg-[var(--bg-input)] text-sm text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent)]"
-        />
-        {suffix && <span className="text-xs text-[var(--text-muted)]">{suffix}</span>}
-      </div>
-    </label>
+    <FieldRow label={label}>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(Math.max(0, parseInt(e.target.value || '0', 10)))}
+        className="w-24 px-2 py-1 rounded bg-[var(--bg-input)] text-sm text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent)]"
+      />
+      {/* Суффикс всегда занимает место — иначе инпуты соседних строк скачут. */}
+      <span className="text-xs text-[var(--text-muted)] w-6 shrink-0">{suffix}</span>
+    </FieldRow>
   );
 }
 

@@ -305,9 +305,14 @@ async def create_block(
             'blocked_by': 'manual',
             'blocked_at': func.now(),
         },
-    ).returning(IpBlock)
-    result = await db.execute(stmt)
-    row = result.scalar_one()
+    ).returning(
+        IpBlock.ip, IpBlock.reason, IpBlock.expires_at,
+        IpBlock.blocked_by, IpBlock.attempts_count, IpBlock.blocked_at,
+    )
+    # Снимаем значения ДО commit — после commit ORM-атрибуты expired и
+    # любой доступ триггерит ленивую загрузку из уже завершённой транзакции
+    # (MissingGreenlet). Возвращаем колонки напрямую — это обычный Row, не ORM.
+    row = (await db.execute(stmt)).one()
     await db.commit()
     return IpBlockOut(
         ip=str(row.ip), reason=row.reason, expires_at=row.expires_at,
