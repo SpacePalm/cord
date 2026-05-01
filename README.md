@@ -9,6 +9,40 @@
   Built with FastAPI, React, LiveKit, PostgreSQL, and Redis.
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/chat.png" width="900" alt="Main chat view with replies, reactions, code blocks, polls and link previews" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/voice.png" width="440" alt="Voice room with active speaker indicator" />
+  <img src="docs/screenshots/search.png" width="440" alt="Advanced cross-server message search with filters" />
+</p>
+
+<details>
+<summary><b>More screenshots</b></summary>
+
+<p align="center"><b>Command palette</b> (<code>Ctrl/Cmd + K</code>) — jump to any channel, server, person, message, or settings tab in one keystroke</p>
+<p align="center">
+  <img src="docs/screenshots/palette.png" width="700" alt="Command palette" />
+</p>
+
+<p align="center"><b>Screen sharing</b> — pick quality (720p–1440p), framerate (5–60 FPS), and toggle system audio capture</p>
+<p align="center">
+  <img src="docs/screenshots/screen-share.png" width="500" alt="Screen sharing modal" />
+</p>
+
+<p align="center"><b>Built-in brute-force protection</b> — auto-ban IPs and lock accounts on failed-login thresholds, manual blocks with custom durations, attempt log grouped by IP</p>
+<p align="center">
+  <img src="docs/screenshots/security.png" width="800" alt="Admin panel: Security tab with fail2ban configuration" />
+</p>
+
+<p align="center"><b>Themes</b> — 14 built-in presets, full color customization, 22 fonts, live preview</p>
+<p align="center">
+  <img src="docs/screenshots/themes.png" width="700" alt="Theme customization in Settings" />
+</p>
+
+</details>
+
 ---
 
 ## Table of Contents
