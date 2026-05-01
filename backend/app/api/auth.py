@@ -298,9 +298,12 @@ async def login(request: LoginRequest, http_request: Request, db: AsyncSession =
         await db.flush()
         db.add(GroupMember(group_id=saved_group.id, user_id=user_id, role='owner'))
         db.add(Chat(name='Saved Messages', group_id=saved_group.id, type='text'))
-        await db.commit()
-        # Обновляем объект user, чтобы _user_info() ниже не ломался на expired-атрибутах
-        await db.refresh(user)
+
+    # Один commit на всё: log_attempt + сброс failed_attempts/locked_until +
+    # опциональный saved-group. Раньше commit стоял ВНУТРИ if'а, поэтому для
+    # существующих юзеров (с уже созданным Saved Messages) лог входа терялся.
+    await db.commit()
+    await db.refresh(user)
 
     token = create_access_token(user_id, user_username, user_role)
     return {"access_token": token, "token_type": "bearer", "user": _user_info(user).model_dump()}
