@@ -1,0 +1,87 @@
+# Production deployment with pre-built images from GHCR.
+# For self-hosters: one command — `docker compose -f docker-compose.prod.yaml up -d`
+# — and Cord runs on port 8080 with no on-host builds required.
+#
+# Images are published by GitHub Actions on tag push (`v*`).
+# Pin a specific version via `CORD_VERSION=v1.0.0` in .env (default: latest).
+#
+# Backend port is NOT exposed — all API/WS traffic flows through the frontend
+# nginx. Single entry point simplifies HTTPS and rate-limiting on the host.
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}"
+      LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
+    command: --bind 0.0.0.0 --node-ip ${SERVER_IP:-127.0.0.1}
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cord}
+      POSTGRES_USER: ${POSTGRES_USER:-cord}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cord}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cord} -d ${POSTGRES_DB:-cord}"]
+      interval: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/spacepalm/cord-backend:${CORD_VERSION:-latest}
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    environment:
+      CORD_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cord}:${POSTGRES_PASSWORD:-cord}@db:5432/${POSTGRES_DB:-cord}
+      CORD_JWT_SECRET: ${CORD_JWT_SECRET:?CORD_JWT_SECRET is required in production}
+      CORD_JWT_EXPIRE_MINUTES: ${CORD_JWT_EXPIRE_MINUTES:-15}
+      CORD_ADMIN_USERNAME: ${CORD_ADMIN_USERNAME:-admin}
+      CORD_ADMIN_EMAIL: ${CORD_ADMIN_EMAIL:-admin@admin.com}
+      CORD_ADMIN_PASSWORD: ${CORD_ADMIN_PASSWORD:?CORD_ADMIN_PASSWORD is required in production}
+      CORD_S3_ENABLED: ${CORD_S3_ENABLED:-false}
+      CORD_S3_ENDPOINT_URL: ${CORD_S3_ENDPOINT_URL:-}
+      CORD_S3_BUCKET: ${CORD_S3_BUCKET:-cord-media}
+      CORD_S3_ACCESS_KEY: ${CORD_S3_ACCESS_KEY:-}
+      CORD_S3_SECRET_KEY: ${CORD_S3_SECRET_KEY:-}
+      CORD_S3_REGION: ${CORD_S3_REGION:-us-east-1}
+      CORD_LIVEKIT_URL: http://livekit:7880
+      CORD_LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+      CORD_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required in production}
+      CORD_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required in production}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    volumes:
+      - ./media:/app/media
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/spacepalm/cord-frontend:${CORD_VERSION:-latest}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
