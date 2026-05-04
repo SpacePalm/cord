@@ -1,16 +1,28 @@
 name: Build & publish images
 
-# Триггеры:
-#   - push тэга v* (релиз) → публикует образы как :{version}, :{major.minor}, :latest
-#   - manual dispatch → можно собрать вручную, метит как :{branch} и :latest
+# Triggers:
+#   - push to `main` or `dev`     → branch image (e.g. `main`, `dev`)
+#   - push of `v*` tag             → release image (e.g. `1.0.0`, `1.0`, `latest`)
+#   - manual dispatch              → builds whatever ref you pick
+#
+# Image tagging strategy:
+#   - tag v1.2.3       → :1.2.3, :1.2, :latest
+#   - branch main      → :main      (most recent main, may be unreleased)
+#   - branch dev       → :dev       (active development, expect breakage)
+#
+# Platforms:
+#   - tag releases     → linux/amd64 + linux/arm64 (multi-arch)
+#   - branch builds    → linux/amd64 only          (cheaper, ~3x faster)
+
 on:
   push:
+    branches: ['main', 'dev']
     tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write   # требуется для push в ghcr.io
+  packages: write   # required to push to ghcr.io
 
 jobs:
   build:
@@ -18,17 +30,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Один job на компонент — параллельная сборка backend и frontend.
-        component:
-          - backend
-          - frontend
+        component: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
 
-      # QEMU + buildx нужны для multi-arch (amd64 + arm64).
-      # arm64 — для Hetzner ARM, AWS Graviton, Raspberry Pi и т.п.
+      # QEMU + buildx are needed for multi-arch (amd64 + arm64).
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        # Skip QEMU for branch builds — they're amd64 only.
+        if: github.ref_type == 'tag'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -40,8 +50,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Генерируем теги: для v1.2.3 будет 1.2.3, 1.2, latest.
-      # Для manual dispatch — branch name и latest.
+      # Pick platforms: multi-arch for tags, amd64-only for branch builds.
+      - name: Resolve platforms
+        id: platforms
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "value=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=linux/amd64" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Tag generation:
+      #   - on tag push   → semver tags + latest
+      #   - on branch push → just the branch name
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -50,20 +71,16 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
             type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: ./${{ matrix.component }}
           push: true
-          # arm64 заметно медленнее (через QEMU emulation), но образ нужен один
-          # раз на тэг. Для каждодневных билдов через manual dispatch можно
-          # ограничить только amd64 — сейчас публикуем всё для удобства юзеров.
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.platforms.outputs.value }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # GitHub Actions cache — ускоряет повторные сборки в разы.
-          cache-from: type=gha,scope=${{ matrix.component }}
-          cache-to: type=gha,scope=${{ matrix.component }},mode=max
+          cache-from: type=gha,scope=${{ matrix.component }}-${{ github.ref_name }}
+          cache-to: type=gha,scope=${{ matrix.component }}-${{ github.ref_name }},mode=max
