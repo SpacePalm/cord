@@ -22,17 +22,14 @@ export function LoginPage() {
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
-    onSuccess: async (data) => {
-      // setAuth кладёт оба токена в store + localStorage. Делаем это ДО /auth/me,
-      // чтобы request пошёл с Authorization header.
-      // tmp-объект юзера здесь не критичен — перезапишем сразу после me().
-      localStorage.setItem('access_token', data.access_token);
-      localStorage.setItem('refresh_token', data.refresh_token);
-      const user = await authApi.me();
-      useThemeStore.getState().loadFromServer(user.theme_json ?? null);
-      applyServerPreferences(user.preferences_json);
+    onSuccess: (data) => {
+      // Login response УЖЕ содержит полного юзера — не нужно делать /auth/me
+      // вторым запросом, экономим один roundtrip и blocking-await.
+      // Theme и preferences применяем сразу из login response.
+      setAuth(data.user, data.access_token, data.refresh_token);
+      useThemeStore.getState().loadFromServer(data.user.theme_json ?? null);
+      applyServerPreferences(data.user.preferences_json ?? null);
       startPreferencesAutoSync();
-      setAuth(user, data.access_token, data.refresh_token);
       navigate('/app');
     },
     onError: (err) => {

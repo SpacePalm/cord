@@ -1,5 +1,7 @@
 from passlib.context import CryptContext
 import jwt
+import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -51,12 +53,32 @@ def create_access_token(user_id: str, username: str, role: str, session_id: str 
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def _hash_refresh_secret(secret: str) -> str:
+    """HMAC-SHA-256 для refresh-токенов. НЕ bcrypt — потому что:
+
+    - Refresh-токены это **server-issued** случайные 384-битные секреты, а не
+      пользовательские пароли. Brute-force одного токена требует 2^286 операций
+      что инфизибельно независимо от скорости хеша.
+    - bcrypt стоит ~100мс CPU, что добавляет видимую задержку на каждом /login
+      и /refresh. Для login + refresh = ~200мс серверной CPU только на хеши.
+    - Industry standard для server-issued tokens (OAuth refresh tokens, session
+      IDs в Rails/Django/Auth0/Stripe): SHA-256 или HMAC-SHA-256.
+    - HMAC с jwt_secret даёт защиту от **только-БД-leak** атак (например, SQL
+      injection или backup leak без app-кода) — без app-секрета подобранный hash
+      не воспроизвести.
+
+    Стоимость: ~5 микросекунд против ~100 миллисекунд у bcrypt → ускорение
+    в 20'000 раз. На auth-критическом пути это значимо.
+    """
+    return hmac.new(settings.jwt_secret.encode(), secret.encode(), hashlib.sha256).hexdigest()
+
+
 def generate_refresh_token() -> tuple[str, str, str]:
-    """Возвращает (token_id, plaintext, bcrypt_hash).
+    """Возвращает (token_id, plaintext, hash).
 
     Формат plaintext: "{token_id}.{secret}". Клиент носит весь plaintext,
     сервер при /refresh парсит token_id для индексированного lookup'а,
-    потом bcrypt-сравнивает только secret-часть.
+    потом HMAC-сравнивает secret-часть.
 
     32 hex (token_id) — 128 бит энтропии для unique-lookup, не секрет.
     48 url-safe (secret) — ~286 бит энтропии, секретная часть.
@@ -65,7 +87,7 @@ def generate_refresh_token() -> tuple[str, str, str]:
     token_id = secrets.token_hex(16)
     secret = secrets.token_urlsafe(48)
     plaintext = f"{token_id}.{secret}"
-    hashed = bcrypt.hashpw(secret.encode(), bcrypt.gensalt()).decode()
+    hashed = _hash_refresh_secret(secret)
     return token_id, plaintext, hashed
 
 
@@ -74,17 +96,17 @@ def parse_refresh_token(plaintext: str) -> tuple[str, str] | None:
     if not plaintext or '.' not in plaintext:
         return None
     token_id, _, secret = plaintext.partition('.')
-    # Базовая валидация формата чтобы не делать bcrypt на мусоре.
     if len(token_id) != 32 or not all(c in '0123456789abcdef' for c in token_id) or not secret:
         return None
     return token_id, secret
 
 
 def verify_refresh_secret(secret: str, hashed: str) -> bool:
-    try:
-        return bcrypt.checkpw(secret.encode(), hashed.encode())
-    except (ValueError, TypeError):
-        return False
+    """Constant-time comparison через hmac.compare_digest — защита от
+    timing attacks (хотя для random-secret токенов timing-leak не даёт
+    практической атаки, всё равно best practice)."""
+    expected = _hash_refresh_secret(secret)
+    return hmac.compare_digest(expected, hashed)
 
 
 async def create_session(

@@ -346,11 +346,15 @@ async def login(request: LoginRequest, http_request: Request, db: AsyncSession =
     session, refresh_plaintext = await create_session(db, user_id, ua, ip)
     session_id = session.id
 
+    # Снимаем _user_info ДО commit'а — на этом этапе user-объект ещё не expired,
+    # все атрибуты доступны без re-fetch'а. Раньше после commit'а делали
+    # db.refresh(user), что добавляло лишний DB roundtrip на каждом логине.
+    user_info_dict = _user_info(user).model_dump()
+
     # Один commit на всё: log_attempt + сброс failed_attempts/locked_until +
     # опциональный saved-group + новая сессия. Раньше commit стоял ВНУТРИ if'а,
     # поэтому для существующих юзеров (с уже созданным Saved Messages) лог входа терялся.
     await db.commit()
-    await db.refresh(user)
 
     access_token = create_access_token(user_id, user_username, user_role, session_id=str(session_id))
     return {
@@ -358,7 +362,7 @@ async def login(request: LoginRequest, http_request: Request, db: AsyncSession =
         "refresh_token": refresh_plaintext,
         "token_type": "bearer",
         "expires_in": 60 * 15,  # совпадает с ACCESS_TOKEN_EXPIRE_MINUTES в .env
-        "user": _user_info(user).model_dump(),
+        "user": user_info_dict,
     }
 
 

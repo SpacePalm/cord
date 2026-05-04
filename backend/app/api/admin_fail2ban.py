@@ -314,6 +314,10 @@ async def create_block(
     # (MissingGreenlet). Возвращаем колонки напрямую — это обычный Row, не ORM.
     row = (await db.execute(stmt)).one()
     await db.commit()
+    # Инвалидируем кеш статуса IP — иначе get_current_user продолжит видеть
+    # «не забанен» из старого Redis-значения до 10с. Сейчас бан применяется мгновенно.
+    from app.cache import invalidate_ip_block_status
+    await invalidate_ip_block_status(str(row.ip))
     return IpBlockOut(
         ip=str(row.ip), reason=row.reason, expires_at=row.expires_at,
         blocked_by=row.blocked_by, attempts_count=row.attempts_count, blocked_at=row.blocked_at,
@@ -333,6 +337,9 @@ async def delete_block(
         raise HTTPException(status_code=400, detail='invalid ip address')
     await db.execute(delete(IpBlock).where(IpBlock.ip == ip))
     await db.commit()
+    # Сбрасываем Redis-кеш чтобы разблокировка применилась мгновенно
+    from app.cache import invalidate_ip_block_status
+    await invalidate_ip_block_status(ip)
 
 
 # ─── Locked accounts ──────────────────────────────────────────────────────

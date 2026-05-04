@@ -104,6 +104,78 @@ async def get_online_user_ids(user_ids: list[str]) -> set[str]:
         return set()
 
 
+# ─── Fail2ban cache ──────────────────────────────────────────────────────
+# get_current_user вызывается на КАЖДОМ authenticated запросе, и оттуда идёт
+# assert_not_blocked, который без кеша делает 2 SQL-запроса (settings + ip_block).
+# При page reload с 8 concurrent fetch'ами это 16 лишних SQL → видимый лаг.
+#
+# Кешируем оба:
+# - settings: TTL 30с, инвалидируется при PATCH /admin/auth/settings
+# - ip_block status: TTL 10с per-IP, инвалидируется при POST/DELETE /admin/auth/blocks
+#
+# Fail-open: любая ошибка Redis возвращает None, вызывающий код идёт в БД.
+
+F2B_SETTINGS_TTL = 30
+F2B_SETTINGS_KEY = "cord:f2b:settings"
+F2B_BLOCK_TTL = 10
+F2B_BLOCK_KEY = "cord:f2b:block:{ip}"  # value: "1" если забанен, "0" если нет
+
+
+async def get_cached_f2b_settings() -> dict[str, str] | None:
+    try:
+        r = await get_redis()
+        raw = await r.get(F2B_SETTINGS_KEY)
+        if raw:
+            return json.loads(raw)
+    except Exception as exc:
+        logger.warning("Redis f2b settings read error: %s", exc)
+    return None
+
+
+async def set_cached_f2b_settings(settings: dict[str, str]) -> None:
+    try:
+        r = await get_redis()
+        await r.setex(F2B_SETTINGS_KEY, F2B_SETTINGS_TTL, json.dumps(settings))
+    except Exception as exc:
+        logger.warning("Redis f2b settings write error: %s", exc)
+
+
+async def invalidate_f2b_settings() -> None:
+    try:
+        r = await get_redis()
+        await r.delete(F2B_SETTINGS_KEY)
+    except Exception as exc:
+        logger.warning("Redis f2b settings invalidate error: %s", exc)
+
+
+async def get_cached_ip_block_status(ip: str) -> bool | None:
+    """True/False = забанен/не забанен (cached). None = нет данных в кеше."""
+    try:
+        r = await get_redis()
+        raw = await r.get(F2B_BLOCK_KEY.format(ip=ip))
+        if raw is not None:
+            return raw == "1"
+    except Exception as exc:
+        logger.warning("Redis f2b block read error: %s", exc)
+    return None
+
+
+async def set_cached_ip_block_status(ip: str, blocked: bool) -> None:
+    try:
+        r = await get_redis()
+        await r.setex(F2B_BLOCK_KEY.format(ip=ip), F2B_BLOCK_TTL, "1" if blocked else "0")
+    except Exception as exc:
+        logger.warning("Redis f2b block write error: %s", exc)
+
+
+async def invalidate_ip_block_status(ip: str) -> None:
+    try:
+        r = await get_redis()
+        await r.delete(F2B_BLOCK_KEY.format(ip=ip))
+    except Exception as exc:
+        logger.warning("Redis f2b block invalidate error: %s", exc)
+
+
 # Unread counts cache
 
 UNREAD_TTL = 5  # секунды

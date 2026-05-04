@@ -38,22 +38,36 @@ SETTING_KEYS = list(DEFAULTS.keys())
 # ─── Settings access ──────────────────────────────────────────────────────
 
 async def get_settings(db: AsyncSession) -> dict[str, str]:
-    """Возвращает все auth-настройки. Отсутствующие ключи заполняются дефолтами."""
+    """Возвращает все auth-настройки. Кешируется в Redis на 30 секунд —
+    settings меняются редко (только админ через UI), а вызов идёт на каждом
+    authenticated запросе через get_current_user → assert_not_blocked.
+    Без кеша = SELECT app_settings × N запросов на page reload."""
+    from app.cache import get_cached_f2b_settings, set_cached_f2b_settings
+    cached = await get_cached_f2b_settings()
+    if cached is not None:
+        # Заполняем дефолты для отсутствующих ключей (на случай если в кеше старая версия)
+        return {k: cached.get(k, v) for k, v in DEFAULTS.items()}
+
     result = await db.execute(
         select(AppSetting).where(AppSetting.key.in_(SETTING_KEYS))
     )
     found = {s.key: s.value for s in result.scalars().all()}
-    return {k: found.get(k, v) for k, v in DEFAULTS.items()}
+    merged = {k: found.get(k, v) for k, v in DEFAULTS.items()}
+    await set_cached_f2b_settings(merged)
+    return merged
 
 
 async def update_settings(db: AsyncSession, patch: dict[str, str]) -> None:
-    """Upsert указанных ключей. Неизвестные ключи игнорируются."""
+    """Upsert указанных ключей. Неизвестные ключи игнорируются. Инвалидирует кеш."""
     for key, value in patch.items():
         if key not in DEFAULTS:
             continue
         stmt = pg_insert(AppSetting).values(key=key, value=str(value))
         stmt = stmt.on_conflict_do_update(index_elements=['key'], set_={'value': str(value)})
         await db.execute(stmt)
+    # Сбрасываем кеш чтобы изменения админа применились мгновенно.
+    from app.cache import invalidate_f2b_settings
+    await invalidate_f2b_settings()
 
 
 def _as_int(s: str | None, default: int) -> int:
@@ -193,20 +207,50 @@ async def assert_not_blocked(
     user: Optional[User] = None,
 ) -> None:
     """Бросает 403 с detail=BLOCKED_DETAIL если IP в блоке или user заблокирован.
-    Не делает ничего если fail2ban глобально выключен в настройках."""
-    settings = await get_settings(db)
+    Не делает ничего если fail2ban глобально выключен в настройках.
+
+    Hot-path оптимизация: 99.9% запросов от незаблокированных IP. Сначала
+    проверяем Redis-кеш статуса блокировки (TTL 10с). Если там '0' (не забанен)
+    — не лезем в БД. Если '1' — лезем в БД за деталями блока (для expires_at
+    в response). Если кеш пуст — БД-запрос + кешируем результат.
+    """
+    from app.cache import get_cached_ip_block_status, set_cached_ip_block_status
+
+    settings = await get_settings(db)  # cached в Redis
     if not _as_bool(settings.get('auth.enabled'), True):
         return
 
-    block = await get_active_ip_block(db, ip)
-    if block:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={'code': BLOCKED_DETAIL, 'kind': 'ip', 'expires_at': block.expires_at.isoformat() if block.expires_at else None},
-        )
+    cached_status = await get_cached_ip_block_status(ip)
+    if cached_status is False:
+        # Кеш говорит «не забанен» — пропускаем DB-запрос. ip_block только при
+        # account check ниже, который тоже сначала смотрит in-memory.
+        pass
+    elif cached_status is True:
+        # Кеш говорит «забанен» — нужны детали (expires_at) из БД для response
+        block = await get_active_ip_block(db, ip)
+        if block:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={'code': BLOCKED_DETAIL, 'kind': 'ip',
+                        'expires_at': block.expires_at.isoformat() if block.expires_at else None},
+            )
+        # Расхождение кеша и БД (блок мог истечь) — обновляем кеш
+        await set_cached_ip_block_status(ip, False)
+    else:
+        # Кеша нет — лезем в БД и кешируем результат
+        block = await get_active_ip_block(db, ip)
+        await set_cached_ip_block_status(ip, block is not None)
+        if block:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={'code': BLOCKED_DETAIL, 'kind': 'ip',
+                        'expires_at': block.expires_at.isoformat() if block.expires_at else None},
+            )
 
+    # Account-lock check — in-memory (user.locked_until уже загружен), без DB
     if user is not None and await get_active_account_lock(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={'code': BLOCKED_DETAIL, 'kind': 'account', 'expires_at': user.locked_until.isoformat() if user.locked_until else None},
+            detail={'code': BLOCKED_DETAIL, 'kind': 'account',
+                    'expires_at': user.locked_until.isoformat() if user.locked_until else None},
         )
