@@ -375,12 +375,17 @@ function parseUserAgent(ua: string): { browser: string; os: string } {
     /firefox\//i.test(ua) ? 'Firefox' :
     /safari\//i.test(ua) && !/chrome\//i.test(ua) ? 'Safari' :
     'Unknown browser';
+  // ⚠ Порядок важен: iPhone/iPad UA содержит "Mac OS X" (`like Mac OS X`),
+  // поэтому iOS-маркеры проверяем ДО macOS, иначе iPhone детектится как Mac.
+  // Аналогично Android идёт до Linux (Android UA содержит "Linux"). Edge на
+  // Windows тоже содержит "Windows NT", так что общий порядок — от частных
+  // мобильных платформ к общим десктопным.
   const os =
+    /android/i.test(ua) ? 'Android' :
+    /iphone|ipad|ipod/i.test(ua) ? 'iOS' :
     /windows/i.test(ua) ? 'Windows' :
     /mac os/i.test(ua) ? 'macOS' :
     /linux/i.test(ua) ? 'Linux' :
-    /android/i.test(ua) ? 'Android' :
-    /iphone|ipad/i.test(ua) ? 'iOS' :
     'Unknown OS';
   return { browser, os };
 }
