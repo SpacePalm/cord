@@ -13,11 +13,11 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
-# --workers 1 — каждый Python-воркер держит ~100-150 MB, для большинства deploy'ев
-# одного хватает. При реальной нагрузке увеличить (2-4) с учётом доступной RAM.
-# --limit-max-requests 10000 — периодический перезапуск воркера освобождает
-# накопленную память (утечки asyncio/SQLAlchemy на длительных процессах).
-# Без --reload: watchfiles-наблюдатель держит отдельный процесс, в проде не нужен.
+# --workers 1 — each Python worker holds ~100-150 MB; one is enough for most
+# deployments. Bump to 2-4 under real load, given available RAM.
+# --limit-max-requests 10000 — periodic worker restart frees accumulated memory
+# (asyncio/SQLAlchemy leaks on long-running processes).
+# No --reload — watchfiles spawns an extra process, not needed in production.
 CMD ["uvicorn", "app.main:app", \
      "--host", "0.0.0.0", "--port", "8000", \
      "--workers", "1", \
