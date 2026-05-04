@@ -5,7 +5,10 @@ WORKDIR /app
 
 # Dependencies as a separate layer — cached until package.json changes.
 COPY package.json package-lock.json* ./
-RUN npm ci
+# `npm ci` requires package-lock.json. If it's absent (lockfile not committed),
+# fall back to `npm install`. Generate a lockfile and commit it for fully
+# reproducible builds: `npm install --package-lock-only && git add package-lock.json`
+RUN if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
 
 # Sources + build.
 COPY . .
