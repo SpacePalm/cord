@@ -137,9 +137,12 @@ async def create_group(
     # Автоматически добавляем создателя как участника (владелец)
     db.add(GroupMember(group_id=group.id, user_id=user.id, role='owner'))
 
-    # Дефолтные каналы
-    db.add(Chat(name='общий', group_id=group.id, type='text'))
-    db.add(Chat(name='Голосовой', group_id=group.id, type='voice'))
+    # Дефолтные каналы. Имена нейтральные английские — это open-source проект,
+    # локализация по системе не имеет смысла (в одном чате могут сидеть юзеры
+    # с разной локалью, и переименовывать каналы под каждого нельзя).
+    # Юзер всегда может переименовать через UI.
+    db.add(Chat(name='general', group_id=group.id, type='text'))
+    db.add(Chat(name='voice', group_id=group.id, type='voice'))
 
     await db.commit()
     await db.refresh(group)

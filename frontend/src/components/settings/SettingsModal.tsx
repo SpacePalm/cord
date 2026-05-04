@@ -5,7 +5,7 @@ import { authApi, type SessionInfo } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
 import { ApiError } from '../../api/client';
-import { useT, useLangStore, LANGUAGES } from '../../i18n';
+import { useT, useLocale, useLangStore, LANGUAGES } from '../../i18n';
 import { useThemeStore, PRESET_THEMES, FONT_OPTIONS, type ThemeColors, type Theme, type FontValue } from '../../store/themeStore';
 import { ImageCropModal } from '../ui/ImageCropModal';
 import { useNotificationStore } from '../../store/notificationStore';
@@ -331,10 +331,13 @@ function SessionsSection() {
 
 function SessionRow({ s, onRevoke }: { s: SessionInfo; onRevoke: () => void }) {
   const t = useT();
+  // Используем выбранный в приложении язык, а не системный — иначе при английском
+  // UI дата может рендериться по-русски (или любая системная локаль).
+  const locale = useLocale();
   const ua = parseUserAgent(s.user_agent);
   const isMobile = /mobile|android|iphone|ipad/i.test(s.user_agent);
   const Icon = isMobile ? Smartphone : Monitor;
-  const fmtDate = (iso: string) => new Date(iso).toLocaleString(undefined, {
+  const fmtDate = (iso: string) => new Date(iso).toLocaleString(locale, {
     day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
   });
 
