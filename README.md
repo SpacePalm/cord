@@ -153,27 +153,29 @@
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Browser    │────▶│   Frontend   │────▶│   Backend    │
-│  (React)     │     │  (Vite:5173) │     │ (FastAPI:8000│
-└─────────────┘     └──────────────┘     └──────┬───────┘
-       │                                        │
-       │  WebSocket (LiveKit)                   ├──▶ PostgreSQL:5432
-       │                                        │
-       ▼                                        ├──▶ Redis:6379
-┌──────────────┐                                │
-│   LiveKit    │◀───────────────────────────────┘
+┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
+│   Browser    │────▶│  Frontend (nginx)│────▶│   Backend    │
+│  (React SPA) │     │   container :80  │     │ (FastAPI:8000│
+└─────────────┘     │   host: :8080    │     └──────┬───────┘
+       │             └──────────────────┘            │
+       │                       │                     │
+       │  WebRTC (LiveKit)     │ proxies             ├──▶ PostgreSQL:5432
+       │                       │ /api, /media, /ws   │
+       ▼                       │                     ├──▶ Redis:6379
+┌──────────────┐               │                     │
+│   LiveKit    │◀──────────────┘─────────────────────┘
 │  Server:7880 │    (token generation)
 └──────────────┘
 ```
 
 **Request flow:**
-1. Browser loads React SPA from Vite dev server (port 5173)
-2. API calls proxied to FastAPI backend (port 8000) via Vite proxy (`/api/*`, `/media/*`)
-3. Backend authenticates via JWT, queries PostgreSQL with full-text search (`tsvector` + GIN), caches hot data in Redis
-4. Voice/video: backend generates LiveKit JWT → browser connects directly to LiveKit server (port 7880) via WebSocket/WebRTC
-5. Real-time updates: browser keeps persistent WebSocket `/ws` connection for message/typing/call events
+1. Browser loads the React SPA from the **frontend container's nginx** (host `:8080`, container `:80`)
+2. Same nginx proxies `/api/*`, `/media/*`, `/ws` to the **backend** container (`backend:8000`) over the Docker network — no external reverse proxy required
+3. Backend authenticates via short-lived JWT (15 min) + opaque refresh token (30 d, server-side session); queries PostgreSQL with full-text search (`tsvector` + GIN); caches hot data in Redis
+4. Voice/video: backend generates a LiveKit JWT → browser connects directly to LiveKit server (`:7880`) via WebSocket/WebRTC
+5. Real-time updates: browser keeps a persistent WebSocket `/ws` connection for message/typing/call events
 6. Online status: browser sends heartbeat every 60s → backend writes to Redis with 120s TTL
+7. For HTTPS in production, put a host-level nginx (or Caddy/Cloudflare) in front of `:8080`. See [Deployment](#deployment).
 
 ---
 
@@ -183,8 +185,8 @@ All services expose the following ports. Make sure they are open on your firewal
 
 | Port | Protocol | Service | Required | Description |
 |------|----------|---------|----------|-------------|
-| **5173** | TCP | Frontend | Yes | Vite dev server (SPA). In production replace with your static server / reverse proxy port (e.g. 80/443) |
-| **8000** | TCP | Backend | Internal | FastAPI API server. In dev accessed via Vite proxy; in production proxied through nginx/Caddy |
+| **8080** | TCP | Frontend | Yes | Containerized nginx serving the SPA + proxying API/WS/media. Configurable via `FRONTEND_PORT`. With the TLS override the container also listens on 80/443 directly |
+| **8000** | TCP | Backend | Internal | FastAPI server. In dev mapped to host for direct API access; in prod compose not exposed (frontend nginx proxies internally) |
 | **7880** | TCP | LiveKit | Yes | WebSocket signaling for WebRTC. Must be accessible from browser (`LIVEKIT_PUBLIC_URL`) |
 | **7881** | TCP | LiveKit | Yes | RTC media over TCP (fallback when UDP is blocked) |
 | **7882** | UDP | LiveKit | Yes | RTC media over UDP (primary, lowest latency). **Must be open for voice/video to work** |
@@ -296,8 +298,8 @@ All backend settings use the `CORD_` prefix and are defined in `backend/app/conf
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CORD_JWT_SECRET` | `change-me-in-production` | **Must change in production.** Secret key for signing JWT tokens |
-| `CORD_JWT_EXPIRE_MINUTES` | `1440` | Token lifetime (default 24 hours) |
+| `CORD_JWT_SECRET` | `change-me-in-production` | **Must change in production.** Secret key for signing access tokens AND HMAC-hashing refresh tokens |
+| `CORD_JWT_EXPIRE_MINUTES` | `15` | Access token TTL. Sessions stay long-lived through refresh tokens (30 days, automatic rotation by the frontend) |
 
 #### Admin Account
 
@@ -424,12 +426,12 @@ Indexes can also be created manually with `CREATE INDEX CONCURRENTLY` on large p
 
 1. **Change default secrets** — backend logs a security warning if `CORD_JWT_SECRET` or `CORD_ADMIN_PASSWORD` are default values
 2. **Set `SERVER_IP`** — LiveKit needs the host's LAN/public IP to advertise correct ICE candidates
-3. **Remove `--reload`** from backend Dockerfile CMD
-4. **Build frontend** for production: replace `npm run dev` with `npm run build` + static server
-5. **Use HTTPS** — put a reverse proxy (nginx/Caddy) in front
-6. **LiveKit TLS** — configure `wss://` URL for secure origins
+3. **Use the prod compose file** — `docker compose -f docker-compose.prod.yaml up -d` pulls pre-built images from GHCR, no on-host builds. The dev compose (`docker-compose.yaml`) is for contributors only
+4. **Pin a version in production** — `CORD_VERSION=1.1.0` in `.env` to avoid surprise upgrades when `latest` moves; bump explicitly when you've reviewed release notes
+5. **Use HTTPS** — see [Deployment → Reverse proxy / TLS](#reverse-proxy--tls) for the two supported patterns (host nginx in front, or container nginx terminating TLS itself)
+6. **LiveKit TLS** — set `LIVEKIT_PUBLIC_URL=wss://your-domain:7880` (or tunnel through `/livekit/` in your host nginx)
 7. **Backup** — schedule PostgreSQL dumps and media directory backups
-8. **Rate limits** — built-in Redis-based limiters protect `/auth/login` (10/5min), `/auth/register` (5/hour), and `/api/search/*` (60/min per IP)
+8. **Rate limits** — built-in Redis-based limiters protect `/auth/login` (10/5min), `/auth/register` (5/hour), `/auth/refresh` (20/min), `/auth/logout` (10/min), and `/api/search/*` (60/min per IP)
 
 ---
 
@@ -708,7 +710,12 @@ Client-side regex `(^|\W)@username(?!\w)` matches mentions in incoming `message_
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/auth/register` | Register new user. **Rate-limited** 5/hour/IP |
-| `POST` | `/api/auth/login` | Login with email + password, returns JWT. **Rate-limited** 10/5min/IP |
+| `POST` | `/api/auth/login` | Login with email + password. Returns `{access_token, refresh_token, expires_in, user}`. **Rate-limited** 10/5min/IP |
+| `POST` | `/api/auth/refresh` | Exchange refresh token for a new pair. Rotation: old refresh is revoked, new one issued. **Rate-limited** 20/min/IP |
+| `POST` | `/api/auth/logout` | Revoke a single session by refresh token. Doesn't require an access token (works even with expired access). **Rate-limited** 10/min/IP |
+| `GET` | `/api/auth/sessions` | List active sessions of the current user (with `is_current` flag) |
+| `DELETE` | `/api/auth/sessions/{id}` | Revoke a specific session ("log out from this device") |
+| `DELETE` | `/api/auth/sessions` | Revoke all sessions of the current user **except** the current one |
 | `GET` | `/api/auth/me` | Get current user profile |
 | `PATCH` | `/api/auth/profile` | Update display name, email, or password |
 | `POST` | `/api/auth/avatar` | Upload avatar image (JPEG/PNG, cropped on frontend) |
@@ -770,15 +777,14 @@ Client-side regex `(^|\W)@username(?!\w)` matches mentions in incoming `message_
 | `GET` | `/api/chats/{id}/messages` | Get messages (cursor-based pagination, 50/page). First page cached in Redis 60s |
 | `POST` | `/api/chats/{id}/messages` | Send message — supports `content` (text), `files`, `reply_to_id`, polls |
 | `POST` | `/api/chats/{id}/messages/forward` | Forward message to another chat |
-| `POST` | `/api/chats/{id}/messages/bulk-forward` | Forward multiple messages |
-| `POST` | `/api/chats/{id}/messages/bulk-delete` | Delete multiple messages |
+| `POST` | `/api/chats/{id}/messages/forward/bulk` | Forward multiple messages |
+| `POST` | `/api/chats/{id}/messages/delete/bulk` | Delete multiple messages |
 | `PATCH` | `/api/chats/{id}/messages/{mid}` | Edit message (author only) |
 | `DELETE` | `/api/chats/{id}/messages/{mid}` | Delete message (author, owner, or admin) |
 | `POST` | `/api/chats/{id}/messages/{mid}/pin` | Pin message |
 | `DELETE` | `/api/chats/{id}/messages/{mid}/pin` | Unpin message |
-| `GET` | `/api/chats/{id}/messages/pinned` | List pinned messages |
-| `POST` | `/api/chats/{id}/messages/{mid}/reactions` | Add reaction |
-| `DELETE` | `/api/chats/{id}/messages/{mid}/reactions?emoji=` | Remove reaction |
+| `GET` | `/api/chats/{id}/pinned` | List pinned messages |
+| `PUT` | `/api/chats/{id}/messages/{mid}/reactions` | Toggle reaction. Body: `{emoji}`. One reaction per user per message — same emoji removes, different emoji replaces |
 | `GET` | `/api/chats/{id}/messages/search?q=&before=` | Per-chat search (trigram + attachment file_path). **Rate-limited** 60/min/IP, cached 30s |
 | `GET` | `/api/chats/{id}/media` | List messages with attachments |
 | `GET` | `/api/chats/{id}/links` | List messages containing URLs |
@@ -984,6 +990,27 @@ IpBlock ────────────────────────
 
  Indexes:
    idx_ip_block_expires (expires_at NULLS LAST)
+
+Session ───────────────────────────────────────
+ id                 UUID PK
+ user_id            UUID FK → User (CASCADE)
+ token_id           VARCHAR(32) UNIQUE  ← O(1) refresh-token lookup
+ refresh_token_hash VARCHAR(255)        ← HMAC-SHA-256 of secret part
+ user_agent         VARCHAR(500)        ← parsed for active-sessions UI
+ ip                 INET
+ created_at         TIMESTAMP
+ last_used_at       TIMESTAMP
+ expires_at         TIMESTAMP           ← +30 days from creation
+ revoked_at         TIMESTAMP           ← null = active
+
+ Indexes:
+   idx_session_user_active (user_id, revoked_at, expires_at)
+   idx_session_expires     (expires_at)
+   idx_session_token_id    (token_id) UNIQUE
+
+ Background:
+   cleanup_old_sessions() drops rows where expires_at OR revoked_at
+   < now() - 90 days, runs once a day from app startup task.
 ```
 
 ---
@@ -1030,7 +1057,15 @@ Fail-open: any Redis error falls back to direct DB query.
 |-----|-----|-------------|
 | `cord:rl:{bucket}:{ip}` | window | Fixed-window counter via INCR |
 
-Buckets: `login`, `register`, `search`. Honors `X-Forwarded-For` / `X-Real-IP` for use behind nginx.
+Buckets: `login`, `register`, `refresh`, `logout`, `search`. Honors `X-Forwarded-For` / `X-Real-IP` for use behind nginx.
+
+### 7. Fail2ban Settings & Block Status
+| Key | TTL | Description |
+|-----|-----|-------------|
+| `cord:f2b:settings` | 30s | Cached `app_settings.auth.*` row group; invalidated on `PATCH /admin/auth/settings` |
+| `cord:f2b:block:{ip}` | 10s | Per-IP block status — `"1"` blocked / `"0"` clean. Invalidated on block create/delete from admin |
+
+Without these caches `get_current_user` would issue 2 extra SQL queries on every authenticated request (settings + ip_block lookup). At ~10 concurrent fetches on page load that's 20 unnecessary queries; with caching it drops to ~1 (just user lookup). Fail-open: any Redis error falls back to direct DB query.
 
 ---
 
@@ -1038,10 +1073,17 @@ Buckets: `login`, `register`, `search`. Honors `X-Forwarded-For` / `X-Real-IP` f
 
 ### Authentication
 
-- JWT tokens with configurable expiration (default 24h)
+- **Two-token model** (RFC 6749 / 6819 conventions):
+  - **Access token** — JWT signed with `jwt_secret`, 15 min TTL by default. Carried in the `Authorization: Bearer <jwt>` header on every API request. Stateless: server only validates signature + `exp`
+  - **Refresh token** — opaque random `{token_id}.{secret}` (32 hex + 48 url-safe chars, ~414 bits combined entropy). Persisted server-side in the `session` table (HMAC-SHA-256 of the secret part, indexed by token_id for O(1) lookup). 30-day TTL, automatically rotated on every `/refresh` call
+- **Steal detection** — if a revoked refresh token is presented again (after a 10-second grace period for legitimate races), all of the user's sessions are revoked and they're forced to re-login
+- **Active sessions UI** — Settings → Security shows every device the user is logged in on (parsed user-agent, IP, last activity); individual revoke + "log out everywhere else"
+- **Hashing** — passwords use bcrypt (slow, designed against weak password brute-force); refresh tokens use HMAC-SHA-256 (fast, suitable for high-entropy random secrets)
+- **Auto-cleanup** — expired/revoked sessions older than 90 days are dropped daily by a background task
 - Passwords hashed with bcrypt
-- Automatic logout on 401 response
-- `is_active` is checked on every request — deactivating a user immediately invalidates their token (no waiting for expiry)
+- Automatic logout on 401 with no valid refresh token; transparent refresh-and-retry otherwise
+- `is_active` is checked on every authenticated request — deactivating a user via admin panel immediately invalidates their tokens (no waiting for expiry)
+- IP-block check (fail2ban) on every authenticated request → banned IPs are kicked from active sessions on the next API call (max ~15 min for the access TTL window)
 - Startup banner warns if `CORD_JWT_SECRET` or `CORD_ADMIN_PASSWORD` are defaults
 
 ### Brute-force Protection (fail2ban)
@@ -1081,13 +1123,13 @@ DMs are isolated from admin tools to protect user privacy:
 
 ### Production Checklist
 
-- [ ] Change `CORD_JWT_SECRET` to a random string (min 32 bytes)
+- [ ] Change `CORD_JWT_SECRET` to a random string (min 32 bytes — `openssl rand -hex 32`)
 - [ ] Change `CORD_ADMIN_PASSWORD`
 - [ ] Change `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` to random values
 - [ ] Set `SERVER_IP` to host LAN/public IP
-- [ ] Set up HTTPS via reverse proxy
-- [ ] Set `LIVEKIT_PUBLIC_URL` to `wss://your-domain:7880`
-- [ ] Remove `--reload` from backend Dockerfile
+- [ ] Pin `CORD_VERSION` to a specific version (e.g. `1.1.0`) instead of `latest`
+- [ ] Set up HTTPS via reverse proxy (host nginx, Cloudflare, or container TLS override)
+- [ ] Set `LIVEKIT_PUBLIC_URL` to `wss://your-domain:7880` (or `wss://your-domain/livekit` if tunneling)
 - [ ] Schedule PostgreSQL + media backups
 - [ ] Check logs for `SECURITY WARNING` banner after first startup — address all items
 
@@ -1150,21 +1192,25 @@ cord/
 │   │   │   ├── ws.py           # WebSocket endpoint with membership re-checks
 │   │   │   ├── admin.py        # Admin panel endpoints
 │   │   │   └── admin_fail2ban.py # Security tab: settings, log, IP blocks, locked users
-│   │   ├── models/             # SQLAlchemy ORM models (incl. fail2ban: LoginAttempt, IpBlock)
+│   │   ├── models/             # SQLAlchemy ORM models
+│   │   │   ├── session.py      # Refresh-token sessions (token_id, hash, expiry)
+│   │   │   ├── fail2ban.py     # LoginAttempt + IpBlock
+│   │   │   └── ...             # user, group, message, poll, app_settings, user_chat_state
 │   │   ├── schemas/            # Pydantic request/response schemas
-│   │   ├── auth.py             # JWT, bcrypt, get_current_user (is_active + IP-block check)
-│   │   ├── fail2ban.py         # Brute-force protection: settings, attempt logging, auto-escalation
-│   │   ├── cache.py            # Redis helpers (messages, online, unread, search, calls)
+│   │   ├── auth.py             # JWT + refresh tokens (HMAC-SHA-256), session helpers, get_current_user
+│   │   ├── fail2ban.py         # Brute-force protection: settings, attempt logging, auto-escalation, Redis cache
+│   │   ├── cache.py            # Redis helpers (messages, online, unread, search, calls, fail2ban)
 │   │   ├── rate_limit.py       # Redis-based sliding window rate limiter
 │   │   ├── config.py           # Pydantic Settings (env vars)
-│   │   ├── database.py         # SQLAlchemy engine & session
-│   │   ├── ws_manager.py       # WebSocket connection manager
-│   │   └── main.py             # FastAPI app, migrations, security warnings
+│   │   ├── database.py         # SQLAlchemy engine (pool 20+30, pre_ping) & session factory
+│   │   ├── ws_manager.py       # WebSocket connection manager (Redis pub/sub fan-out)
+│   │   └── main.py             # FastAPI app, migrations, security warnings, session cleanup task
 │   ├── Dockerfile
 │   ├── entrypoint.sh           # S3fs mount logic
 │   └── pyproject.toml
 ├── frontend/
 │   ├── public/                 # Static assets (logos, theme presets)
+│   ├── nginx.conf              # Container nginx config: SPA + proxy /api, /media, /ws
 │   ├── src/
 │   │   ├── api/                # API clients (auth, groups, messages, dms, search, ...)
 │   │   ├── components/
@@ -1189,12 +1235,23 @@ cord/
 │   │       ├── renderContent.tsx       # Markdown renderer
 │   │       ├── notificationSound.ts    # Web Audio API beep
 │   │       └── ringtone.ts             # Looping ringtone via Web Audio
-│   ├── Dockerfile
+│   ├── Dockerfile              # Multistage: vite build → nginx serve
 │   ├── package.json
+│   ├── package-lock.json
 │   ├── tailwind.config.js
 │   ├── tsconfig.json
-│   └── vite.config.ts          # Vite config with API proxy
-├── docker-compose.yaml         # All 5 services
+│   └── vite.config.ts
+├── deploy/                     # Reverse-proxy examples (not used by compose directly)
+│   ├── README.md               # Which compose/nginx file when
+│   ├── nginx-host.conf         # Pattern A: host nginx in front of container
+│   └── nginx-container-tls.conf # Pattern B: alt config for TLS-in-container
+├── scripts/
+│   └── seed_demo.py            # Seed demo conversation via REST API (for screenshots)
+├── docker-compose.yaml         # Dev: build from source + hot-reload mounts
+├── docker-compose.prod.yaml    # Prod: pull from GHCR, no host nginx required
+├── docker-compose.tls.yaml     # Override: container nginx terminates TLS
+├── .github/workflows/
+│   └── release.yml             # GitHub Actions: build + publish images on tag/branch push
 ├── .env.example                # Configuration template
 └── README.md
 ```
