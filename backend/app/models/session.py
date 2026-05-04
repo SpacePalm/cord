@@ -34,7 +34,13 @@ class Session(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey('user.id', ondelete='CASCADE'), nullable=False,
     )
-    # bcrypt-hash refresh-токена. Plaintext выдаётся один раз при создании/rotation.
+    # Несекретный 32-hex префикс refresh-токена. Лежит в самом токене на клиенте,
+    # дублируется здесь как unique-индекс для O(1) lookup на /refresh и /logout.
+    # Без него пришлось бы перебирать ВСЕ активные сессии и bcrypt-сравнивать
+    # каждую — DoS-вектор и узкое место по CPU.
+    token_id: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    # bcrypt-hash секретной части refresh-токена. Plaintext выдаётся один раз
+    # при создании/rotation. Формат токена на клиенте: "{token_id}.{secret}".
     refresh_token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     user_agent: Mapped[str] = mapped_column(String(500), nullable=False, default='')
     ip: Mapped[str | None] = mapped_column(INET, nullable=True, default=None)

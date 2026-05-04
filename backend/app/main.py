@@ -19,10 +19,14 @@ from app.config import settings
 app = FastAPI(title='Cord API')
 logger = logging.getLogger(__name__)
 
+# Cord использует Bearer-токены в Authorization-header, не cookies.
+# allow_credentials=True требуется только для cookie-auth и при этом несовместим
+# с allow_origins=["*"] по CORS-RFC (браузер отвергает preflight). Поскольку
+# у нас весь auth через JS-fetch с Authorization-header, credentials отключены.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(',')],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=['*'],
     allow_headers=['*'],
 )
@@ -119,6 +123,17 @@ _RUNTIME_MIGRATIONS: list[str] = [
     # Функция отменена (дублировала Saved Messages). Сносим таблицу,
     # если осталась с прошлых запусков. IF EXISTS — безопасно.
     'DROP TABLE IF EXISTS message_bookmark CASCADE',
+
+    # ─── Refresh tokens: token_id для O(1) lookup ────────────────────
+    # Без token_id сервер был вынужден bcrypt-сравнивать со всеми активными
+    # сессиями на каждом /refresh — DoS-вектор. С индексом по token_id —
+    # один SELECT + одна bcrypt-проверка.
+    "ALTER TABLE session ADD COLUMN IF NOT EXISTS token_id VARCHAR(32)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_token_id ON session (token_id)",
+    # Сессии созданные до миграции имеют token_id=NULL и refresh-токены без
+    # точки в формате — они не работают (parse возвращает None → 401).
+    # Удаляем чтобы не висели до природного истечения через 4 месяца.
+    "DELETE FROM session WHERE token_id IS NULL",
 ]
 
 
@@ -130,6 +145,37 @@ async def start_ws_pubsub_listener():
     """
     from app.ws_manager import manager as ws_manager
     await ws_manager.start_listener()
+
+
+@app.on_event('startup')
+async def schedule_session_cleanup():
+    """Раз в сутки чистит старые сессии (expired/revoked > 90 дней).
+
+    Запускается через 60 сек после старта чтобы не тормозить boot.
+    На failure ретраит через час, иначе спит 24h.
+    Безопасно при нескольких воркерах: DELETE WHERE идемпотентен,
+    параллельные запуски максимум продублируют SQL.
+    """
+    import asyncio
+    from app.auth import cleanup_old_sessions
+
+    async def loop():
+        await asyncio.sleep(60)
+        while True:
+            try:
+                async with AsyncSessionLocal() as db:
+                    deleted = await cleanup_old_sessions(db)
+                    await db.commit()
+                    if deleted:
+                        logger.info('session cleanup: deleted %d old rows', deleted)
+                # День до следующей итерации.
+                await asyncio.sleep(24 * 3600)
+            except Exception as exc:
+                logger.warning('session cleanup failed: %r', exc)
+                # На ошибке — ретрай через час, не ждём сутки.
+                await asyncio.sleep(3600)
+
+    asyncio.create_task(loop())
 
 
 @app.on_event('startup')

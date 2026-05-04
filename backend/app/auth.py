@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update as sql_update
+from sqlalchemy import select, update as sql_update, delete as sql_delete, or_, and_
 from app.database import get_db
 from app.models.user import User
 from app.models.session import Session as AuthSession
@@ -51,15 +51,38 @@ def create_access_token(user_id: str, username: str, role: str, session_id: str 
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def generate_refresh_token() -> tuple[str, str]:
-    """Возвращает (plaintext, bcrypt_hash). Plaintext отдаётся клиенту один раз."""
-    plaintext = secrets.token_urlsafe(48)  # 64 chars, 384 bits энтропии
-    return plaintext, bcrypt.hashpw(plaintext.encode(), bcrypt.gensalt()).decode()
+def generate_refresh_token() -> tuple[str, str, str]:
+    """Возвращает (token_id, plaintext, bcrypt_hash).
+
+    Формат plaintext: "{token_id}.{secret}". Клиент носит весь plaintext,
+    сервер при /refresh парсит token_id для индексированного lookup'а,
+    потом bcrypt-сравнивает только secret-часть.
+
+    32 hex (token_id) — 128 бит энтропии для unique-lookup, не секрет.
+    48 url-safe (secret) — ~286 бит энтропии, секретная часть.
+    Суммарно >414 бит — outside any feasible bruteforce.
+    """
+    token_id = secrets.token_hex(16)
+    secret = secrets.token_urlsafe(48)
+    plaintext = f"{token_id}.{secret}"
+    hashed = bcrypt.hashpw(secret.encode(), bcrypt.gensalt()).decode()
+    return token_id, plaintext, hashed
 
 
-def verify_refresh_token(plaintext: str, hashed: str) -> bool:
+def parse_refresh_token(plaintext: str) -> tuple[str, str] | None:
+    """Возвращает (token_id, secret) или None если формат невалидный."""
+    if not plaintext or '.' not in plaintext:
+        return None
+    token_id, _, secret = plaintext.partition('.')
+    # Базовая валидация формата чтобы не делать bcrypt на мусоре.
+    if len(token_id) != 32 or not all(c in '0123456789abcdef' for c in token_id) or not secret:
+        return None
+    return token_id, secret
+
+
+def verify_refresh_secret(secret: str, hashed: str) -> bool:
     try:
-        return bcrypt.checkpw(plaintext.encode(), hashed.encode())
+        return bcrypt.checkpw(secret.encode(), hashed.encode())
     except (ValueError, TypeError):
         return False
 
@@ -71,17 +94,40 @@ async def create_session(
     ip: str | None,
 ) -> tuple[AuthSession, str]:
     """Создаёт запись Session и возвращает её + plaintext refresh-токен.
-    Не коммитит — вызывающий код отвечает за транзакцию."""
-    plaintext, hashed = generate_refresh_token()
+    Не коммитит — вызывающий код отвечает за транзакцию.
+
+    Заодно ограничивает количество одновременных сессий юзера: если их >20,
+    самые старые revoke'аются (FIFO). Это защита от credential-stuffing'а
+    и от случайного распухания таблицы при автоматизированных клиентах,
+    забывающих logout.
+    """
+    token_id, plaintext, hashed = generate_refresh_token()
     sess = AuthSession(
         user_id=user_id,
+        token_id=token_id,
         refresh_token_hash=hashed,
         user_agent=(user_agent or '')[:500],
         ip=ip,
         expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
     )
     db.add(sess)
-    await db.flush()  # чтобы получить sess.id
+    await db.flush()
+
+    # Cap: оставляем максимум 20 активных сессий на юзера. Старые revoke'аем.
+    # 20 — щедрый лимит: типичный юзер имеет 3-5 устройств. Атакующий ботнет
+    # с тысячами IP отсечётся, ему придётся постоянно ротейтить сессии.
+    overflow = (await db.execute(
+        select(AuthSession).where(
+            AuthSession.user_id == user_id,
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > datetime.now(timezone.utc),
+        )
+        .order_by(AuthSession.created_at.desc())
+        .offset(20)
+    )).scalars().all()
+    for old in overflow:
+        old.revoked_at = datetime.now(timezone.utc)
+
     return sess, plaintext
 
 
@@ -104,6 +150,34 @@ async def revoke_all_user_sessions(db: AsyncSession, user_id: uuid.UUID, except_
     if except_session_id is not None:
         stmt = stmt.where(AuthSession.id != except_session_id)
     await db.execute(stmt)
+
+
+# Сколько дней хранить «закрытые» сессии (expired или revoked) после момента
+# их закрытия. 90 дней — security-хвост для investigations: если юзер придёт
+# через 2 месяца «меня хакнули», у нас ещё есть данные о подозрительных сессиях.
+# После cutoff'а строка удаляется и steal-detection на этот токен больше не
+# срабатывает (атакующий и так получит 401 — токена нет в БД, lookup не найдёт).
+SESSION_RETAIN_DAYS = 90
+
+
+async def cleanup_old_sessions(db: AsyncSession, retain_days: int = SESSION_RETAIN_DAYS) -> int:
+    """Удаляет сессии, у которых либо `expires_at`, либо `revoked_at` старше
+    retain_days назад. Idempotent — безопасно гнать на нескольких воркерах
+    параллельно (max-эффект: дубль SQL-запроса).
+
+    Не коммитит — вызывающий код может объединить с другими операциями.
+    Возвращает количество удалённых строк.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retain_days)
+    result = await db.execute(
+        sql_delete(AuthSession).where(
+            or_(
+                AuthSession.expires_at < cutoff,
+                and_(AuthSession.revoked_at.isnot(None), AuthSession.revoked_at < cutoff),
+            )
+        )
+    )
+    return result.rowcount or 0
 
 def decode_access_token(token: str) -> dict | None:
     try:

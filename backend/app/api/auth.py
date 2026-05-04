@@ -13,7 +13,8 @@ from app.models.user import User
 from app.models.app_settings import AppSetting
 from app.auth import (
     hash_password, verify_password, create_access_token, get_current_user,
-    create_session, revoke_session, revoke_all_user_sessions, verify_refresh_token,
+    create_session, revoke_session, revoke_all_user_sessions,
+    parse_refresh_token, verify_refresh_secret,
 )
 from app.models.session import Session as AuthSession
 from app.rate_limit import RateLimiter
@@ -27,6 +28,17 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 register_limiter = RateLimiter(key='register', limit=5, window_seconds=3600)
 # 10 попыток логина за 5 минут с одного IP — защита от перебора паролей
 login_limiter = RateLimiter(key='login', limit=10, window_seconds=300)
+# /refresh: 20/мин/IP — у легитимного юзера access-токен 15 мин, реальный rate
+# auto-refresh раз в 15 минут максимум на вкладку. 20/мин с запасом × 5 на 5 вкладок.
+refresh_limiter = RateLimiter(key='refresh', limit=20, window_seconds=60)
+# /logout: реже, чем refresh, но всё равно нужен лимит — оба эндпоинта делают bcrypt.
+logout_limiter = RateLimiter(key='logout', limit=10, window_seconds=60)
+
+# Grace period: если refresh-токен только-только revoked'ился (вкладки
+# юзера погнали два refresh'а одновременно), не считаем это steal-detection.
+# Атакующий за 10 секунд после первого refresh'а вряд ли успеет — этот
+# временной зазор защищает только от race condition, не от настоящей кражи.
+REFRESH_REUSE_GRACE_SECONDS = 10
 
 class RegisterRequest(BaseModel):
     username: str
@@ -53,7 +65,10 @@ class TokenResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    # Реальный токен ~97 символов (32 token_id + 1 dot + 64 secret).
+    # max_length=200 — отсекает мусор и атаки с гигантскими payload'ами
+    # до того как parse_refresh_token доберётся до validation.
+    refresh_token: str = Field(..., max_length=200)
 
 
 class RefreshResponse(BaseModel):
@@ -357,31 +372,47 @@ async def refresh_tokens(
 ):
     """Обмен refresh-токена на новую пару (access + refresh) с rotation.
 
-    Если refresh уже был использован (revoked_at != null) — это потенциальная
-    кража: revoke ВСЕ активные сессии юзера и просим перелогиниться.
+    Поток:
+    1. Парсим token_id (32 hex) и secret из plaintext-токена
+    2. Indexed lookup сессии по token_id — O(1) вместо bcrypt-scan по всем
+    3. SELECT FOR UPDATE — сериализуем concurrent refresh от одного клиента
+    4. bcrypt-сравнение secret-части
+    5. Если revoked, но < 10 сек назад — race condition вкладок, отдаём 401
+       без катастрофы. Если > 10 сек — реальный reuse, жжём все сессии юзера
+    6. Rotation: revoke старую, создаём новую
     """
-    # Не имеем session_id — должны найти запись по hash. Для O(1) lookup нужен был бы
-    # token_id префикс, но при типичном объёме юзеров (тысячи активных сессий)
-    # перебор + bcrypt — приемлемо. Если станет узким местом, добавим token_prefix
-    # колонку как indexed lookup.
-    candidates = (await db.execute(
-        select(AuthSession).where(
-            AuthSession.expires_at > datetime.now(timezone.utc),
-        )
-    )).scalars().all()
+    await refresh_limiter.check(http_request)
 
-    matched: AuthSession | None = None
-    for cand in candidates:
-        if verify_refresh_token(body.refresh_token, cand.refresh_token_hash):
-            matched = cand
-            break
+    parsed = parse_refresh_token(body.refresh_token)
+    if not parsed:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    token_id, secret = parsed
 
-    if matched is None:
+    # SELECT FOR UPDATE сериализует concurrent /refresh от одного клиента
+    # (например двух вкладок с одинаковым refresh после перезапуска бэка).
+    # Второй refresh подождёт пока первый закоммитится, увидит revoked_at и
+    # уйдёт в grace-period или steal-detection.
+    matched = await db.scalar(
+        select(AuthSession)
+        .where(AuthSession.token_id == token_id)
+        .with_for_update()
+    )
+
+    if matched is None or not verify_refresh_secret(secret, matched.refresh_token_hash):
+        # Не существует или secret не совпадает (атакующий подсунул мусор)
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    # ⚠ Steal-detection: если найденная сессия revoked — refresh использовался
-    # дважды → атакующий или race condition. Жжём всё на этом юзере.
+    if matched.expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    # Reuse detection с grace period
     if matched.revoked_at is not None:
+        age = (datetime.now(timezone.utc) - matched.revoked_at).total_seconds()
+        if age <= REFRESH_REUSE_GRACE_SECONDS:
+            # Только что revoked — это race condition между параллельными
+            # refresh'ами с разных вкладок. Не паникуем.
+            raise HTTPException(status_code=401, detail="Token already used; please retry")
+        # Реальный reuse: атакующий или старая копия токена. Жжём всё.
         await revoke_all_user_sessions(db, matched.user_id)
         await db.commit()
         raise HTTPException(status_code=401, detail="Token reuse detected; all sessions revoked")
@@ -419,20 +450,25 @@ async def refresh_tokens(
 @router.post("/logout", status_code=204)
 async def logout(
     body: RefreshRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """Revoke текущую сессию по refresh-токену. Не требует access-токена —
-    клиент может вылогиниться даже с истёкшим access."""
-    candidates = (await db.execute(
-        select(AuthSession).where(AuthSession.revoked_at.is_(None))
-    )).scalars().all()
-    for cand in candidates:
-        if verify_refresh_token(body.refresh_token, cand.refresh_token_hash):
-            cand.revoked_at = datetime.now(timezone.utc)
-            await db.commit()
-            return
-    # Если не нашли — всё равно 204 (idempotent)
-    return
+    клиент может вылогиниться даже с истёкшим access. Idempotent: если
+    токен невалидный или уже revoked — всё равно 204."""
+    await logout_limiter.check(http_request)
+
+    parsed = parse_refresh_token(body.refresh_token)
+    if not parsed:
+        return  # 204 — невалидный токен молча игнорируем (предотвращает enum)
+    token_id, secret = parsed
+
+    sess = await db.scalar(
+        select(AuthSession).where(AuthSession.token_id == token_id)
+    )
+    if sess and sess.revoked_at is None and verify_refresh_secret(secret, sess.refresh_token_hash):
+        sess.revoked_at = datetime.now(timezone.utc)
+        await db.commit()
 
 
 @router.get("/sessions", response_model=list[SessionInfo])
