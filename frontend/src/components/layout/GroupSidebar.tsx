@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
 import { dmsApi } from '../../api/dms';
+import { authApi } from '../../api/auth';
 import type { Group } from '../../types';
 import { useT } from '../../i18n';
 
@@ -191,7 +192,15 @@ export function GroupSidebar({
       <div className="mt-auto" />
       <div className="w-8 h-px bg-[var(--bg-secondary)] my-1" />
       <button
-        onClick={logout}
+        onClick={async () => {
+          // Revoke refresh-сессию на сервере чтобы её нельзя было reuse'ать.
+          // Не блокируем UI — даже если сеть отвалилась, локально уходим из сессии.
+          const rt = localStorage.getItem('refresh_token');
+          if (rt) {
+            authApi.logoutOnServer(rt).catch(() => {});
+          }
+          logout();
+        }}
         title={t('sidebar.logout')}
         className="w-12 h-12 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center text-[var(--danger,#ef4444)] hover:bg-[var(--danger,#ef4444)] hover:text-white hover:rounded-2xl transition-all"
       >

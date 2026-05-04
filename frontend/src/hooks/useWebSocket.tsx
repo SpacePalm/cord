@@ -321,7 +321,28 @@ export function useCordWebSocket() {
     ws.onclose = (ev) => {
       wsRef.current = null;
       clearHeartbeat();
-      if (ev.code === 4001) return; // auth failure
+      // 4001 = auth failure (access токен протух или невалиден).
+      // Пробуем обменять refresh → новый access → переподключиться.
+      // Если refresh умер — отдаём управление обычному redirect-потоку через client.ts
+      // (heartbeat-запрос на следующем тике поймает 401 и сделает logout).
+      if (ev.code === 4001) {
+        const refresh_token = localStorage.getItem('refresh_token');
+        if (!refresh_token) return;
+        fetch('/api/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token }),
+        }).then(async (r) => {
+          if (!r.ok) return;
+          const data = await r.json();
+          localStorage.setItem('access_token', data.access_token);
+          localStorage.setItem('refresh_token', data.refresh_token);
+          // Переподключаемся с новым access — мгновенно, без бэкоффа.
+          reconnectDelay.current = 1000;
+          connect();
+        }).catch(() => {});
+        return;
+      }
       reconnectTimer.current = setTimeout(() => {
         reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30000);
         connect();

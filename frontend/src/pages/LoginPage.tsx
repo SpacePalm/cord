@@ -23,13 +23,16 @@ export function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: authApi.login,
     onSuccess: async (data) => {
-      // Save the token and fetch user data
+      // setAuth кладёт оба токена в store + localStorage. Делаем это ДО /auth/me,
+      // чтобы request пошёл с Authorization header.
+      // tmp-объект юзера здесь не критичен — перезапишем сразу после me().
       localStorage.setItem('access_token', data.access_token);
+      localStorage.setItem('refresh_token', data.refresh_token);
       const user = await authApi.me();
       useThemeStore.getState().loadFromServer(user.theme_json ?? null);
       applyServerPreferences(user.preferences_json);
       startPreferencesAutoSync();
-      setAuth(user, data.access_token);
+      setAuth(user, data.access_token, data.refresh_token);
       navigate('/app');
     },
     onError: (err) => {

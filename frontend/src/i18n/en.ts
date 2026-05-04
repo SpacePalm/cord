@@ -224,6 +224,13 @@ export const en: Record<string, string> = {
   'settings.passwordMin': 'Password must be at least 6 characters',
   'settings.passwordMismatch': 'Passwords do not match',
   'settings.changePassword': 'Change password',
+  'settings.activeSessions': 'Active sessions',
+  'settings.currentSession': 'current',
+  'settings.lastUsed': 'last used',
+  'settings.revokeSession': 'Revoke session',
+  'settings.revokeOthers': 'Sign out everywhere else ({n})',
+  'settings.revokeOthersConfirm': 'Sign out from all other devices?',
+  'settings.noSessions': 'No active sessions',
   'settings.profileSettings': 'Profile Settings',
 
   // ─── Audio settings ──────────────────────────────────────────────

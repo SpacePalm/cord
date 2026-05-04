@@ -6,7 +6,10 @@ class Settings(BaseSettings):
 
     jwt_secret: str = "change-me-in-production"  # VUI_JWT_SECRET
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 1440  # 24h
+    # Access-токен короткий: фронт обновляет его через refresh-токен (30 дней).
+    # 15 минут — индустриальный стандарт. Раньше было 1440 (24h) — больше не
+    # требуется, потому что refresh-rotation покрывает длинные сессии.
+    jwt_expire_minutes: int = 15
 
     admin_username: str = "admin"
     admin_email: str = "admin@admin.com"

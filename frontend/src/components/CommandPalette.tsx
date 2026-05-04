@@ -13,6 +13,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Search, Hash, Volume2, Server, Shield, LogOut, Settings, Languages, Plus, MessageSquare, User as UserIcon, Filter } from 'lucide-react';
 import type { Chat, Group } from '../types';
+import { authApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useLangStore, useT, LANGUAGES } from '../i18n';
@@ -461,6 +462,8 @@ export function CommandPalette() {
         label: t('palette.logout'),
         icon: <LogOut size={15} />,
         onSelect: () => {
+          const rt = localStorage.getItem('refresh_token');
+          if (rt) authApi.logoutOnServer(rt).catch(() => {});
           logout();
           navigate('/login');
           setOpen(false);

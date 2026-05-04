@@ -1,12 +1,15 @@
 from passlib.context import CryptContext
 import jwt
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update as sql_update
 from app.database import get_db
 from app.models.user import User
+from app.models.session import Session as AuthSession
 from app.config import settings
 
 import bcrypt
@@ -18,6 +21,13 @@ SECRET_KEY = settings.jwt_secret
 ALGORITHM = settings.jwt_algorithm
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.jwt_expire_minutes
 
+# Refresh-токены и access-токены — две разные сущности:
+# - access (JWT, короткий): носится в Authorization header, проверяется на каждом запросе
+# - refresh (opaque, длинный): лежит у клиента, обменивается на новый access через /refresh
+# 30 дней — стандарт для consumer-приложений (Telegram, Discord). Можно вынести в settings.
+REFRESH_TOKEN_EXPIRE_DAYS = 30
+
+
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
@@ -25,7 +35,10 @@ def hash_password(plain: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
-def create_access_token(user_id: str, username: str, role: str) -> str:
+
+def create_access_token(user_id: str, username: str, role: str, session_id: str | None = None) -> str:
+    """JWT, который получает клиент. session_id вшит в payload — это позволяет
+    при revoke сессии обнаруживать «зомби» access-токены (если жёстко надо)."""
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {
         "sub": str(user_id),
@@ -33,7 +46,64 @@ def create_access_token(user_id: str, username: str, role: str) -> str:
         "role": role,
         "exp": expire,
     }
+    if session_id is not None:
+        payload["sid"] = str(session_id)
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def generate_refresh_token() -> tuple[str, str]:
+    """Возвращает (plaintext, bcrypt_hash). Plaintext отдаётся клиенту один раз."""
+    plaintext = secrets.token_urlsafe(48)  # 64 chars, 384 bits энтропии
+    return plaintext, bcrypt.hashpw(plaintext.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_refresh_token(plaintext: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(plaintext.encode(), hashed.encode())
+    except (ValueError, TypeError):
+        return False
+
+
+async def create_session(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    user_agent: str | None,
+    ip: str | None,
+) -> tuple[AuthSession, str]:
+    """Создаёт запись Session и возвращает её + plaintext refresh-токен.
+    Не коммитит — вызывающий код отвечает за транзакцию."""
+    plaintext, hashed = generate_refresh_token()
+    sess = AuthSession(
+        user_id=user_id,
+        refresh_token_hash=hashed,
+        user_agent=(user_agent or '')[:500],
+        ip=ip,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+    )
+    db.add(sess)
+    await db.flush()  # чтобы получить sess.id
+    return sess, plaintext
+
+
+async def revoke_session(db: AsyncSession, session_id: uuid.UUID) -> None:
+    await db.execute(
+        sql_update(AuthSession)
+        .where(AuthSession.id == session_id, AuthSession.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+
+
+async def revoke_all_user_sessions(db: AsyncSession, user_id: uuid.UUID, except_session_id: uuid.UUID | None = None) -> None:
+    """Используется в steal-detection: если кто-то предъявил уже-revoked refresh,
+    жжём все активные сессии (атакующий или сам юзер потеряют доступ)."""
+    stmt = (
+        sql_update(AuthSession)
+        .where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    if except_session_id is not None:
+        stmt = stmt.where(AuthSession.id != except_session_id)
+    await db.execute(stmt)
 
 def decode_access_token(token: str) -> dict | None:
     try:

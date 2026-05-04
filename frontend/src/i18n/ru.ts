@@ -224,6 +224,13 @@ export const ru: Record<string, string> = {
   'settings.passwordMin': 'Пароль должен быть не менее 6 символов',
   'settings.passwordMismatch': 'Пароли не совпадают',
   'settings.changePassword': 'Изменить пароль',
+  'settings.activeSessions': 'Активные сессии',
+  'settings.currentSession': 'текущая',
+  'settings.lastUsed': 'последний вход',
+  'settings.revokeSession': 'Завершить сессию',
+  'settings.revokeOthers': 'Выйти со всех остальных ({n})',
+  'settings.revokeOthersConfirm': 'Завершить все сессии кроме текущей?',
+  'settings.noSessions': 'Активных сессий нет',
   'settings.profileSettings': 'Настройки профиля',
 
   // ─── Аудио настройки ──────────────────────────────────────────────

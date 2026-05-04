@@ -13,6 +13,7 @@ from app.api.messages import search_router
 from app.models import poll as _poll_models  # noqa: F401 — registers Poll tables
 from app.models import user_chat_state as _user_chat_state_models  # noqa: F401 — registers UserChatState table
 from app.models import fail2ban as _fail2ban_models  # noqa: F401 — registers LoginAttempt + IpBlock
+from app.models import session as _session_models  # noqa: F401 — registers Session (refresh tokens)
 from app.config import settings
 
 app = FastAPI(title='Cord API')

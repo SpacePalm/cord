@@ -1,5 +1,12 @@
-// При 401 — автоматически разлогиниваем и редиректим на /login.
-// При 403 detail.code === 'blocked_by_security' — logout + редирект на /blocked.
+// HTTP-клиент с автоматическим refresh access-токена при 401.
+//
+// Жизненный цикл запроса:
+// 1. fetch с access_token
+// 2. если 401 → попытаться обменять refresh_token на новую пару
+// 3. если refresh успешен → retry оригинальный запрос с новым access
+// 4. если refresh провалился → handleUnauthorized (logout + redirect /login)
+//
+// При 403 с blocked_by_security → handleBlocked (redirect /blocked).
 
 import { useAuthStore } from '../store/authStore';
 
@@ -7,16 +14,12 @@ const BASE_URL = '/api';
 
 function handleUnauthorized() {
   useAuthStore.getState().logout();
-  // Используем location.replace чтобы убрать текущий URL из истории
   if (window.location.pathname !== '/login') {
     window.location.replace('/login');
   }
 }
 
 function handleBlocked(detail: { kind?: string; expires_at?: string | null } | null) {
-  // Сценарий: админ забанил IP → следующий API-запрос с этого IP получает 403
-  // с blocked_by_security → выкидываем пользователя из сессии и показываем
-  // страницу с обратным отсчётом до разблокировки.
   useAuthStore.getState().logout();
   const sp = new URLSearchParams();
   if (detail?.kind) sp.set('kind', detail.kind);
@@ -25,6 +28,44 @@ function handleBlocked(detail: { kind?: string; expires_at?: string | null } | n
     window.location.replace(`/blocked?${sp}`);
   }
 }
+
+// ─── Refresh-токен machinery ─────────────────────────────────────────────
+//
+// Несколько одновременных 401 не должны порождать N независимых /refresh.
+// Используем одну общую промизу-инфлайт: первый 401 запускает refresh,
+// остальные ждут его результат.
+
+let refreshInflight: Promise<boolean> | null = null;
+
+async function tryRefresh(): Promise<boolean> {
+  if (refreshInflight) return refreshInflight;
+
+  refreshInflight = (async () => {
+    const refresh_token = localStorage.getItem('refresh_token');
+    if (!refresh_token) return false;
+    try {
+      const r = await fetch(`${BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token }),
+      });
+      if (!r.ok) return false;
+      const data = await r.json();
+      // Ротация: пишем оба новых токена и в localStorage, и в Zustand-store.
+      useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      // Сброс через микротик — другие ожидающие 401 уже подхватят результат.
+      setTimeout(() => { refreshInflight = null; }, 0);
+    }
+  })();
+
+  return refreshInflight;
+}
+
+// ─── Error type ──────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
   /** Иногда detail приходит объектом (например fail2ban: {code, kind, expires_at}). */
@@ -36,10 +77,9 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+// ─── Core request ────────────────────────────────────────────────────────
+
+async function fetchWithAuth(path: string, options: RequestInit, retried = false): Promise<Response> {
   const token = localStorage.getItem('access_token');
 
   const headers: HeadersInit = {
@@ -48,15 +88,28 @@ async function request<T>(
     ...options.headers,
   };
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers,
-  });
+  const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
+  // 401 → пробуем обновить access и сделать ровно один retry.
+  // Не trigger'им refresh для самого /auth/refresh (рекурсия) и /auth/login.
+  if (response.status === 401 && !retried &&
+      !path.startsWith('/auth/refresh') &&
+      !path.startsWith('/auth/login')) {
+    const refreshed = await tryRefresh();
+    if (refreshed) {
+      return fetchWithAuth(path, options, true);
+    }
+  }
+
+  return response;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetchWithAuth(path, options);
 
   if (!response.ok) {
     if (response.status === 401) handleUnauthorized();
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    // detail может быть строкой (стандарт) или объектом (наши structured errors).
     const message = typeof error.detail === 'string'
       ? error.detail
       : (error.detail?.code ?? 'Request failed');
@@ -66,9 +119,7 @@ async function request<T>(
     throw new ApiError(response.status, message, error.detail);
   }
 
-  // 204 No Content — возвращаем пустой объект
   if (response.status === 204) return {} as T;
-
   return response.json() as Promise<T>;
 }
 
@@ -83,14 +134,23 @@ export const api = {
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
-// Для multipart/form-data (загрузка файлов).
-export async function postForm<T>(path: string, form: FormData): Promise<T> {
+// ─── multipart/form-data (file uploads) ──────────────────────────────────
+
+async function fetchFormWithAuth(path: string, form: FormData, retried = false): Promise<Response> {
   const token = localStorage.getItem('access_token');
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const r = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
   });
+  if (r.status === 401 && !retried) {
+    if (await tryRefresh()) return fetchFormWithAuth(path, form, true);
+  }
+  return r;
+}
+
+export async function postForm<T>(path: string, form: FormData): Promise<T> {
+  const response = await fetchFormWithAuth(path, form);
 
   if (!response.ok) {
     if (response.status === 401) handleUnauthorized();
@@ -108,44 +168,55 @@ export async function postForm<T>(path: string, form: FormData): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-// То же, но с колбэком прогресса загрузки (0–100).
+// XHR-вариант для прогресса upload'а. Refresh не делается до отправки —
+// если access протухнет посреди upload'а, файл просто залит впустую и юзер
+// видит ошибку (редкий случай при коротком access TTL и быстром refresh-цикле).
 export function postFormWithProgress<T>(
   path: string,
   form: FormData,
   onProgress: (pct: number) => void,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    const token = localStorage.getItem('access_token');
-    const xhr = new XMLHttpRequest();
+    const sendOnce = (retry: boolean): void => {
+      const token = localStorage.getItem('access_token');
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${BASE_URL}${path}`);
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
-    xhr.open('POST', `${BASE_URL}${path}`);
-    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      });
 
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    });
-
-    xhr.addEventListener('load', () => {
-      if (xhr.status === 401) { handleUnauthorized(); return; }
-      if (xhr.status >= 400) {
-        const detail = (() => {
-          try { return JSON.parse(xhr.responseText)?.detail ?? 'Request failed'; }
-          catch { return 'Request failed'; }
-        })();
-        if (xhr.status === 403 && typeof detail === 'object' && detail?.code === 'blocked_by_security') {
-          handleBlocked(detail);
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 401 && !retry) {
+          tryRefresh().then((ok) => {
+            if (ok) sendOnce(true);
+            else { handleUnauthorized(); reject(new ApiError(401, 'Unauthorized')); }
+          });
+          return;
         }
-        reject(new ApiError(xhr.status, typeof detail === 'string' ? detail : (detail?.code ?? 'Request failed'), detail));
-        return;
-      }
-      if (xhr.status === 204) { resolve({} as T); return; }
-      try { resolve(JSON.parse(xhr.responseText) as T); }
-      catch { reject(new ApiError(0, 'Invalid JSON response')); }
-    });
+        if (xhr.status === 401) { handleUnauthorized(); return; }
+        if (xhr.status >= 400) {
+          const detail = (() => {
+            try { return JSON.parse(xhr.responseText)?.detail ?? 'Request failed'; }
+            catch { return 'Request failed'; }
+          })();
+          if (xhr.status === 403 && typeof detail === 'object' && detail?.code === 'blocked_by_security') {
+            handleBlocked(detail);
+          }
+          reject(new ApiError(xhr.status, typeof detail === 'string' ? detail : (detail?.code ?? 'Request failed'), detail));
+          return;
+        }
+        if (xhr.status === 204) { resolve({} as T); return; }
+        try { resolve(JSON.parse(xhr.responseText) as T); }
+        catch { reject(new ApiError(0, 'Invalid JSON response')); }
+      });
 
-    xhr.addEventListener('error', () => reject(new ApiError(0, 'Network error')));
-    xhr.addEventListener('abort', () => reject(new ApiError(0, 'Upload aborted')));
+      xhr.addEventListener('error', () => reject(new ApiError(0, 'Network error')));
+      xhr.addEventListener('abort', () => reject(new ApiError(0, 'Upload aborted')));
 
-    xhr.send(form);
+      xhr.send(form);
+    };
+    sendOnce(false);
   });
 }

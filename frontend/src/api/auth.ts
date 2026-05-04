@@ -6,6 +6,23 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface SessionInfo {
+  id: string;
+  user_agent: string;
+  ip: string | null;
+  created_at: string;
+  last_used_at: string;
+  expires_at: string;
+  is_current: boolean;
+}
+
+export interface RefreshResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
 export interface RegisterRequest {
   username: string;
   email: string;
@@ -49,4 +66,28 @@ export const authApi = {
 
   savePreferences: (prefs: unknown) =>
     api.put<{ ok: boolean }>('/auth/preferences', prefs),
+
+  // Refresh не использует обычный api.post — нужен особый путь без auto-refresh-цикла
+  refresh: async (refresh_token: string): Promise<RefreshResponse> => {
+    const r = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token }),
+    });
+    if (!r.ok) throw new Error(`Refresh failed: ${r.status}`);
+    return r.json();
+  },
+
+  // Logout без access — позволяет вылогиниться даже с истёкшим JWT
+  logoutOnServer: async (refresh_token: string): Promise<void> => {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token }),
+    });
+  },
+
+  listSessions: () => api.get<SessionInfo[]>('/auth/sessions'),
+  revokeSession: (id: string) => api.delete<void>(`/auth/sessions/${id}`),
+  revokeOtherSessions: () => api.delete<void>('/auth/sessions'),
 };

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { X, Camera, Check, Eye, EyeOff, Mic, MicOff, Volume2 } from 'lucide-react';
-import { authApi } from '../../api/auth';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { X, Camera, Check, Eye, EyeOff, Mic, MicOff, Volume2, Smartphone, Monitor, LogOut } from 'lucide-react';
+import { authApi, type SessionInfo } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
 import { ApiError } from '../../api/client';
@@ -248,27 +248,141 @@ function SecurityTab({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      <PasswordField label={t('settings.currentPassword')} value={current} onChange={setCurrent} />
-      <PasswordField label={t('settings.newPassword')} value={next} onChange={setNext} />
-      <PasswordField label={t('settings.confirmPassword')} value={confirm} onChange={setConfirm} />
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('settings.changePassword')}</h3>
+        <PasswordField label={t('settings.currentPassword')} value={current} onChange={setCurrent} />
+        <PasswordField label={t('settings.newPassword')} value={next} onChange={setNext} />
+        <PasswordField label={t('settings.confirmPassword')} value={confirm} onChange={setConfirm} />
 
-      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-          {t('cancel')}
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={!current || !next || !confirm || updateMutation.isPending}
-          className="px-4 py-2 rounded bg-[var(--accent)] text-white text-sm flex items-center gap-2 hover:bg-[var(--accent-hover)] disabled:opacity-50 transition-colors"
-        >
-          {saved ? <><Check size={14} /> {t('saved')}</> : updateMutation.isPending ? t('saving') : t('settings.changePassword')}
-        </button>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+            {t('cancel')}
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!current || !next || !confirm || updateMutation.isPending}
+            className="px-4 py-2 rounded bg-[var(--accent)] text-white text-sm flex items-center gap-2 hover:bg-[var(--accent-hover)] disabled:opacity-50 transition-colors"
+          >
+            {saved ? <><Check size={14} /> {t('saved')}</> : updateMutation.isPending ? t('saving') : t('settings.changePassword')}
+          </button>
+        </div>
       </div>
+
+      <div className="h-px bg-[var(--border-color)]" />
+      <SessionsSection />
     </div>
   );
+}
+
+// Active sessions — список устройств где залогинен юзер.
+// Каждая строка — одна refresh-сессия, можно revoke индивидуально.
+// Текущая помечена ярлыком и не имеет кнопки revoke (для этого выйти кнопкой Logout).
+function SessionsSection() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const { data: sessions = [], isLoading } = useQuery({
+    queryKey: ['auth-sessions'],
+    queryFn: authApi.listSessions,
+  });
+
+  const revoke = useMutation({
+    mutationFn: authApi.revokeSession,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['auth-sessions'] }),
+  });
+
+  const revokeOthers = useMutation({
+    mutationFn: authApi.revokeOtherSessions,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['auth-sessions'] }),
+  });
+
+  const otherCount = sessions.filter((s) => !s.is_current).length;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('settings.activeSessions')}</h3>
+        {otherCount > 0 && (
+          <button
+            onClick={() => {
+              if (confirm(t('settings.revokeOthersConfirm'))) revokeOthers.mutate();
+            }}
+            className="text-xs text-[var(--danger)] hover:underline"
+          >
+            {t('settings.revokeOthers', { n: otherCount })}
+          </button>
+        )}
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-[var(--text-muted)]">{t('loading')}</p>
+      ) : sessions.length === 0 ? (
+        <p className="text-sm text-[var(--text-muted)]">{t('settings.noSessions')}</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {sessions.map((s) => <SessionRow key={s.id} s={s} onRevoke={() => revoke.mutate(s.id)} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SessionRow({ s, onRevoke }: { s: SessionInfo; onRevoke: () => void }) {
+  const t = useT();
+  const ua = parseUserAgent(s.user_agent);
+  const isMobile = /mobile|android|iphone|ipad/i.test(s.user_agent);
+  const Icon = isMobile ? Smartphone : Monitor;
+  const fmtDate = (iso: string) => new Date(iso).toLocaleString(undefined, {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+      <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-[var(--text-primary)] truncate">{ua.browser} · {ua.os}</span>
+          {s.is_current && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/15 text-green-400">
+              {t('settings.currentSession')}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-[var(--text-muted)] truncate">
+          {s.ip ?? '—'} · {t('settings.lastUsed')}: {fmtDate(s.last_used_at)}
+        </p>
+      </div>
+      {!s.is_current && (
+        <button
+          onClick={onRevoke}
+          title={t('settings.revokeSession')}
+          className="p-2 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
+        >
+          <LogOut size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Минимальный user-agent parser. Полный — это библиотека на 50KB, нам не нужно.
+function parseUserAgent(ua: string): { browser: string; os: string } {
+  const browser =
+    /edg\//i.test(ua) ? 'Edge' :
+    /chrome\//i.test(ua) && !/edg\//i.test(ua) ? 'Chrome' :
+    /firefox\//i.test(ua) ? 'Firefox' :
+    /safari\//i.test(ua) && !/chrome\//i.test(ua) ? 'Safari' :
+    'Unknown browser';
+  const os =
+    /windows/i.test(ua) ? 'Windows' :
+    /mac os/i.test(ua) ? 'macOS' :
+    /linux/i.test(ua) ? 'Linux' :
+    /android/i.test(ua) ? 'Android' :
+    /iphone|ipad/i.test(ua) ? 'iOS' :
+    'Unknown OS';
+  return { browser, os };
 }
 
 // ---------------------------------------------------------------------------

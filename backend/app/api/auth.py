@@ -1,4 +1,5 @@
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,7 +11,11 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.user import User
 from app.models.app_settings import AppSetting
-from app.auth import hash_password, verify_password, create_access_token, get_current_user
+from app.auth import (
+    hash_password, verify_password, create_access_token, get_current_user,
+    create_session, revoke_session, revoke_all_user_sessions, verify_refresh_token,
+)
+from app.models.session import Session as AuthSession
 from app.rate_limit import RateLimiter
 from app import fail2ban
 
@@ -41,8 +46,31 @@ class ProfileUpdateRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+    expires_in: int  # access-token TTL в секундах
     user: "UserInfo"
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class SessionInfo(BaseModel):
+    id: str
+    user_agent: str
+    ip: str | None
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime
+    is_current: bool
 
 class UserInfo(BaseModel):
     id: str
@@ -299,11 +327,192 @@ async def login(request: LoginRequest, http_request: Request, db: AsyncSession =
         db.add(GroupMember(group_id=saved_group.id, user_id=user_id, role='owner'))
         db.add(Chat(name='Saved Messages', group_id=saved_group.id, type='text'))
 
+    # 4. Создаём server-side сессию (refresh-токен). Plaintext получим один раз.
+    session, refresh_plaintext = await create_session(db, user_id, ua, ip)
+    session_id = session.id
+
     # Один commit на всё: log_attempt + сброс failed_attempts/locked_until +
-    # опциональный saved-group. Раньше commit стоял ВНУТРИ if'а, поэтому для
-    # существующих юзеров (с уже созданным Saved Messages) лог входа терялся.
+    # опциональный saved-group + новая сессия. Раньше commit стоял ВНУТРИ if'а,
+    # поэтому для существующих юзеров (с уже созданным Saved Messages) лог входа терялся.
     await db.commit()
     await db.refresh(user)
 
-    token = create_access_token(user_id, user_username, user_role)
-    return {"access_token": token, "token_type": "bearer", "user": _user_info(user).model_dump()}
+    access_token = create_access_token(user_id, user_username, user_role, session_id=str(session_id))
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_plaintext,
+        "token_type": "bearer",
+        "expires_in": 60 * 15,  # совпадает с ACCESS_TOKEN_EXPIRE_MINUTES в .env
+        "user": _user_info(user).model_dump(),
+    }
+
+
+# ─── Session management endpoints ────────────────────────────────────────
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh_tokens(
+    body: RefreshRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Обмен refresh-токена на новую пару (access + refresh) с rotation.
+
+    Если refresh уже был использован (revoked_at != null) — это потенциальная
+    кража: revoke ВСЕ активные сессии юзера и просим перелогиниться.
+    """
+    # Не имеем session_id — должны найти запись по hash. Для O(1) lookup нужен был бы
+    # token_id префикс, но при типичном объёме юзеров (тысячи активных сессий)
+    # перебор + bcrypt — приемлемо. Если станет узким местом, добавим token_prefix
+    # колонку как indexed lookup.
+    candidates = (await db.execute(
+        select(AuthSession).where(
+            AuthSession.expires_at > datetime.now(timezone.utc),
+        )
+    )).scalars().all()
+
+    matched: AuthSession | None = None
+    for cand in candidates:
+        if verify_refresh_token(body.refresh_token, cand.refresh_token_hash):
+            matched = cand
+            break
+
+    if matched is None:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    # ⚠ Steal-detection: если найденная сессия revoked — refresh использовался
+    # дважды → атакующий или race condition. Жжём всё на этом юзере.
+    if matched.revoked_at is not None:
+        await revoke_all_user_sessions(db, matched.user_id)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="Token reuse detected; all sessions revoked")
+
+    user = await db.get(User, matched.user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Account inactive")
+
+    # IP-блок чек: если юзер забанен fail2ban'ом — refresh не проходит
+    ip = fail2ban.get_client_ip(http_request)
+    await fail2ban.assert_not_blocked(db, ip=ip, user=user)
+
+    # Rotation: revoke старую сессию, создаём новую с свежим refresh.
+    matched.revoked_at = datetime.now(timezone.utc)
+    new_session, new_refresh = await create_session(
+        db, user.id,
+        http_request.headers.get('user-agent'),
+        ip,
+    )
+    new_session_id = new_session.id
+    user_id_local = user.id
+    user_username = user.username
+    user_role = user.role
+    await db.commit()
+
+    new_access = create_access_token(user_id_local, user_username, user_role, session_id=str(new_session_id))
+    return RefreshResponse(
+        access_token=new_access,
+        refresh_token=new_refresh,
+        token_type="bearer",
+        expires_in=60 * 15,
+    )
+
+
+@router.post("/logout", status_code=204)
+async def logout(
+    body: RefreshRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke текущую сессию по refresh-токену. Не требует access-токена —
+    клиент может вылогиниться даже с истёкшим access."""
+    candidates = (await db.execute(
+        select(AuthSession).where(AuthSession.revoked_at.is_(None))
+    )).scalars().all()
+    for cand in candidates:
+        if verify_refresh_token(body.refresh_token, cand.refresh_token_hash):
+            cand.revoked_at = datetime.now(timezone.utc)
+            await db.commit()
+            return
+    # Если не нашли — всё равно 204 (idempotent)
+    return
+
+
+@router.get("/sessions", response_model=list[SessionInfo])
+async def list_sessions(
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Список активных сессий текущего юзера. Текущая помечается is_current=true
+    через session_id из JWT."""
+    # Достаём sid из JWT текущего запроса
+    auth = http_request.headers.get('authorization', '')
+    current_sid: str | None = None
+    if auth.startswith('Bearer '):
+        try:
+            from app.auth import decode_access_token
+            payload = decode_access_token(auth[7:])
+            current_sid = payload.get('sid') if payload else None
+        except Exception:
+            pass
+
+    rows = (await db.execute(
+        select(AuthSession)
+        .where(
+            AuthSession.user_id == current_user.id,
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > datetime.now(timezone.utc),
+        )
+        .order_by(AuthSession.last_used_at.desc())
+    )).scalars().all()
+
+    return [SessionInfo(
+        id=str(s.id),
+        user_agent=s.user_agent or '',
+        ip=str(s.ip) if s.ip else None,
+        created_at=s.created_at,
+        last_used_at=s.last_used_at,
+        expires_at=s.expires_at,
+        is_current=(current_sid is not None and str(s.id) == current_sid),
+    ) for s in rows]
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def revoke_one_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke конкретную сессию (logout с одного устройства)."""
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session id")
+
+    sess = await db.get(AuthSession, sid)
+    if not sess or sess.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if sess.revoked_at is None:
+        sess.revoked_at = datetime.now(timezone.utc)
+        await db.commit()
+
+
+@router.delete("/sessions", status_code=204)
+async def revoke_all_other_sessions(
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke все сессии кроме текущей ("logout from all other devices")."""
+    auth = http_request.headers.get('authorization', '')
+    current_sid: uuid.UUID | None = None
+    if auth.startswith('Bearer '):
+        try:
+            from app.auth import decode_access_token
+            payload = decode_access_token(auth[7:])
+            sid_str = payload.get('sid') if payload else None
+            if sid_str:
+                current_sid = uuid.UUID(sid_str)
+        except (ValueError, KeyError):
+            pass
+
+    await revoke_all_user_sessions(db, current_user.id, except_session_id=current_sid)
+    await db.commit()
