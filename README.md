@@ -221,29 +221,54 @@ All services expose the following ports. Make sure they are open on your firewal
 
 ## Quick Start
 
-### Prerequisites
-- Docker & Docker Compose
-- Git
+There are two ways to run Cord:
 
-### Steps
+| Mode | When to use | Build time | Compose file |
+|------|-------------|-----------|--------------|
+| **Production** (pre-built images from GHCR) | Self-hosting, demos, evaluation | ~30s pull | `docker-compose.prod.yaml` |
+| **Development** (build from source on host) | Contributing, custom changes | ~5-10 min build | `docker-compose.yaml` |
+
+### Production (recommended for self-hosters)
 
 ```bash
-# 1. Clone the repository
-git clone <repo-url> cord && cd cord
+# 1. Clone the repository (just for compose files + .env.example)
+git clone https://github.com/SpacePalm/cord && cd cord
 
-# 2. Configure environment
+# 2. Configure environment — required values
 cp .env.example .env
-# Edit .env — at minimum set:
-#   CORD_JWT_SECRET=<random-string, at least 32 chars>
-#   CORD_ADMIN_PASSWORD=<secure-password>
-#   SERVER_IP=<your-LAN-IP>  (for LiveKit voice to work beyond localhost)
+# Open .env and set at minimum:
+#   CORD_JWT_SECRET=<random 32+ char string>
+#   CORD_ADMIN_PASSWORD=<secure password>
+#   LIVEKIT_API_KEY=<random>
+#   LIVEKIT_API_SECRET=<random>
+#   SERVER_IP=<host LAN/public IP>  (required for voice)
 
-# 3. Start all services
-docker compose up --build
+# 3. Pull images and start
+docker compose -f docker-compose.prod.yaml up -d
 
-# 4. Open in browser
-# http://localhost:5173
+# 4. Open
+# http://localhost:8080
 ```
+
+Updates: `docker compose -f docker-compose.prod.yaml pull && docker compose -f docker-compose.prod.yaml up -d`.
+
+To pin a specific version: `CORD_VERSION=v1.0.0` in `.env` (default `latest`).
+
+### Development (for contributors)
+
+```bash
+git clone https://github.com/SpacePalm/cord && cd cord
+cp .env.example .env
+docker compose up --build
+# → http://localhost:8080
+```
+
+Backend uses a hot-reload mount (`./backend/app:/app/app`) — Python changes apply on the next request without restart. Frontend rebuilds on container restart.
+
+### Prerequisites
+- Docker 24+ and Docker Compose v2
+- Git
+- Open ports: `8080` (or whichever you choose for `FRONTEND_PORT`), `7880-7882` for LiveKit
 
 Default admin credentials (change in `.env`):
 - Email: `admin@admin.com`
@@ -310,15 +335,77 @@ When enabled, s3fs mounts an S3 bucket as `/app/media` inside the backend contai
 
 ## Deployment
 
+### Reverse proxy / TLS
+
+The frontend container ships with its own nginx that serves the SPA and proxies `/api`, `/media`, `/ws` to the backend. You have two patterns to expose Cord publicly with HTTPS:
+
+All compose files live in the repo root; nginx examples are in `deploy/`. See [deploy/README.md](deploy/README.md) for a complete table of which file goes with which scenario.
+
+**SSL certificates are your responsibility** — Cord doesn't issue them. Use Let's Encrypt, mkcert, paid certs, whatever. Both patterns below assume you already have `fullchain.pem` and `privkey.pem` on the host.
+
+#### Pattern A — host nginx in front + container nginx (recommended)
+
+You already run nginx on the host. Add Cord as another vhost that proxies everything to `localhost:8080`.
+
+```bash
+# 1. Cord running:
+docker compose -f docker-compose.prod.yaml up -d
+
+# 2. Drop the example config and edit it:
+sudo cp deploy/nginx-host.conf /etc/nginx/sites-available/cord
+# In the file change:
+#   - server_name cord.example.com → your domain
+#   - ssl_certificate / ssl_certificate_key → paths to your certs
+
+# 3. Enable + reload:
+sudo ln -s /etc/nginx/sites-available/cord /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+The container nginx handles internal routing (`/api`, `/ws`, `/media`, SPA fallback). Your host nginx is just one `proxy_pass http://127.0.0.1:8080` for the whole site. See [deploy/nginx-host.conf](deploy/nginx-host.conf).
+
+#### Pattern B — container nginx only, with TLS inside
+
+For minimal setups (small VPS, no other sites). Container terminates HTTPS directly on ports 80/443.
+
+```bash
+# 1. Edit deploy/nginx-container-tls.conf:
+#    - server_name → your domain (or leave _ for any)
+#    - ssl_certificate / ssl_certificate_key → paths INSIDE the container
+
+# 2. Default override mounts /etc/letsencrypt; if your certs live elsewhere,
+#    edit the volume in docker-compose.tls.yaml.
+
+# 3. Run with the TLS override:
+docker compose \
+  -f docker-compose.prod.yaml \
+  -f docker-compose.tls.yaml \
+  up -d
+```
+
+After cert renewal, restart the frontend container so nginx picks up new files: `docker compose -f docker-compose.prod.yaml restart frontend`.
+
+See [deploy/nginx-container-tls.conf](deploy/nginx-container-tls.conf) and [docker-compose.tls.yaml](docker-compose.tls.yaml).
+
+#### Which to choose
+
+| | Pattern A | Pattern B |
+|---|---|---|
+| Already have nginx on host | ✓ Use this | — |
+| Small VPS, only Cord | — | ✓ Use this |
+| Cloudflare/CDN in front | ✓ (skip TLS, just proxy) | ✓ |
+| Memory cost of extra nginx | +5-15 MB | 0 |
+| After cert renewal | nothing (host nginx auto-reloads) | restart frontend container |
+
 ### Docker Compose Services
 
-| Service | Image | Port | Health Check |
+| Service | Image | Exposed port | Health Check |
 |---------|-------|------|-------------|
 | `livekit` | livekit/livekit-server | 7880, 7881, 7882/udp | — |
-| `redis` | redis:7-alpine | 6379 | `redis-cli ping` |
-| `db` | postgres:16-alpine | 5432 | `pg_isready` |
-| `backend` | Custom (Python 3.14) | 8000 | — |
-| `frontend` | Custom (Node 20) | 5173 | — |
+| `redis` | redis:7-alpine | (internal) | `redis-cli ping` |
+| `db` | postgres:16-alpine | (internal) | `pg_isready` |
+| `backend` | `ghcr.io/spacepalm/cord-backend` | (internal) | — |
+| `frontend` | `ghcr.io/spacepalm/cord-frontend` | 8080 (or 80/443 with TLS override) | — |
 
 ### Startup Migrations
 

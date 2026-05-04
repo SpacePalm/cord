@@ -1,19 +1,24 @@
-# Build-only образ: собирает SPA в /app/dist.
-# Контейнер не держит веб-сервер — при старте копирует собранную статику в
-# смонтированный volume (./frontend-dist на хосте) и завершается.
-# Внешний nginx на хосте раздаёт эту директорию как root для домена.
-
+# ─── Build stage ─────────────────────────────────────────────────────────
+# Vite build → /app/dist. node:20-alpine is the smallest image with npm.
 FROM node:20-alpine AS build
 WORKDIR /app
+
+# Dependencies as a separate layer — cached until package.json changes.
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci
+
+# Sources + build.
 COPY . .
 RUN npm run build
 
-# Финальный слой — крошечный alpine без Node. Только готовый dist и простой
-# copy-at-start скрипт. Runtime RAM ≈ 0 (контейнер жив ~1 секунду).
-FROM alpine:3.19
-COPY --from=build /app/dist /src
 
-# При старте: чистим старое, копируем в volume, выходим с кодом 0.
-CMD sh -c 'rm -rf /out/* /out/.* 2>/dev/null; cp -r /src/. /out/ && echo "Frontend build copied to /out"'
+# ─── Serve stage ─────────────────────────────────────────────────────────
+# Minimal nginx-alpine (~25MB) serves the built SPA and proxies /api, /media,
+# /ws to the `backend` container via Docker DNS. No external nginx required.
+FROM nginx:1.27-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

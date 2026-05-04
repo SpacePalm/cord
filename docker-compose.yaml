@@ -2,8 +2,8 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     ports:
-      - "7880:7880"   # HTTP / WebSocket signaling
-      - "7881:7881"   # RTC over TCP
+      - "7880:7880"     # HTTP / WebSocket signaling
+      - "7881:7881"     # RTC over TCP
       - "7882:7882/udp" # RTC over UDP
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}"
@@ -37,7 +37,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    # Нужно для s3fs-монтирования внутри контейнера (FUSE)
+    # Required for s3fs mount inside the container (FUSE).
     cap_add:
       - SYS_ADMIN
     devices:
@@ -49,7 +49,7 @@ services:
       CORD_ADMIN_USERNAME: ${CORD_ADMIN_USERNAME:-admin}
       CORD_ADMIN_EMAIL: ${CORD_ADMIN_EMAIL:-admin@admin.com}
       CORD_ADMIN_PASSWORD: ${CORD_ADMIN_PASSWORD:-admin123}
-      # S3 / MinIO (опционально; используется entrypoint.sh для s3fs-монтирования)
+      # S3 / MinIO (optional; entrypoint.sh uses these for s3fs mount).
       CORD_S3_ENABLED: ${CORD_S3_ENABLED:-false}
       CORD_S3_ENDPOINT_URL: ${CORD_S3_ENDPOINT_URL:-}
       CORD_S3_BUCKET: ${CORD_S3_BUCKET:-cord-media}
@@ -69,16 +69,18 @@ services:
       livekit:
         condition: service_started
     volumes:
-      - ./backend/app:/app/app  # hot-reload: изменения в коде применяются сразу
-      - ./media:/app/media       # локальные файлы; при S3 s3fs монтируется поверх
+      - ./backend/app:/app/app  # hot-reload: code changes apply on next request
+      - ./media:/app/media      # local files; with S3 s3fs mounts on top
 
   frontend:
-    # Build-task: контейнер собирает SPA, копирует в ./frontend-dist, выходит.
-    # Статикой занимается внешний nginx на хосте (root /path/to/cord/frontend-dist).
-    # Exit 0 — это успех; compose не пытается рестартовать (restart: "no").
+    # Multistage build: vite build → nginx serve. The container nginx
+    # proxies /api, /media, /ws to the backend service via Docker DNS,
+    # so no external reverse proxy is required for self-hosters.
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    volumes:
-      - ./frontend-dist:/out
-    restart: "no"
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

@@ -1,0 +1,33 @@
+# Override for Pattern B: container nginx terminates HTTPS, no host nginx required.
+#
+# Usage:
+#   docker compose \
+#     -f docker-compose.prod.yaml \
+#     -f docker-compose.tls.yaml \
+#     up -d
+#
+# What this does:
+#   - Frontend listens on host ports 80 and 443 (instead of 8080)
+#   - Mounts nginx-container-tls.conf over the default nginx config
+#   - Mounts your cert directory into the container
+#
+# Before running:
+#   1. You must have SSL certificates on the host (Let's Encrypt, mkcert,
+#      paid — doesn't matter). This override does NOT issue certs, only
+#      mounts existing ones into the container.
+#   2. Edit deploy/nginx-container-tls.conf:
+#      - server_name → your domain
+#      - ssl_certificate / ssl_certificate_key → paths INSIDE the container
+#   3. If certs live somewhere other than /etc/letsencrypt, edit the volume below.
+
+services:
+  frontend:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Alternative nginx config with TLS support.
+      - ./deploy/nginx-container-tls.conf:/etc/nginx/conf.d/default.conf:ro
+      # Host cert directory → container (read-only).
+      # Change the left side if your certs live elsewhere.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
