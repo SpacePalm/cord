@@ -1,0 +1,34 @@
+# Don't ship local dev artifacts into the build context.
+# Without this, `COPY . .` would also pull in node_modules, dist, and the
+# TypeScript incremental cache — all of which are either rebuilt inside the
+# container or completely useless there. Side effects: 100-500MB context
+# upload on every build, and cache invalidation on every local `npm install`.
+
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editor / OS junk
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Tests / coverage that aren't needed in the image
+coverage/
+*.test.ts
+*.test.tsx
+__tests__/
+
+# Local env overrides (shouldn't bake into the image)
+.env
+.env.local
+.env.*.local
+
+# This file itself
+.dockerignore
+
+# Dockerfile is not strictly needed inside the image either
+Dockerfile
+.git/
