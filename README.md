@@ -1246,7 +1246,7 @@ cord/
 │   ├── nginx-host.conf         # Pattern A: host nginx in front of container
 │   └── nginx-container-tls.conf # Pattern B: alt config for TLS-in-container
 ├── scripts/
-│   └── seed_demo.py            # Seed demo conversation via REST API (for screenshots)
+│   └── publish.sh              # Build + push images to GHCR locally (alternative to GH Actions)
 ├── docker-compose.yaml         # Dev: build from source + hot-reload mounts
 ├── docker-compose.prod.yaml    # Prod: pull from GHCR, no host nginx required
 ├── docker-compose.tls.yaml     # Override: container nginx terminates TLS
