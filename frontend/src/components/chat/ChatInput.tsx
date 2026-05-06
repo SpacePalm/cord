@@ -564,17 +564,31 @@ export function ChatInput({ channelId, channelName, groupId, replyTo, onClearRep
 
   const handlePaste = (e: React.ClipboardEvent) => {
     const pastedFiles: File[] = [];
-    for (const item of e.clipboardData.items) {
-      if (item.kind !== 'file') continue;
-      const file = item.getAsFile();
-      if (!file) continue;
-      if (item.type.startsWith('image/')) {
-        const ext = item.type.split('/')[1] ?? 'png';
-        pastedFiles.push(new File([file], `screenshot-${Date.now()}.${ext}`, { type: item.type }));
-      } else {
-        pastedFiles.push(file);
+
+    // Канонический источник нескольких файлов из ОС — clipboardData.files.
+    // clipboardData.items при вставке N файлов из Finder/Explorer часто содержит
+    // только один элемент (или строку с путями) в зависимости от браузера.
+    const realFiles = Array.from(e.clipboardData.files);
+    pastedFiles.push(...realFiles);
+
+    // Скриншоты из буфера приходят через items без нативного File в .files.
+    if (realFiles.length === 0) {
+      for (const item of e.clipboardData.items) {
+        if (item.kind !== 'file') continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        if (item.type.startsWith('image/')) {
+          const ext = item.type.split('/')[1] ?? 'png';
+          // Date.now() в одном тике одинаковый для всех — добавляем индекс,
+          // иначе все вставленные изображения получат идентичное имя.
+          const unique = `${Date.now()}-${pastedFiles.length}`;
+          pastedFiles.push(new File([file], `screenshot-${unique}.${ext}`, { type: item.type }));
+        } else {
+          pastedFiles.push(file);
+        }
       }
     }
+
     if (pastedFiles.length > 0) { e.preventDefault(); addAttachments(channelId, pastedFiles); }
   };
 
