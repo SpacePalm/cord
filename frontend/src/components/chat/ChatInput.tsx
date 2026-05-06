@@ -563,33 +563,50 @@ export function ChatInput({ channelId, channelName, groupId, replyTo, onClearRep
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
+    // [DEBUG] временная диагностика — удалить после фикса
+    // eslint-disable-next-line no-console
+    console.log('[paste] files=', e.clipboardData.files.length,
+      Array.from(e.clipboardData.files).map((f) => ({ name: f.name, size: f.size, type: f.type })),
+      'items=', e.clipboardData.items.length,
+      Array.from(e.clipboardData.items).map((it) => ({ kind: it.kind, type: it.type })));
+
     const pastedFiles: File[] = [];
+    const seen = new Set<string>();
+    const fp = (f: File) => `${f.name}|${f.size}|${f.lastModified}|${f.type}`;
 
-    // Канонический источник нескольких файлов из ОС — clipboardData.files.
-    // clipboardData.items при вставке N файлов из Finder/Explorer часто содержит
-    // только один элемент (или строку с путями) в зависимости от браузера.
-    const realFiles = Array.from(e.clipboardData.files);
-    pastedFiles.push(...realFiles);
+    // Источник 1: clipboardData.files — канонический FileList браузера.
+    for (const f of Array.from(e.clipboardData.files)) {
+      const k = fp(f);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      pastedFiles.push(f);
+    }
 
-    // Скриншоты из буфера приходят через items без нативного File в .files.
-    if (realFiles.length === 0) {
-      for (const item of e.clipboardData.items) {
-        if (item.kind !== 'file') continue;
-        const file = item.getAsFile();
-        if (!file) continue;
-        if (item.type.startsWith('image/')) {
-          const ext = item.type.split('/')[1] ?? 'png';
-          // Date.now() в одном тике одинаковый для всех — добавляем индекс,
-          // иначе все вставленные изображения получат идентичное имя.
-          const unique = `${Date.now()}-${pastedFiles.length}`;
-          pastedFiles.push(new File([file], `screenshot-${unique}.${ext}`, { type: item.type }));
-        } else {
-          pastedFiles.push(file);
-        }
+    // Источник 2: clipboardData.items — для скриншотов (нет нативного File)
+    // и кейсов, где браузер кладёт файлы только сюда. Дедуп по имени/размеру.
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind !== 'file') continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      if (seen.has(fp(file))) continue;
+      if (item.type.startsWith('image/') && (!file.name || file.name === 'image.png')) {
+        // Скриншот без нормального имени — даём уникальное (Date.now() в одном
+        // тике одинаковый для всех элементов, так что добавляем индекс).
+        const ext = item.type.split('/')[1] ?? 'png';
+        const unique = `${Date.now()}-${pastedFiles.length}`;
+        const renamed = new File([file], `screenshot-${unique}.${ext}`, { type: item.type });
+        seen.add(fp(renamed));
+        pastedFiles.push(renamed);
+      } else {
+        seen.add(fp(file));
+        pastedFiles.push(file);
       }
     }
 
-    if (pastedFiles.length > 0) { e.preventDefault(); addAttachments(channelId, pastedFiles); }
+    if (pastedFiles.length > 0) {
+      e.preventDefault();
+      addAttachments(channelId, pastedFiles);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
