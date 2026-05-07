@@ -120,15 +120,19 @@ async def list_log(
     user: User = Depends(get_current_user),
 ):
     _require_admin(user)
-    if ip:
-        # INET-колонка отвергает невалидные строки → 500. Нормализуем заранее.
+    # Признак: это полный валидный IP (тогда exact match по INET-индексу),
+    # или частичная строка (тогда подстроковый поиск через cast в text).
+    ip_clean = ip.strip() if ip else None
+    ip_is_full = False
+    if ip_clean:
         try:
-            ipaddress.ip_address(ip.strip())
+            ipaddress.ip_address(ip_clean)
+            ip_is_full = True
         except ValueError:
-            return []
+            ip_is_full = False
 
     cache_params = {
-        'ip': ip, 'username': username, 'success': success,
+        'ip': ip_clean, 'username': username, 'success': success,
         'after': after, 'before': before, 'limit': limit, 'offset': offset,
     }
     cached = await cache.get_cached_admin_log(cache_params)
@@ -136,7 +140,11 @@ async def list_log(
         return [LogEntry.model_validate(item) for item in cached]
 
     stmt = select(LoginAttempt).order_by(LoginAttempt.created_at.desc())
-    if ip:        stmt = stmt.where(LoginAttempt.ip == ip)
+    if ip_clean:
+        if ip_is_full:
+            stmt = stmt.where(LoginAttempt.ip == ip_clean)
+        else:
+            stmt = stmt.where(cast(LoginAttempt.ip, String).ilike(f'%{ip_clean}%'))
     if username:  stmt = stmt.where(LoginAttempt.username_attempted.ilike(f'%{username}%'))
     if success is not None: stmt = stmt.where(LoginAttempt.success.is_(success))
     if after:     stmt = stmt.where(LoginAttempt.created_at >= after)
