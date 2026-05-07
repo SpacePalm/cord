@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models.fail2ban import IpBlock, LoginAttempt
 from app.models.user import User
-from app import fail2ban
+from app import cache, fail2ban
 
 router = APIRouter(prefix='/api/admin/auth', tags=['admin'])
 
@@ -34,6 +34,7 @@ class Fail2banSettings(BaseModel):
     ip_block_seconds: int = 3600
     account_lock_seconds: int = 1800
     log_retention_days: int = 30
+    ip_block_retention_days: int = 30
 
 
 class Fail2banSettingsPatch(BaseModel):
@@ -44,6 +45,7 @@ class Fail2banSettingsPatch(BaseModel):
     ip_block_seconds: int | None = Field(None, ge=10, le=2592000)
     account_lock_seconds: int | None = Field(None, ge=10, le=2592000)
     log_retention_days: int | None = Field(None, ge=1, le=365)
+    ip_block_retention_days: int | None = Field(None, ge=1, le=3650)
 
 
 def _settings_dict_to_model(d: dict[str, str]) -> Fail2banSettings:
@@ -58,6 +60,7 @@ def _settings_dict_to_model(d: dict[str, str]) -> Fail2banSettings:
         ip_block_seconds=_i('auth.ip_block_seconds', 3600),
         account_lock_seconds=_i('auth.account_lock_seconds', 1800),
         log_retention_days=_i('auth.log_retention_days', 30),
+        ip_block_retention_days=_i('auth.ip_block_retention_days', 30),
     )
 
 
@@ -85,6 +88,7 @@ async def update_auth_settings(
     if body.ip_block_seconds is not None:        patch['auth.ip_block_seconds'] = str(body.ip_block_seconds)
     if body.account_lock_seconds is not None:    patch['auth.account_lock_seconds'] = str(body.account_lock_seconds)
     if body.log_retention_days is not None:      patch['auth.log_retention_days'] = str(body.log_retention_days)
+    if body.ip_block_retention_days is not None: patch['auth.ip_block_retention_days'] = str(body.ip_block_retention_days)
     await fail2ban.update_settings(db, patch)
     await db.commit()
     return _settings_dict_to_model(await fail2ban.get_settings(db))
@@ -122,6 +126,15 @@ async def list_log(
             ipaddress.ip_address(ip.strip())
         except ValueError:
             return []
+
+    cache_params = {
+        'ip': ip, 'username': username, 'success': success,
+        'after': after, 'before': before, 'limit': limit, 'offset': offset,
+    }
+    cached = await cache.get_cached_admin_log(cache_params)
+    if cached is not None:
+        return [LogEntry.model_validate(item) for item in cached]
+
     stmt = select(LoginAttempt).order_by(LoginAttempt.created_at.desc())
     if ip:        stmt = stmt.where(LoginAttempt.ip == ip)
     if username:  stmt = stmt.where(LoginAttempt.username_attempted.ilike(f'%{username}%'))
@@ -130,12 +143,14 @@ async def list_log(
     if before:    stmt = stmt.where(LoginAttempt.created_at < before)
     stmt = stmt.offset(offset).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
-    return [LogEntry(
+    out = [LogEntry(
         id=str(r.id), ip=str(r.ip), username_attempted=r.username_attempted,
         success=r.success, user_agent=r.user_agent,
         user_id=str(r.user_id) if r.user_id else None,
         created_at=r.created_at,
     ) for r in rows]
+    await cache.set_cached_admin_log(cache_params, [e.model_dump(mode='json') for e in out])
+    return out
 
 
 # ─── Log grouped by IP ───────────────────────────────────────────────────
@@ -162,12 +177,31 @@ class GroupedIp(BaseModel):
 async def list_log_grouped(
     after: datetime | None = Query(None, description='По умолчанию — 7 дней назад'),
     limit: int = Query(50, ge=1, le=200, description='Сколько IP вернуть'),
+    offset: int = Query(0, ge=0, le=100000),
+    q: str | None = Query(None, description='Поиск по IP или логину'),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     _require_admin(user)
     if after is None:
         after = datetime.now(timezone.utc) - timedelta(days=7)
+
+    cache_params = {
+        'after': after, 'limit': limit, 'offset': offset, 'q': (q or '').strip(),
+    }
+    cached = await cache.get_cached_admin_log_grouped(cache_params)
+    if cached is not None:
+        return [GroupedIp.model_validate(item) for item in cached]
+
+    # Поисковый фильтр применяем и к агрегации, и к per-user детализации:
+    # пользователь должен видеть только подходящие IP и попытки внутри них.
+    base_where = [LoginAttempt.created_at >= after]
+    if q:
+        like = f'%{q.strip()}%'
+        base_where.append(or_(
+            cast(LoginAttempt.ip, String).ilike(like),
+            LoginAttempt.username_attempted.ilike(like),
+        ))
 
     # Агрегация по IP: total, failed, succeeded, distinct usernames, last_at.
     # COUNT(*) FILTER — нативный PG-синтаксис, эффективнее чем CASE WHEN.
@@ -180,9 +214,10 @@ async def list_log_grouped(
             func.count(func.distinct(LoginAttempt.username_attempted)).label('distinct_users'),
             func.max(LoginAttempt.created_at).label('last_at'),
         )
-        .where(LoginAttempt.created_at >= after)
+        .where(*base_where)
         .group_by(LoginAttempt.ip)
         .order_by(func.max(LoginAttempt.created_at).desc())
+        .offset(offset)
         .limit(limit)
     )
     agg = (await db.execute(stmt)).all()
@@ -206,7 +241,7 @@ async def list_log_grouped(
             func.count().label('count'),
             func.max(LoginAttempt.created_at).label('last_at'),
         )
-        .where(LoginAttempt.ip.in_(ips), LoginAttempt.created_at >= after)
+        .where(LoginAttempt.ip.in_(ips), *base_where)
         .group_by(LoginAttempt.ip, LoginAttempt.username_attempted)
         .order_by(LoginAttempt.ip, func.count().desc())
     )
@@ -233,6 +268,7 @@ async def list_log_grouped(
             block_expires_at=block.expires_at if block else None,
             by_user=by_ip.get(ip_str, []),
         ))
+    await cache.set_cached_admin_log_grouped(cache_params, [g.model_dump(mode='json') for g in out])
     return out
 
 
@@ -274,15 +310,21 @@ async def list_blocks(
     user: User = Depends(get_current_user),
 ):
     _require_admin(user)
+    cached = await cache.get_cached_admin_blocks(only_active)
+    if cached is not None:
+        return [IpBlockOut.model_validate(item) for item in cached]
+
     stmt = select(IpBlock).order_by(IpBlock.blocked_at.desc())
     if only_active:
         now = datetime.now(timezone.utc)
         stmt = stmt.where((IpBlock.expires_at.is_(None)) | (IpBlock.expires_at > now))
     rows = (await db.execute(stmt)).scalars().all()
-    return [IpBlockOut(
+    out = [IpBlockOut(
         ip=str(r.ip), reason=r.reason, expires_at=r.expires_at,
         blocked_by=r.blocked_by, attempts_count=r.attempts_count, blocked_at=r.blocked_at,
     ) for r in rows]
+    await cache.set_cached_admin_blocks(only_active, [b.model_dump(mode='json') for b in out])
+    return out
 
 
 @router.post('/blocks', response_model=IpBlockOut, status_code=201)
@@ -316,8 +358,8 @@ async def create_block(
     await db.commit()
     # Инвалидируем кеш статуса IP — иначе get_current_user продолжит видеть
     # «не забанен» из старого Redis-значения до 10с. Сейчас бан применяется мгновенно.
-    from app.cache import invalidate_ip_block_status
-    await invalidate_ip_block_status(str(row.ip))
+    await cache.invalidate_ip_block_status(str(row.ip))
+    await cache.invalidate_admin_blocks()
     return IpBlockOut(
         ip=str(row.ip), reason=row.reason, expires_at=row.expires_at,
         blocked_by=row.blocked_by, attempts_count=row.attempts_count, blocked_at=row.blocked_at,
@@ -338,8 +380,8 @@ async def delete_block(
     await db.execute(delete(IpBlock).where(IpBlock.ip == ip))
     await db.commit()
     # Сбрасываем Redis-кеш чтобы разблокировка применилась мгновенно
-    from app.cache import invalidate_ip_block_status
-    await invalidate_ip_block_status(ip)
+    await cache.invalidate_ip_block_status(ip)
+    await cache.invalidate_admin_blocks()
 
 
 # ─── Locked accounts ──────────────────────────────────────────────────────
@@ -359,17 +401,23 @@ async def list_locked_users(
     user: User = Depends(get_current_user),
 ):
     _require_admin(user)
+    cached = await cache.get_cached_admin_locked()
+    if cached is not None:
+        return [LockedUserOut.model_validate(item) for item in cached]
+
     now = datetime.now(timezone.utc)
     rows = (await db.execute(
         select(User).where(User.locked_until.isnot(None), User.locked_until > now)
         .order_by(User.locked_until.desc())
     )).scalars().all()
-    return [LockedUserOut(
+    out = [LockedUserOut(
         user_id=str(u.id), username=u.username, email=u.email,
         failed_attempts=u.failed_attempts or 0,
         last_failed_at=u.last_failed_at,
         locked_until=u.locked_until,
     ) for u in rows]
+    await cache.set_cached_admin_locked([u.model_dump(mode='json') for u in out])
+    return out
 
 
 @router.delete('/locked-users/{user_id}', status_code=204)
@@ -385,6 +433,7 @@ async def unlock_account(
     target.locked_until = None
     target.failed_attempts = 0
     await db.commit()
+    await cache.invalidate_admin_locked()
 
 
 # ─── Cleanup (вызывается из cron / админ-кнопкой) ─────────────────────────
@@ -396,11 +445,9 @@ async def cleanup_log(
 ):
     """Удаляет записи лога старше log_retention_days. Возвращает кол-во удалённых."""
     _require_admin(user)
-    settings = await fail2ban.get_settings(db)
-    days = fail2ban._as_int(settings.get('auth.log_retention_days'), 30)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    result = await db.execute(
-        delete(LoginAttempt).where(LoginAttempt.created_at < cutoff)
-    )
+    deleted = await fail2ban.cleanup_old_login_attempts(db)
     await db.commit()
-    return {'deleted': result.rowcount or 0}
+    # Сбрасываем кеши лога — иначе админ ещё TTL секунд видит «старые» данные.
+    await cache._delete_prefix(cache.ADMIN_LOG_PREFIX)
+    await cache._delete_prefix(cache.ADMIN_LOG_GROUPED_PREFIX)
+    return {'deleted': deleted}

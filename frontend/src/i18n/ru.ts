@@ -419,6 +419,8 @@ export const ru: Record<string, string> = {
   'admin.owner': 'владелец @{username}',
   'admin.memberCount': '{count} участников',
   'admin.channelCount': '{count} каналов',
+  'admin.searchGroups': 'Поиск по названию или владельцу…',
+  'admin.groupCount': 'групп',
 
   // ─── Язык ─────────────────────────────────────────────────────────
   'lang.title': 'Язык интерфейса',
@@ -506,6 +508,7 @@ export const ru: Record<string, string> = {
   'security.ipBlockSeconds': 'Длительность блокировки IP',
   'security.accountLockSeconds': 'Длительность блокировки аккаунта',
   'security.logRetentionDays': 'Хранить лог попыток',
+  'security.ipBlockRetentionDays': 'Хранить истёкшие баны IP',
   'security.suffixSec': 'сек',
   'security.suffixDay': 'дн',
 
@@ -552,6 +555,9 @@ export const ru: Record<string, string> = {
   'security.inMin': 'через {n} мин',
   'security.inHour': 'через {n} ч',
   'security.inDay': 'через {n} дн',
+  'security.searchIp': 'Поиск по IP или причине…',
+  'security.searchUsername': 'Поиск по логину или email…',
+  'security.nothingFound': 'Ничего не найдено',
 
   // ─── Страница «Заблокировано» ─────────────────────────────────────
   'blocked.title': 'Доступ заблокирован',

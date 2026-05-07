@@ -29,7 +29,8 @@ DEFAULTS: dict[str, str] = {
     'auth.window_seconds': '300',         # 5 мин — окно подсчёта фейлов
     'auth.ip_block_seconds': '3600',      # 1 час — длительность бана IP
     'auth.account_lock_seconds': '1800',  # 30 мин — длительность блокировки аккаунта
-    'auth.log_retention_days': '30',      # сколько дней хранить лог попыток
+    'auth.log_retention_days': '30',          # сколько дней хранить лог попыток
+    'auth.ip_block_retention_days': '30',     # сколько дней хранить ИСТЁКШИЕ ip_block после expires_at
 }
 
 SETTING_KEYS = list(DEFAULTS.keys())
@@ -124,6 +125,38 @@ async def log_attempt(
         user_id=user_id,
         user_agent=(user_agent or '')[:500] or None,
     ))
+
+
+# ─── Retention cleanup ────────────────────────────────────────────────────
+
+async def cleanup_old_login_attempts(db: AsyncSession) -> int:
+    """Удаляет записи лога старше `auth.log_retention_days`. Не коммитит.
+    Вызывается фоновой задачей раз в сутки и эндпоинтом /admin/auth/log/cleanup."""
+    settings = await get_settings(db)
+    days = _as_int(settings.get('auth.log_retention_days'), 30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        delete(LoginAttempt).where(LoginAttempt.created_at < cutoff)
+    )
+    return result.rowcount or 0
+
+
+async def cleanup_expired_ip_blocks(db: AsyncSession) -> int:
+    """Удаляет ТОЛЬКО истёкшие баны IP — те, у которых expires_at прошёл больше
+    чем `auth.ip_block_retention_days` назад. НЕ трогает:
+      - активные баны (expires_at > now);
+      - вечные баны (expires_at IS NULL).
+    Этим избегаем потери истории текущих и постоянных блокировок."""
+    settings = await get_settings(db)
+    days = _as_int(settings.get('auth.ip_block_retention_days'), 30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        delete(IpBlock).where(
+            IpBlock.expires_at.isnot(None),
+            IpBlock.expires_at < cutoff,
+        )
+    )
+    return result.rowcount or 0
 
 
 # ─── Escalation: block IP / lock account on threshold ────────────────────

@@ -419,6 +419,8 @@ export const en: Record<string, string> = {
   'admin.owner': 'owner @{username}',
   'admin.memberCount': '{count} members',
   'admin.channelCount': '{count} channels',
+  'admin.searchGroups': 'Search by name or owner…',
+  'admin.groupCount': 'groups',
 
   // ─── Language ─────────────────────────────────────────────────────
   'lang.title': 'Interface Language',
@@ -506,6 +508,7 @@ export const en: Record<string, string> = {
   'security.ipBlockSeconds': 'IP ban duration',
   'security.accountLockSeconds': 'Account lock duration',
   'security.logRetentionDays': 'Keep attempt log for',
+  'security.ipBlockRetentionDays': 'Keep expired IP bans for',
   'security.suffixSec': 'sec',
   'security.suffixDay': 'days',
 
@@ -552,6 +555,9 @@ export const en: Record<string, string> = {
   'security.inMin': 'in {n} min',
   'security.inHour': 'in {n} h',
   'security.inDay': 'in {n} d',
+  'security.searchIp': 'Search by IP or reason…',
+  'security.searchUsername': 'Search by username or email…',
+  'security.nothingFound': 'Nothing found',
 
   // ─── Blocked page ─────────────────────────────────────────────────
   'blocked.title': 'Access blocked',

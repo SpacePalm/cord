@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -243,11 +243,22 @@ function GroupsTab() {
   const t = useT();
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 250);
 
   const { data: groups = [], isLoading } = useQuery({
     queryKey: ['admin-groups'],
     queryFn: adminApi.getGroups,
   });
+
+  const filteredGroups = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (!q) return groups;
+    return groups.filter((g) =>
+      g.name.toLowerCase().includes(q) ||
+      (g.owner_username || '').toLowerCase().includes(q)
+    );
+  }, [groups, debouncedSearch]);
 
   const deleteMutation = useMutation({
     mutationFn: (groupId: string) => adminApi.deleteGroup(groupId),
@@ -265,11 +276,24 @@ function GroupsTab() {
 
   return (
     <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="relative flex-1 max-w-sm">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('admin.searchGroups')}
+            className="w-full pl-9 pr-3 py-2 rounded bg-[var(--bg-input)] border border-[var(--border-color)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+        <span className="text-sm text-[var(--text-muted)]">{filteredGroups.length} {t('admin.groupCount')}</span>
+      </div>
+
       {isLoading ? (
         <div className="flex justify-center py-12">
           <div className="w-6 h-6 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
         </div>
-      ) : groups.map((g) => {
+      ) : filteredGroups.map((g) => {
         const isOpen = expanded.has(g.id);
         const initials = g.name.slice(0, 2).toUpperCase();
         return (
@@ -317,7 +341,7 @@ function GroupsTab() {
         );
       })}
 
-      {!isLoading && groups.length === 0 && (
+      {!isLoading && filteredGroups.length === 0 && (
         <p className="text-center text-sm text-[var(--text-muted)] py-12">{t('admin.noServers')}</p>
       )}
     </div>

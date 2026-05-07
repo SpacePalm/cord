@@ -183,6 +183,36 @@ async def schedule_session_cleanup():
 
 
 @app.on_event('startup')
+async def schedule_fail2ban_cleanup():
+    """Раз в сутки чистит fail2ban-таблицы:
+      - login_attempts старше auth.log_retention_days;
+      - ip_block с expires_at просроченным больше auth.ip_block_retention_days назад
+        (вечные и активные не трогаем).
+    60 с задержка на старте, retry через час на ошибке."""
+    import asyncio
+    from app.fail2ban import cleanup_old_login_attempts, cleanup_expired_ip_blocks
+
+    async def loop():
+        await asyncio.sleep(60)
+        while True:
+            try:
+                async with AsyncSessionLocal() as db:
+                    deleted_log = await cleanup_old_login_attempts(db)
+                    deleted_blocks = await cleanup_expired_ip_blocks(db)
+                    await db.commit()
+                    if deleted_log:
+                        logger.info('login attempts cleanup: deleted %d old rows', deleted_log)
+                    if deleted_blocks:
+                        logger.info('ip_block cleanup: deleted %d expired rows', deleted_blocks)
+                await asyncio.sleep(24 * 3600)
+            except Exception as exc:
+                logger.warning('fail2ban cleanup failed: %r', exc)
+                await asyncio.sleep(3600)
+
+    asyncio.create_task(loop())
+
+
+@app.on_event('startup')
 async def check_security_defaults():
     """Loud warning if default secrets remain in production config.
     A default JWT secret allows anyone to forge tokens, including admin ones.

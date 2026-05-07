@@ -176,6 +176,118 @@ async def invalidate_ip_block_status(ip: str) -> None:
         logger.warning("Redis f2b block invalidate error: %s", exc)
 
 
+# ─── Admin auth panel cache ──────────────────────────────────────────────
+# Админ-панель безопасности часто перечитывает одни и те же таблицы:
+#   - /log  и /log/grouped  при скролле / переключении вкладки;
+#   - /blocks и /locked-users  при инвалидации после mutate'ов (react-query).
+# TTL короткий, чтобы свежие попытки/блоки попадали в выдачу за разумное время,
+# но достаточный, чтобы скролл и переоткрытие вкладки не били каждый раз в БД.
+#
+# Логи — без явной инвалидации (новые записи появляются с лагом TTL).
+# Blocks/locked — инвалидируются при mutate-эндпоинтах.
+
+ADMIN_LOG_TTL = 10
+ADMIN_LOG_GROUPED_TTL = 15
+ADMIN_BLOCKS_TTL = 20
+ADMIN_LOCKED_TTL = 20
+
+ADMIN_LOG_KEY = "cord:f2b:log:{hash}"
+ADMIN_LOG_GROUPED_KEY = "cord:f2b:log_grouped:{hash}"
+ADMIN_BLOCKS_KEY = "cord:f2b:blocks:{only_active}"
+ADMIN_LOCKED_KEY = "cord:f2b:locked"
+
+# Префиксы для bulk-инвалидации через SCAN+DEL.
+ADMIN_LOG_PREFIX = "cord:f2b:log:"
+ADMIN_LOG_GROUPED_PREFIX = "cord:f2b:log_grouped:"
+ADMIN_BLOCKS_PREFIX = "cord:f2b:blocks:"
+
+
+def _params_hash(params: dict[str, Any]) -> str:
+    payload = json.dumps(params, sort_keys=True, default=str)
+    return hashlib.sha1(payload.encode()).hexdigest()[:16]
+
+
+async def _get_json(key: str) -> Any | None:
+    try:
+        r = await get_redis()
+        raw = await r.get(key)
+        if raw:
+            return json.loads(raw)
+    except Exception as exc:
+        logger.warning("Redis read error (%s): %s", key, exc)
+    return None
+
+
+async def _set_json(key: str, value: Any, ttl: int) -> None:
+    try:
+        r = await get_redis()
+        await r.setex(key, ttl, json.dumps(value, default=str))
+    except Exception as exc:
+        logger.warning("Redis write error (%s): %s", key, exc)
+
+
+async def _delete_prefix(prefix: str) -> None:
+    """Удаляет все ключи с заданным префиксом (SCAN+DEL).
+    Безопасно для prod: SCAN не блокирует БД, в отличие от KEYS."""
+    try:
+        r = await get_redis()
+        cursor = 0
+        while True:
+            cursor, keys = await r.scan(cursor=cursor, match=f"{prefix}*", count=100)
+            if keys:
+                await r.delete(*keys)
+            if cursor == 0:
+                break
+    except Exception as exc:
+        logger.warning("Redis prefix invalidate error (%s): %s", prefix, exc)
+
+
+async def get_cached_admin_log(params: dict[str, Any]) -> list[dict] | None:
+    return await _get_json(ADMIN_LOG_KEY.format(hash=_params_hash(params)))
+
+
+async def set_cached_admin_log(params: dict[str, Any], data: list[dict]) -> None:
+    await _set_json(ADMIN_LOG_KEY.format(hash=_params_hash(params)), data, ADMIN_LOG_TTL)
+
+
+async def get_cached_admin_log_grouped(params: dict[str, Any]) -> list[dict] | None:
+    return await _get_json(ADMIN_LOG_GROUPED_KEY.format(hash=_params_hash(params)))
+
+
+async def set_cached_admin_log_grouped(params: dict[str, Any], data: list[dict]) -> None:
+    await _set_json(ADMIN_LOG_GROUPED_KEY.format(hash=_params_hash(params)), data, ADMIN_LOG_GROUPED_TTL)
+
+
+async def get_cached_admin_blocks(only_active: bool) -> list[dict] | None:
+    return await _get_json(ADMIN_BLOCKS_KEY.format(only_active=int(only_active)))
+
+
+async def set_cached_admin_blocks(only_active: bool, data: list[dict]) -> None:
+    await _set_json(ADMIN_BLOCKS_KEY.format(only_active=int(only_active)), data, ADMIN_BLOCKS_TTL)
+
+
+async def invalidate_admin_blocks() -> None:
+    await _delete_prefix(ADMIN_BLOCKS_PREFIX)
+    # Группированный лог содержит is_blocked — тоже надо сбросить.
+    await _delete_prefix(ADMIN_LOG_GROUPED_PREFIX)
+
+
+async def get_cached_admin_locked() -> list[dict] | None:
+    return await _get_json(ADMIN_LOCKED_KEY)
+
+
+async def set_cached_admin_locked(data: list[dict]) -> None:
+    await _set_json(ADMIN_LOCKED_KEY, data, ADMIN_LOCKED_TTL)
+
+
+async def invalidate_admin_locked() -> None:
+    try:
+        r = await get_redis()
+        await r.delete(ADMIN_LOCKED_KEY)
+    except Exception as exc:
+        logger.warning("Redis admin locked invalidate error: %s", exc)
+
+
 # Unread counts cache
 
 UNREAD_TTL = 5  # секунды

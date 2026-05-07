@@ -10,6 +10,7 @@ export interface Fail2banSettings {
   ip_block_seconds: number;
   account_lock_seconds: number;
   log_retention_days: number;
+  ip_block_retention_days: number;
 }
 
 export type Fail2banSettingsPatch = Partial<Fail2banSettings>;
@@ -83,10 +84,12 @@ export const adminAuthApi = {
     return api.get<AuthLogEntry[]>(`/admin/auth/log?${sp}`);
   },
 
-  logGrouped: (params: { after?: string; limit?: number } = {}) => {
+  logGrouped: (params: { after?: string; limit?: number; offset?: number; q?: string } = {}) => {
     const sp = new URLSearchParams();
     if (params.after) sp.set('after', params.after);
-    if (params.limit !== undefined) sp.set('limit', String(params.limit));
+    if (params.limit !== undefined)  sp.set('limit', String(params.limit));
+    if (params.offset !== undefined) sp.set('offset', String(params.offset));
+    if (params.q)                    sp.set('q', params.q);
     return api.get<GroupedIp[]>(`/admin/auth/log/grouped?${sp}`);
   },
 

@@ -107,7 +107,14 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
 const CODE_BLOCK_RE = /```(\w*)\n?([\s\S]*?)```/g;
 // Lookbehind (?<!\w) защищает от ложных срабатываний на e-mail и подобных:
 // `email@example.com` не превращается в упоминание.
-const INLINE_RE = /(`[^`\n]+?`|\|\|(.+?)\|\||\*\*(.+?)\*\*|\*([^*\n]+?)\*|_([^_\n]+?)_|https?:\/\/[^\s<>"']+|(?<!\w)@[A-Za-z0-9_]{2,32})/gs;
+//
+// Italic через _: word-boundary (?<![A-Za-z0-9])..._(?![A-Za-z0-9]) — иначе
+// snake_case-идентификаторы (httpfs.duckdb_extension, linux_amd64) ловятся
+// как italic. Стандартный Markdown поведение: `_` italic только на границах
+// слов, `_` внутри слова — обычный символ. `*` пока не трогаем (в коде
+// почти не встречается, а если ложно сработает — пользователи в основном
+// пишут код в ``` блоках).
+const INLINE_RE = /(`[^`\n]+?`|\|\|(.+?)\|\||\*\*(.+?)\*\*|\*([^*\n]+?)\*|(?<![A-Za-z0-9])_([^_\n]+?)_(?![A-Za-z0-9])|https?:\/\/[^\s<>"']+|(?<!\w)@[A-Za-z0-9_]{2,32})/gs;
 
 function renderInline(text: string, selfUsername?: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
