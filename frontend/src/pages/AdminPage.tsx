@@ -615,7 +615,7 @@ export function AdminPage() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
       <div
         className="flex items-center justify-between px-6 py-3 border-b border-[var(--border-color)] shrink-0"
