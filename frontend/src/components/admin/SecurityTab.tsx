@@ -281,7 +281,7 @@ function BlocksSection() {
 
       <div className="mb-2 flex items-center gap-3">
         <SearchInput value={search} onChange={setSearch} placeholder={t('security.searchIp')} />
-        <span className="text-xs text-[var(--text-muted)]">{filtered.length}</span>
+        <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{filtered.length} IP</span>
       </div>
 
       <div className="rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] overflow-hidden">
@@ -409,7 +409,9 @@ function LockedUsersSection() {
       <SectionTitle icon={<Lock size={16} />} text={t('security.lockedTitle')} />
       <div className="mt-3 mb-2 flex items-center gap-3">
         <SearchInput value={search} onChange={setSearch} placeholder={t('security.searchUsername')} />
-        <span className="text-xs text-[var(--text-muted)]">{filtered.length}</span>
+        <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">
+          {filtered.length} {t('security.lockedCountSuffix')}
+        </span>
       </div>
       <div className="rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] overflow-hidden">
         {filtered.length === 0 ? (
@@ -607,8 +609,10 @@ function LogGrouped() {
     <div>
       <div className="flex items-center gap-3 mb-2">
         <SearchInput value={search} onChange={setSearch} placeholder={t('security.searchIp')} />
-        <span className="text-xs text-[var(--text-muted)]">{groups.length}{hasNextPage ? '+' : ''}</span>
-        <button onClick={() => refetch()} className="ml-auto p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5">
+        <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">
+          {groups.length}{hasNextPage ? '+' : ''} IP
+        </span>
+        <button onClick={() => refetch()} className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5">
           <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
         </button>
       </div>
@@ -618,7 +622,7 @@ function LogGrouped() {
             {dSearch ? t('security.nothingFound') : t('security.noLog')}
           </p>
         ) : (
-          <div ref={scrollRef} className="max-h-[440px] overflow-y-auto">
+          <div ref={scrollRef} data-grouped-scroller className="max-h-[440px] overflow-y-auto">
             <div className="divide-y divide-[var(--border-color)]">
               {groups.map((g) => (
                 <GroupRow
@@ -658,6 +662,7 @@ function GroupRow({ g, fmt, t, onBlock, onUnblock }: {
   const [open, setOpen] = useState(false);
   // duration в виде строки чтобы '' = вечный бан (null на бэке).
   const [duration, setDuration] = useState<string>('3600');
+  const headerRef = useRef<HTMLDivElement>(null);
   const lastAtRel = useMemo(() => {
     const ms = Date.now() - new Date(g.last_at).getTime();
     const min = Math.floor(ms / 60000);
@@ -668,11 +673,28 @@ function GroupRow({ g, fmt, t, onBlock, onUnblock }: {
     return t('security.dayAgo', { n: Math.floor(hr / 24) });
   }, [g.last_at, t]);
 
+  // При раскрытии группы — поднимаем её заголовок к верху scroll-контейнера,
+  // чтобы появившаяся под ним таблица попыток сразу была видна. Скроллим
+  // только локальный контейнер (data-grouped-scroller), не страницу.
+  useEffect(() => {
+    if (!open) return;
+    const header = headerRef.current;
+    const scroller = header?.closest('[data-grouped-scroller]') as HTMLElement | null;
+    if (!header || !scroller) return;
+    requestAnimationFrame(() => {
+      const offset = header.getBoundingClientRect().top
+        - scroller.getBoundingClientRect().top
+        + scroller.scrollTop;
+      scroller.scrollTo({ top: Math.max(0, offset - 4), behavior: 'smooth' });
+    });
+  }, [open]);
+
   // Используем div+onClick (а не <button>) — внутри строки лежат вложенные
   // кнопки «Заблокировать»/«Разблокировать», что некорректно для button-in-button.
   return (
     <div>
       <div
+        ref={headerRef}
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-white/[.02] transition-colors cursor-pointer select-none"
       >
@@ -719,9 +741,9 @@ function GroupRow({ g, fmt, t, onBlock, onUnblock }: {
         )}
       </div>
       {open && (
-        <div className="bg-[var(--bg-primary)] border-t border-[var(--border-color)]">
+        <div className="bg-[var(--bg-primary)] border-t border-[var(--border-color)] max-h-[260px] overflow-y-auto">
           <table className="w-full text-xs">
-            <thead className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+            <thead className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider sticky top-0 bg-[var(--bg-primary)] z-10">
               <tr>
                 <th className="text-left px-3 py-1.5">{t('security.usernameOrEmail')}</th>
                 <th className="text-left px-3 py-1.5">{t('security.attempts')}</th>

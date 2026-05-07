@@ -558,6 +558,7 @@ export const en: Record<string, string> = {
   'security.searchIp': 'Search by IP or reason…',
   'security.searchUsername': 'Search by username or email…',
   'security.nothingFound': 'Nothing found',
+  'security.lockedCountSuffix': 'accounts',
 
   // ─── Blocked page ─────────────────────────────────────────────────
   'blocked.title': 'Access blocked',

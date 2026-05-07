@@ -558,6 +558,7 @@ export const ru: Record<string, string> = {
   'security.searchIp': 'Поиск по IP или причине…',
   'security.searchUsername': 'Поиск по логину или email…',
   'security.nothingFound': 'Ничего не найдено',
+  'security.lockedCountSuffix': 'аккаунтов',
 
   // ─── Страница «Заблокировано» ─────────────────────────────────────
   'blocked.title': 'Доступ заблокирован',
