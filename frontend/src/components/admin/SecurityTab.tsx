@@ -198,11 +198,12 @@ function useDebounced<T>(value: T, delay = 300): T {
   return v;
 }
 
-// IntersectionObserver-хук: вызывает onIntersect когда sentinel виден в viewport
-// своего scroll-контейнера. enabled флаг гасит триггеры пока идёт fetchNextPage.
+// IntersectionObserver-хук: вызывает onIntersect когда sentinel виден в
+// scroll-контейнере (или в viewport, если rootRef=null). enabled флаг гасит
+// триггеры пока идёт fetchNextPage.
 function useInfiniteScroll(
   sentinelRef: React.RefObject<HTMLDivElement>,
-  rootRef: React.RefObject<HTMLDivElement>,
+  rootRef: React.RefObject<HTMLElement> | null,
   enabled: boolean,
   onIntersect: () => void,
 ) {
@@ -211,7 +212,7 @@ function useInfiniteScroll(
     if (!node || !enabled) return;
     const obs = new IntersectionObserver(
       (entries) => { if (entries[0]?.isIntersecting) onIntersect(); },
-      { root: rootRef.current ?? null, rootMargin: '120px 0px' },
+      { root: rootRef?.current ?? null, rootMargin: '240px 0px' },
     );
     obs.observe(node);
     return () => obs.disconnect();
@@ -290,42 +291,40 @@ function BlocksSection() {
             {blocks.length === 0 ? t('security.noBlocks') : t('security.nothingFound')}
           </p>
         ) : (
-          <div className="max-h-[360px] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-[var(--text-muted)] uppercase tracking-wider sticky top-0 bg-[var(--bg-secondary)] z-10">
-                <tr className="border-b border-[var(--border-color)]">
-                  <th className="text-left px-3 py-2">IP</th>
-                  <th className="text-left px-3 py-2">{t('security.reason')}</th>
-                  <th className="text-left px-3 py-2">{t('security.attempts')}</th>
-                  <th className="text-left px-3 py-2">{t('security.expires')}</th>
-                  <th className="text-left px-3 py-2">{t('security.source')}</th>
-                  <th className="px-3 py-2"></th>
+          <table className="w-full text-sm">
+            <thead className="text-xs text-[var(--text-muted)] uppercase tracking-wider">
+              <tr className="border-b border-[var(--border-color)]">
+                <th className="text-left px-3 py-2">IP</th>
+                <th className="text-left px-3 py-2">{t('security.reason')}</th>
+                <th className="text-left px-3 py-2">{t('security.attempts')}</th>
+                <th className="text-left px-3 py-2">{t('security.expires')}</th>
+                <th className="text-left px-3 py-2">{t('security.source')}</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((b: IpBlockEntry) => (
+                <tr key={b.ip} className="border-b border-[var(--border-color)] last:border-0 hover:bg-white/[.02]">
+                  <td className="px-3 py-2 font-mono text-[var(--text-primary)]">{b.ip}</td>
+                  <td className="px-3 py-2 text-[var(--text-secondary)] truncate max-w-[260px]">{b.reason || '—'}</td>
+                  <td className="px-3 py-2 text-[var(--text-muted)]">{b.attempts_count}</td>
+                  <td className="px-3 py-2 text-[var(--text-muted)] whitespace-nowrap">
+                    {b.expires_at ? `${fmt(b.expires_at)} (${timeUntil(b.expires_at, t)})` : t('security.permanent')}
+                  </td>
+                  <td className="px-3 py-2 text-[var(--text-muted)]">{b.blocked_by}</td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      onClick={() => remove.mutate(b.ip)}
+                      title={t('security.unblock')}
+                      className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filtered.map((b: IpBlockEntry) => (
-                  <tr key={b.ip} className="border-b border-[var(--border-color)] last:border-0 hover:bg-white/[.02]">
-                    <td className="px-3 py-2 font-mono text-[var(--text-primary)]">{b.ip}</td>
-                    <td className="px-3 py-2 text-[var(--text-secondary)] truncate max-w-[260px]">{b.reason || '—'}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">{b.attempts_count}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)] whitespace-nowrap">
-                      {b.expires_at ? `${fmt(b.expires_at)} (${timeUntil(b.expires_at, t)})` : t('security.permanent')}
-                    </td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">{b.blocked_by}</td>
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        onClick={() => remove.mutate(b.ip)}
-                        title={t('security.unblock')}
-                        className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
@@ -419,40 +418,38 @@ function LockedUsersSection() {
             {users.length === 0 ? t('security.noLocked') : t('security.nothingFound')}
           </p>
         ) : (
-          <div className="max-h-[300px] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-[var(--text-muted)] uppercase tracking-wider sticky top-0 bg-[var(--bg-secondary)] z-10">
-                <tr className="border-b border-[var(--border-color)]">
-                  <th className="text-left px-3 py-2">{t('security.username')}</th>
-                  <th className="text-left px-3 py-2">Email</th>
-                  <th className="text-left px-3 py-2">{t('security.failedAttempts')}</th>
-                  <th className="text-left px-3 py-2">{t('security.lockedUntil')}</th>
-                  <th className="px-3 py-2"></th>
+          <table className="w-full text-sm">
+            <thead className="text-xs text-[var(--text-muted)] uppercase tracking-wider">
+              <tr className="border-b border-[var(--border-color)]">
+                <th className="text-left px-3 py-2">{t('security.username')}</th>
+                <th className="text-left px-3 py-2">Email</th>
+                <th className="text-left px-3 py-2">{t('security.failedAttempts')}</th>
+                <th className="text-left px-3 py-2">{t('security.lockedUntil')}</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((u: LockedUser) => (
+                <tr key={u.user_id} className="border-b border-[var(--border-color)] last:border-0 hover:bg-white/[.02]">
+                  <td className="px-3 py-2 text-[var(--text-primary)]">{u.username}</td>
+                  <td className="px-3 py-2 text-[var(--text-muted)]">{u.email}</td>
+                  <td className="px-3 py-2 text-[var(--text-muted)]">{u.failed_attempts}</td>
+                  <td className="px-3 py-2 text-[var(--text-muted)] whitespace-nowrap">
+                    {fmt(u.locked_until)} ({timeUntil(u.locked_until, t)})
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      onClick={() => unlock.mutate(u.user_id)}
+                      title={t('security.unlock')}
+                      className="px-2 py-0.5 rounded text-xs text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors"
+                    >
+                      {t('security.unlock')}
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filtered.map((u: LockedUser) => (
-                  <tr key={u.user_id} className="border-b border-[var(--border-color)] last:border-0 hover:bg-white/[.02]">
-                    <td className="px-3 py-2 text-[var(--text-primary)]">{u.username}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">{u.email}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">{u.failed_attempts}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)] whitespace-nowrap">
-                      {fmt(u.locked_until)} ({timeUntil(u.locked_until, t)})
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        onClick={() => unlock.mutate(u.user_id)}
-                        title={t('security.unlock')}
-                        className="px-2 py-0.5 rounded text-xs text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors"
-                      >
-                        {t('security.unlock')}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>
@@ -472,7 +469,6 @@ function LogList() {
   const dIp = useDebounced(ip);
   const dUsername = useDebounced(username);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -493,9 +489,10 @@ function LogList() {
 
   const log = useMemo(() => data?.pages.flat() ?? [], [data]);
 
+  // root=null → IntersectionObserver слушает viewport общего admin-скроллера.
   useInfiniteScroll(
     sentinelRef,
-    scrollRef,
+    null,
     !!hasNextPage && !isFetchingNextPage,
     fetchNextPage,
   );
@@ -521,42 +518,40 @@ function LogList() {
         {log.length === 0 && !isFetching ? (
           <p className="text-center text-sm text-[var(--text-muted)] py-6">{t('security.noLog')}</p>
         ) : (
-          <div ref={scrollRef} className="max-h-[440px] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-[var(--text-muted)] uppercase tracking-wider sticky top-0 bg-[var(--bg-secondary)] z-10">
-                <tr className="border-b border-[var(--border-color)]">
-                  <th className="text-left px-3 py-2">{t('security.time')}</th>
-                  <th className="text-left px-3 py-2">IP</th>
-                  <th className="text-left px-3 py-2">{t('security.usernameOrEmail')}</th>
-                  <th className="text-left px-3 py-2">{t('security.result')}</th>
+          <table className="w-full text-sm">
+            <thead className="text-xs text-[var(--text-muted)] uppercase tracking-wider">
+              <tr className="border-b border-[var(--border-color)]">
+                <th className="text-left px-3 py-2">{t('security.time')}</th>
+                <th className="text-left px-3 py-2">IP</th>
+                <th className="text-left px-3 py-2">{t('security.usernameOrEmail')}</th>
+                <th className="text-left px-3 py-2">{t('security.result')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {log.map((e: AuthLogEntry) => (
+                <tr key={e.id} className="border-b border-[var(--border-color)] last:border-0 hover:bg-white/[.02]">
+                  <td className="px-3 py-2 text-[var(--text-muted)] whitespace-nowrap">{fmt(e.created_at)}</td>
+                  <td className="px-3 py-2 font-mono text-[var(--text-primary)]">{e.ip}</td>
+                  <td className="px-3 py-2 text-[var(--text-secondary)] truncate max-w-[260px]">{e.username_attempted}</td>
+                  <td className="px-3 py-2">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                      e.success ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
+                    }`}>
+                      {e.success ? t('security.success') : t('security.failed')}
+                    </span>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {log.map((e: AuthLogEntry) => (
-                  <tr key={e.id} className="border-b border-[var(--border-color)] last:border-0 hover:bg-white/[.02]">
-                    <td className="px-3 py-2 text-[var(--text-muted)] whitespace-nowrap">{fmt(e.created_at)}</td>
-                    <td className="px-3 py-2 font-mono text-[var(--text-primary)]">{e.ip}</td>
-                    <td className="px-3 py-2 text-[var(--text-secondary)] truncate max-w-[260px]">{e.username_attempted}</td>
-                    <td className="px-3 py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                        e.success ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
-                      }`}>
-                        {e.success ? t('security.success') : t('security.failed')}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div ref={sentinelRef} />
-            {isFetchingNextPage && (
-              <div className="flex justify-center py-3">
-                <div className="w-4 h-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
-              </div>
-            )}
-          </div>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
+      <div ref={sentinelRef} />
+      {isFetchingNextPage && (
+        <div className="flex justify-center py-3">
+          <div className="w-4 h-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
+        </div>
+      )}
     </div>
   );
 }
@@ -572,7 +567,6 @@ function LogGrouped() {
   const [search, setSearch] = useState('');
   const dSearch = useDebounced(search);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -591,9 +585,10 @@ function LogGrouped() {
 
   const groups = useMemo(() => data?.pages.flat() ?? [], [data]);
 
+  // root=null → IntersectionObserver слушает viewport общего admin-скроллера.
   useInfiniteScroll(
     sentinelRef,
-    scrollRef,
+    null,
     !!hasNextPage && !isFetchingNextPage,
     fetchNextPage,
   );
@@ -622,32 +617,30 @@ function LogGrouped() {
             {dSearch ? t('security.nothingFound') : t('security.noLog')}
           </p>
         ) : (
-          <div ref={scrollRef} data-grouped-scroller className="max-h-[440px] overflow-y-auto">
-            <div className="divide-y divide-[var(--border-color)]">
-              {groups.map((g) => (
-                <GroupRow
-                  key={g.ip}
-                  g={g}
-                  fmt={fmt}
-                  t={t}
-                  onBlock={(durationSeconds) => block.mutate({
-                    ip: g.ip,
-                    reason: `Manual: ${g.failed} failed attempts`,
-                    duration_seconds: durationSeconds,
-                  })}
-                  onUnblock={() => unblock.mutate(g.ip)}
-                />
-              ))}
-            </div>
-            <div ref={sentinelRef} />
-            {isFetchingNextPage && (
-              <div className="flex justify-center py-3">
-                <div className="w-4 h-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
-              </div>
-            )}
+          <div className="divide-y divide-[var(--border-color)]">
+            {groups.map((g) => (
+              <GroupRow
+                key={g.ip}
+                g={g}
+                fmt={fmt}
+                t={t}
+                onBlock={(durationSeconds) => block.mutate({
+                  ip: g.ip,
+                  reason: `Manual: ${g.failed} failed attempts`,
+                  duration_seconds: durationSeconds,
+                })}
+                onUnblock={() => unblock.mutate(g.ip)}
+              />
+            ))}
           </div>
         )}
       </div>
+      <div ref={sentinelRef} />
+      {isFetchingNextPage && (
+        <div className="flex justify-center py-3">
+          <div className="w-4 h-4 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
+        </div>
+      )}
     </div>
   );
 }
@@ -673,19 +666,26 @@ function GroupRow({ g, fmt, t, onBlock, onUnblock }: {
     return t('security.dayAgo', { n: Math.floor(hr / 24) });
   }, [g.last_at, t]);
 
-  // При раскрытии группы — поднимаем её заголовок к верху scroll-контейнера,
-  // чтобы появившаяся под ним таблица попыток сразу была видна. Скроллим
-  // только локальный контейнер (data-grouped-scroller), не страницу.
+  // При раскрытии группы — поднимаем её заголовок к верху общего admin-скроллера,
+  // чтобы появившаяся под ним таблица попыток сразу была видна.
   useEffect(() => {
     if (!open) return;
     const header = headerRef.current;
-    const scroller = header?.closest('[data-grouped-scroller]') as HTMLElement | null;
-    if (!header || !scroller) return;
+    if (!header) return;
+    // Ищем ближайший вертикальный scroll-контейнер (overflow-y: auto/scroll).
+    let scroller: HTMLElement | null = header.parentElement;
+    while (scroller && scroller !== document.body) {
+      const oy = getComputedStyle(scroller).overflowY;
+      if (oy === 'auto' || oy === 'scroll') break;
+      scroller = scroller.parentElement;
+    }
+    if (!scroller || scroller === document.body) return;
     requestAnimationFrame(() => {
       const offset = header.getBoundingClientRect().top
-        - scroller.getBoundingClientRect().top
-        + scroller.scrollTop;
-      scroller.scrollTo({ top: Math.max(0, offset - 4), behavior: 'smooth' });
+        - scroller!.getBoundingClientRect().top
+        + scroller!.scrollTop;
+      // -16px чтобы заголовок не лип к самому верху, а имел немного воздуха.
+      scroller!.scrollTo({ top: Math.max(0, offset - 16), behavior: 'smooth' });
     });
   }, [open]);
 
@@ -741,9 +741,9 @@ function GroupRow({ g, fmt, t, onBlock, onUnblock }: {
         )}
       </div>
       {open && (
-        <div className="bg-[var(--bg-primary)] border-t border-[var(--border-color)] max-h-[260px] overflow-y-auto">
+        <div className="bg-[var(--bg-primary)] border-t border-[var(--border-color)]">
           <table className="w-full text-xs">
-            <thead className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider sticky top-0 bg-[var(--bg-primary)] z-10">
+            <thead className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
               <tr>
                 <th className="text-left px-3 py-1.5">{t('security.usernameOrEmail')}</th>
                 <th className="text-left px-3 py-1.5">{t('security.attempts')}</th>
