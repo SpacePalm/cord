@@ -658,7 +658,7 @@ export function AdminPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-24">
+      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-40">
         <div className="max-w-4xl w-full mx-auto">
           {tab === 'users' && <UsersTab />}
           {tab === 'groups' && <GroupsTab />}
