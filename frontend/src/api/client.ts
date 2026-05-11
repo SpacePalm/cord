@@ -40,10 +40,12 @@ let refreshInflight: Promise<boolean> | null = null;
 /**
  * Единственная точка ротации refresh-токена в приложении.
  *
- * Несколько параллельных вызовов сливаются в одну сетевую попытку через
- * shared inflight-промизу — иначе после wake-from-sleep одновременно
- * стартуют HTTP-запросы и WS-reconnect, шлют ОДИН и тот же refresh-token,
- * и сервер второй экземпляр воспринимает как reuse → revoke_all_sessions.
+ * Несколько параллельных вызовов СЛИВАЮТСЯ в одну сетевую попытку через
+ * shared inflight — но это работает только внутри одной вкладки.
+ * Между вкладками shared inflight нет, поэтому добавлен retry-on-stale:
+ * если /refresh вернул 401, но в localStorage уже появился новый
+ * refresh-token (значит соседняя вкладка успела отротировать), считаем
+ * что нас всё ещё авторизованы и переиспользуем её результат.
  *
  * Экспортируется чтобы useWebSocket.tsx и другой код шёл через тот же
  * inflight, а не делал свой /refresh.
@@ -52,19 +54,27 @@ export async function tryRefresh(): Promise<boolean> {
   if (refreshInflight) return refreshInflight;
 
   refreshInflight = (async () => {
-    const refresh_token = localStorage.getItem('refresh_token');
-    if (!refresh_token) return false;
+    const sentToken = localStorage.getItem('refresh_token');
+    if (!sentToken) return false;
     try {
       const r = await fetch(`${BASE_URL}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token }),
+        body: JSON.stringify({ refresh_token: sentToken }),
       });
-      if (!r.ok) return false;
-      const data = await r.json();
-      // Ротация: пишем оба новых токена и в localStorage, и в Zustand-store.
-      useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
-      return true;
+      if (r.ok) {
+        const data = await r.json();
+        // Ротация: пишем оба новых токена и в localStorage, и в Zustand-store.
+        useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+        return true;
+      }
+      // Не-ok ответ. Проверяем, не успела ли соседняя вкладка отротировать
+      // тот же самый sentToken, пока мы ждали ответ от бэка. Если в
+      // localStorage уже лежит ДРУГОЙ refresh-token — значит сосед прошёл
+      // первым, у нас уже свежая пара, считаем успехом.
+      const current = localStorage.getItem('refresh_token');
+      if (current && current !== sentToken) return true;
+      return false;
     } catch {
       return false;
     } finally {
@@ -74,6 +84,29 @@ export async function tryRefresh(): Promise<boolean> {
   })();
 
   return refreshInflight;
+}
+
+// ─── Cross-tab sync ──────────────────────────────────────────────────────
+//
+// localStorage event срабатывает в ДРУГИХ вкладках того же origin'а.
+// Когда одна вкладка обновляет access_token / refresh_token (после /refresh),
+// все остальные подхватывают свежие значения в свой Zustand-стор без сетевого
+// запроса. Без этого Zustand state соседей продолжает держать старый access
+// и в-памяти он расходится с localStorage до следующего перерендера.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (ev) => {
+    if (ev.key !== 'access_token' && ev.key !== 'refresh_token') return;
+    const access = localStorage.getItem('access_token');
+    const refresh = localStorage.getItem('refresh_token');
+    if (access && refresh) {
+      // Сосед записал свежие токены — обновляем только in-memory Zustand,
+      // в localStorage уже актуальные значения, повторно писать незачем.
+      useAuthStore.setState({ token: access, refreshToken: refresh });
+    } else if (!access && !refresh) {
+      // Соседняя вкладка вышла из аккаунта — мы тоже.
+      useAuthStore.setState({ user: null, token: null, refreshToken: null });
+    }
+  });
 }
 
 // ─── Error type ──────────────────────────────────────────────────────────
