@@ -38,7 +38,7 @@ logout_limiter = RateLimiter(key='logout', limit=10, window_seconds=60)
 # юзера погнали два refresh'а одновременно), не считаем это steal-detection.
 # Атакующий за 10 секунд после первого refresh'а вряд ли успеет — этот
 # временной зазор защищает только от race condition, не от настоящей кражи.
-REFRESH_REUSE_GRACE_SECONDS = 10
+REFRESH_REUSE_GRACE_SECONDS = 60
 
 class RegisterRequest(BaseModel):
     username: str

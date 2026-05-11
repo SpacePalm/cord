@@ -37,7 +37,18 @@ function handleBlocked(detail: { kind?: string; expires_at?: string | null } | n
 
 let refreshInflight: Promise<boolean> | null = null;
 
-async function tryRefresh(): Promise<boolean> {
+/**
+ * Единственная точка ротации refresh-токена в приложении.
+ *
+ * Несколько параллельных вызовов сливаются в одну сетевую попытку через
+ * shared inflight-промизу — иначе после wake-from-sleep одновременно
+ * стартуют HTTP-запросы и WS-reconnect, шлют ОДИН и тот же refresh-token,
+ * и сервер второй экземпляр воспринимает как reuse → revoke_all_sessions.
+ *
+ * Экспортируется чтобы useWebSocket.tsx и другой код шёл через тот же
+ * inflight, а не делал свой /refresh.
+ */
+export async function tryRefresh(): Promise<boolean> {
   if (refreshInflight) return refreshInflight;
 
   refreshInflight = (async () => {

@@ -4,6 +4,7 @@ import type { Message } from '../types';
 import type { UnreadData } from '../api/notifications';
 import { useAuthStore } from '../store/authStore';
 import { useSessionStore } from '../store/sessionStore';
+import { tryRefresh } from '../api/client';
 
 interface WsMessageCreated {
   type: 'message_created';
@@ -322,25 +323,18 @@ export function useCordWebSocket() {
       wsRef.current = null;
       clearHeartbeat();
       // 4001 = auth failure (access токен протух или невалиден).
-      // Пробуем обменять refresh → новый access → переподключиться.
-      // Если refresh умер — отдаём управление обычному redirect-потоку через client.ts
-      // (heartbeat-запрос на следующем тике поймает 401 и сделает logout).
+      // Используем общий tryRefresh из client.ts — он гарантирует, что
+      // параллельные 401 от HTTP-запросов и WS reconnect СЛИВАЮТСЯ в одну
+      // сетевую попытку. Иначе два параллельных /refresh с одним refresh-токеном
+      // → второй ловит «token already used», а после wake-from-sleep даже
+      // reuse-detection → принудительный logout всех сессий.
       if (ev.code === 4001) {
-        const refresh_token = localStorage.getItem('refresh_token');
-        if (!refresh_token) return;
-        fetch('/api/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token }),
-        }).then(async (r) => {
-          if (!r.ok) return;
-          const data = await r.json();
-          localStorage.setItem('access_token', data.access_token);
-          localStorage.setItem('refresh_token', data.refresh_token);
+        tryRefresh().then((ok) => {
+          if (!ok) return;
           // Переподключаемся с новым access — мгновенно, без бэкоффа.
           reconnectDelay.current = 1000;
           connect();
-        }).catch(() => {});
+        });
         return;
       }
       reconnectTimer.current = setTimeout(() => {
