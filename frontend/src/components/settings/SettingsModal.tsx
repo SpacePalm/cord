@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X, Camera, Check, Eye, EyeOff, Mic, MicOff, Volume2, Smartphone, Monitor, LogOut } from 'lucide-react';
+import { X, Camera, Check, Eye, EyeOff, Mic, MicOff, Volume2, Smartphone, Monitor, LogOut, Pencil } from 'lucide-react';
 import { authApi, type SessionInfo } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
@@ -293,6 +293,11 @@ function SessionsSection() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['auth-sessions'] }),
   });
 
+  const rename = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => authApi.renameSession(id, name),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['auth-sessions'] }),
+  });
+
   const revokeOthers = useMutation({
     mutationFn: authApi.revokeOtherSessions,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['auth-sessions'] }),
@@ -322,14 +327,25 @@ function SessionsSection() {
         <p className="text-sm text-[var(--text-muted)]">{t('settings.noSessions')}</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {sessions.map((s) => <SessionRow key={s.id} s={s} onRevoke={() => revoke.mutate(s.id)} />)}
+          {sessions.map((s) => (
+            <SessionRow
+              key={s.id}
+              s={s}
+              onRevoke={() => revoke.mutate(s.id)}
+              onRename={(name) => rename.mutate({ id: s.id, name })}
+            />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function SessionRow({ s, onRevoke }: { s: SessionInfo; onRevoke: () => void }) {
+function SessionRow({ s, onRevoke, onRename }: {
+  s: SessionInfo;
+  onRevoke: () => void;
+  onRename: (name: string) => void;
+}) {
   const t = useT();
   // Используем выбранный в приложении язык, а не системный — иначе при английском
   // UI дата может рендериться по-русски (или любая системная локаль).
@@ -341,12 +357,31 @@ function SessionRow({ s, onRevoke }: { s: SessionInfo; onRevoke: () => void }) {
     day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
   });
 
+  // Главная строка: имя устройства если задано, иначе UA. UA-строка как
+  // подзаголовок, чтобы юзер видел и кастомное имя, и техническую инфу.
+  const title = s.device_name?.trim() || `${ua.browser} · ${ua.os}`;
+  // Короткий хвост device_id — последние 4 символа UUID. Помогает различить
+  // два устройства с одинаковым именем («Mac · Chrome (a3f1)» vs «Mac · Chrome (b7c9)»)
+  // до того как юзер переименует их.
+  const deviceTag = s.device_id ? s.device_id.slice(-4) : null;
+
+  const handleRename = () => {
+    const next = prompt(t('settings.renameDevicePrompt'), title);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === title) return;
+    onRename(trimmed);
+  };
+
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
       <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-[var(--text-primary)] truncate">{ua.browser} · {ua.os}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-[var(--text-primary)] truncate">{title}</span>
+          {deviceTag && (
+            <span className="text-[10px] text-[var(--text-muted)] font-mono">#{deviceTag}</span>
+          )}
           {s.is_current && (
             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/15 text-green-400">
               {t('settings.currentSession')}
@@ -354,9 +389,16 @@ function SessionRow({ s, onRevoke }: { s: SessionInfo; onRevoke: () => void }) {
           )}
         </div>
         <p className="text-xs text-[var(--text-muted)] truncate">
-          {s.ip ?? '—'} · {t('settings.lastUsed')}: {fmtDate(s.last_used_at)}
+          {ua.browser} · {ua.os} · {s.ip ?? '—'} · {t('settings.lastUsed')}: {fmtDate(s.last_used_at)}
         </p>
       </div>
+      <button
+        onClick={handleRename}
+        title={t('settings.renameDevice')}
+        className="p-2 rounded text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-white/5 transition-colors"
+      >
+        <Pencil size={14} />
+      </button>
       {!s.is_current && (
         <button
           onClick={onRevoke}

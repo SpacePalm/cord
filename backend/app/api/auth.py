@@ -44,10 +44,14 @@ class RegisterRequest(BaseModel):
     username: str
     email: str
     password: str
+    device_id: str | None = Field(None, max_length=64)
+    device_name: str | None = Field(None, max_length=100)
 
 class LoginRequest(BaseModel):
     email: str = Field(..., max_length=100)
     password: str = Field(..., min_length=6)
+    device_id: str | None = Field(None, max_length=64)
+    device_name: str | None = Field(None, max_length=100)
 
 class ProfileUpdateRequest(BaseModel):
     display_name: str | None = Field(None, max_length=50)
@@ -67,8 +71,12 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     # Реальный токен ~97 символов (32 token_id + 1 dot + 64 secret).
     # max_length=200 — отсекает мусор и атаки с гигантскими payload'ами
-    # до того как parse_refresh_token доберётся до validation.
+    # до того как parse_refresh_token doберётся до validation.
     refresh_token: str = Field(..., max_length=200)
+    # device_id/name на refresh опциональны — если клиент пришёл с новой версией,
+    # обновим в новой сессии при ротации. Иначе скопируем из старой сессии.
+    device_id: str | None = Field(None, max_length=64)
+    device_name: str | None = Field(None, max_length=100)
 
 
 class RefreshResponse(BaseModel):
@@ -82,10 +90,16 @@ class SessionInfo(BaseModel):
     id: str
     user_agent: str
     ip: str | None
+    device_id: str | None
+    device_name: str | None
     created_at: datetime
     last_used_at: datetime
     expires_at: datetime
     is_current: bool
+
+
+class RenameSessionRequest(BaseModel):
+    device_name: str = Field(..., min_length=1, max_length=100)
 
 class UserInfo(BaseModel):
     id: str
@@ -343,7 +357,11 @@ async def login(request: LoginRequest, http_request: Request, db: AsyncSession =
         db.add(Chat(name='Saved Messages', group_id=saved_group.id, type='text'))
 
     # 4. Создаём server-side сессию (refresh-токен). Plaintext получим один раз.
-    session, refresh_plaintext = await create_session(db, user_id, ua, ip)
+    session, refresh_plaintext = await create_session(
+        db, user_id, ua, ip,
+        device_id=request.device_id,
+        device_name=request.device_name,
+    )
     session_id = session.id
 
     # Снимаем _user_info ДО commit'а — на этом этапе user-объект ещё не expired,
@@ -430,11 +448,16 @@ async def refresh_tokens(
     await fail2ban.assert_not_blocked(db, ip=ip, user=user)
 
     # Rotation: revoke старую сессию, создаём новую с свежим refresh.
+    # device_id/name переносим из старой сессии, чтобы устройство сохраняло
+    # идентичность через ротации. Если клиент прислал свои значения — они
+    # имеют приоритет (например, после переименования устройства в UI).
     matched.revoked_at = datetime.now(timezone.utc)
     new_session, new_refresh = await create_session(
         db, user.id,
         http_request.headers.get('user-agent'),
         ip,
+        device_id=body.device_id or matched.device_id,
+        device_name=body.device_name or matched.device_name,
     )
     new_session_id = new_session.id
     user_id_local = user.id
@@ -508,11 +531,58 @@ async def list_sessions(
         id=str(s.id),
         user_agent=s.user_agent or '',
         ip=str(s.ip) if s.ip else None,
+        device_id=s.device_id,
+        device_name=s.device_name,
         created_at=s.created_at,
         last_used_at=s.last_used_at,
         expires_at=s.expires_at,
         is_current=(current_sid is not None and str(s.id) == current_sid),
     ) for s in rows]
+
+
+@router.patch("/sessions/{session_id}", response_model=SessionInfo)
+async def rename_session(
+    session_id: str,
+    body: RenameSessionRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Переименовать device_name у сессии — чтобы юзер мог отличать устройства
+    с одинаковым UA («Дом MacBook» vs «Работа MacBook»)."""
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session id")
+
+    sess = await db.get(AuthSession, sid)
+    if not sess or sess.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    sess.device_name = body.device_name.strip()[:100]
+    await db.commit()
+
+    # is_current снова считаем как в list_sessions
+    auth = http_request.headers.get('authorization', '')
+    current_sid: str | None = None
+    if auth.startswith('Bearer '):
+        try:
+            from app.auth import decode_access_token
+            payload = decode_access_token(auth[7:])
+            current_sid = payload.get('sid') if payload else None
+        except Exception:
+            pass
+
+    return SessionInfo(
+        id=str(sess.id),
+        user_agent=sess.user_agent or '',
+        ip=str(sess.ip) if sess.ip else None,
+        device_id=sess.device_id,
+        device_name=sess.device_name,
+        created_at=sess.created_at,
+        last_used_at=sess.last_used_at,
+        expires_at=sess.expires_at,
+        is_current=(current_sid is not None and str(sess.id) == current_sid),
+    )
 
 
 @router.delete("/sessions/{session_id}", status_code=204)

@@ -130,6 +130,10 @@ _RUNTIME_MIGRATIONS: list[str] = [
     # один SELECT + одна bcrypt-проверка.
     "ALTER TABLE session ADD COLUMN IF NOT EXISTS token_id VARCHAR(32)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_token_id ON session (token_id)",
+    # Device ID/Name — для различения сессий на устройствах с одинаковым UA/IP.
+    "ALTER TABLE session ADD COLUMN IF NOT EXISTS device_id VARCHAR(64)",
+    "ALTER TABLE session ADD COLUMN IF NOT EXISTS device_name VARCHAR(100)",
+    "CREATE INDEX IF NOT EXISTS idx_session_device_id ON session (device_id) WHERE device_id IS NOT NULL",
     # Сессии созданные до миграции имеют token_id=NULL и refresh-токены без
     # точки в формате — они не работают (parse возвращает None → 401).
     # Удаляем чтобы не висели до природного истечения через 4 месяца.

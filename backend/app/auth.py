@@ -114,9 +114,15 @@ async def create_session(
     user_id: uuid.UUID,
     user_agent: str | None,
     ip: str | None,
+    *,
+    device_id: str | None = None,
+    device_name: str | None = None,
 ) -> tuple[AuthSession, str]:
     """Создаёт запись Session и возвращает её + plaintext refresh-токен.
     Не коммитит — вызывающий код отвечает за транзакцию.
+
+    `device_id` — client-side UUID, помогает различать сессии за одним NAT.
+    `device_name` — человекочитаемое имя, можно менять через UI.
 
     Заодно ограничивает количество одновременных сессий юзера: если их >20,
     самые старые revoke'аются (FIFO). Это защита от credential-stuffing'а
@@ -130,6 +136,8 @@ async def create_session(
         refresh_token_hash=hashed,
         user_agent=(user_agent or '')[:500],
         ip=ip,
+        device_id=(device_id or None) and device_id[:64],
+        device_name=(device_name or None) and device_name[:100],
         expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
     )
     db.add(sess)

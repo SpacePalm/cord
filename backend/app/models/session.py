@@ -44,6 +44,14 @@ class Session(Base):
     refresh_token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     user_agent: Mapped[str] = mapped_column(String(500), nullable=False, default='')
     ip: Mapped[str | None] = mapped_column(INET, nullable=True, default=None)
+    # Client-side device-identifier (UUID v4 в localStorage). Позволяет различать
+    # два устройства за одним NAT с одинаковым user-agent — без этого два MacBook'а
+    # с Chrome из одной квартиры выглядели бы в /sessions как клоны. Nullable —
+    # старые клиенты не присылают, заполнится при следующей ротации.
+    device_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None, index=True)
+    # Человекочитаемое имя устройства, заданное юзером ("Домашний MacBook") или
+    # автоматически из parseUserAgent ("Chrome · macOS"). Меняется через UI.
+    device_name: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

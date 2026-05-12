@@ -1,4 +1,5 @@
 import { api, postForm } from './client';
+import { getDeviceId, getDeviceName } from '../utils/device';
 import type { User, AuthTokens } from '../types';
 
 export interface LoginRequest {
@@ -10,6 +11,8 @@ export interface SessionInfo {
   id: string;
   user_agent: string;
   ip: string | null;
+  device_id: string | null;
+  device_name: string | null;
   created_at: string;
   last_used_at: string;
   expires_at: string;
@@ -38,10 +41,18 @@ export interface ProfileUpdateRequest {
 
 export const authApi = {
   login: (data: LoginRequest) =>
-    api.post<AuthTokens>('/auth/login', data),
+    api.post<AuthTokens>('/auth/login', {
+      ...data,
+      device_id: getDeviceId(),
+      device_name: getDeviceName(),
+    }),
 
   register: (data: RegisterRequest) =>
-    api.post<{ id: string; username: string; email: string }>('/auth/register', data),
+    api.post<{ id: string; username: string; email: string }>('/auth/register', {
+      ...data,
+      device_id: getDeviceId(),
+      device_name: getDeviceName(),
+    }),
 
   me: () =>
     api.get<User>('/auth/me'),
@@ -90,4 +101,6 @@ export const authApi = {
   listSessions: () => api.get<SessionInfo[]>('/auth/sessions'),
   revokeSession: (id: string) => api.delete<void>(`/auth/sessions/${id}`),
   revokeOtherSessions: () => api.delete<void>('/auth/sessions'),
+  renameSession: (id: string, device_name: string) =>
+    api.patch<SessionInfo>(`/auth/sessions/${id}`, { device_name }),
 };

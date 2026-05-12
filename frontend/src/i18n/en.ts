@@ -228,6 +228,8 @@ export const en: Record<string, string> = {
   'settings.currentSession': 'current',
   'settings.lastUsed': 'last used',
   'settings.revokeSession': 'Revoke session',
+  'settings.renameDevice': 'Rename device',
+  'settings.renameDevicePrompt': 'New device name:',
   'settings.revokeOthers': 'Sign out everywhere else ({n})',
   'settings.revokeOthersConfirm': 'Sign out from all other devices?',
   'settings.noSessions': 'No active sessions',

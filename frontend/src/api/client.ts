@@ -9,10 +9,13 @@
 // При 403 с blocked_by_security → handleBlocked (redirect /blocked).
 
 import { useAuthStore } from '../store/authStore';
+import { getDeviceId, getDeviceName } from '../utils/device';
 
 const BASE_URL = '/api';
 
-function handleUnauthorized() {
+function handleUnauthorized(reason?: string) {
+  // Помогает диагностировать «меня выкинуло»: в DevTools Console видна причина.
+  console.warn('[auth] logout, reason:', reason ?? 'unknown');
   useAuthStore.getState().logout();
   if (window.location.pathname !== '/login') {
     window.location.replace('/login');
@@ -60,13 +63,30 @@ export async function tryRefresh(): Promise<boolean> {
       const r = await fetch(`${BASE_URL}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: sentToken }),
+        body: JSON.stringify({
+          refresh_token: sentToken,
+          // Передаём device-метку чтобы новая сессия после ротации сохранила
+          // идентичность устройства (важно для UI /sessions: «текущее устройство»).
+          device_id: getDeviceId(),
+          device_name: getDeviceName(),
+        }),
       });
       if (r.ok) {
         const data = await r.json();
         // Ротация: пишем оба новых токена и в localStorage, и в Zustand-store.
         useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
         return true;
+      }
+      // 403 на /refresh = IP/аккаунт забанили fail2ban'ом за время простоя.
+      // Юзера надо вести на /blocked со ссылкой на причину, а не на /login.
+      if (r.status === 403) {
+        try {
+          const body = await r.json();
+          if (body?.detail?.code === 'blocked_by_security') {
+            handleBlocked(body.detail);
+            return false;
+          }
+        } catch { /* не json — игнор */ }
       }
       // Не-ok ответ. Проверяем, не успела ли соседняя вкладка отротировать
       // тот же самый sentToken, пока мы ждали ответ от бэка. Если в
@@ -152,11 +172,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetchWithAuth(path, options);
 
   if (!response.ok) {
-    if (response.status === 401) handleUnauthorized();
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
     const message = typeof error.detail === 'string'
       ? error.detail
       : (error.detail?.code ?? 'Request failed');
+    if (response.status === 401) {
+      handleUnauthorized(`${path} → 401 ${typeof error.detail === 'string' ? error.detail : ''}`);
+    }
     if (response.status === 403 && typeof error.detail === 'object' && error.detail?.code === 'blocked_by_security') {
       handleBlocked(error.detail);
     }

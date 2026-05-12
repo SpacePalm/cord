@@ -228,6 +228,8 @@ export const ru: Record<string, string> = {
   'settings.currentSession': 'текущая',
   'settings.lastUsed': 'последний вход',
   'settings.revokeSession': 'Завершить сессию',
+  'settings.renameDevice': 'Переименовать устройство',
+  'settings.renameDevicePrompt': 'Новое имя устройства:',
   'settings.revokeOthers': 'Выйти со всех остальных ({n})',
   'settings.revokeOthersConfirm': 'Завершить все сессии кроме текущей?',
   'settings.noSessions': 'Активных сессий нет',
