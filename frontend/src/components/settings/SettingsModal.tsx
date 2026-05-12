@@ -381,12 +381,39 @@ function SessionRow({ s, onRevoke, onRename }: {
   // до того как юзер переименует их.
   const deviceTag = s.device_id ? s.device_id.slice(-4) : null;
 
-  const handleRename = () => {
-    const next = prompt(t('settings.renameDevicePrompt'), title);
-    if (next === null) return;
-    const trimmed = next.trim();
+  // Inline-edit: клик карандашиком превращает заголовок в input. Сохранение —
+  // Enter / клик галочки / blur input'а; отмена — Esc / клик крестика.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // При входе в edit-режим: подставляем текущий title и выделяем текст,
+  // чтобы юзер мог сразу начать печатать новое имя поверх.
+  useEffect(() => {
+    if (editing) {
+      setDraft(title);
+      // Фокус через rAF: input должен быть в DOM, а через requestAnimationFrame
+      // у React хватает времени отрендерить новый JSX.
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    }
+  // title намеренно не в deps — иначе любое внешнее обновление сессии
+  // (refetch) перезапишет черновик пользователя.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    setEditing(false);
     if (!trimmed || trimmed === title) return;
-    onRename(trimmed);
+    onRename(trimmed.slice(0, 100));
+  };
+
+  const cancel = () => {
+    setDraft(title);
+    setEditing(false);
   };
 
   return (
@@ -394,11 +421,30 @@ function SessionRow({ s, onRevoke, onRename }: {
       <Icon size={18} className="text-[var(--text-muted)] shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm text-[var(--text-primary)] truncate">{title}</span>
-          {deviceTag && (
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+              }}
+              // blur пишет результат — типичный паттерн inline-edit. Если юзер
+              // кликнул на Cancel-кнопку, она успеет вызвать cancel() до blur,
+              // потому что её onMouseDown отменяет дефолтный фокус-флоу (см. ниже).
+              onBlur={commit}
+              maxLength={100}
+              placeholder={t('settings.renameDevice')}
+              className="text-sm bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--accent)] rounded px-2 py-0.5 min-w-0 flex-1 focus:outline-none"
+            />
+          ) : (
+            <span className="text-sm text-[var(--text-primary)] truncate">{title}</span>
+          )}
+          {!editing && deviceTag && (
             <span className="text-[10px] text-[var(--text-muted)] font-mono">#{deviceTag}</span>
           )}
-          {s.is_current && (
+          {!editing && s.is_current && (
             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/15 text-green-400">
               {t('settings.currentSession')}
             </span>
@@ -408,14 +454,37 @@ function SessionRow({ s, onRevoke, onRename }: {
           {ua.browser} · {ua.os} · {s.ip ?? '—'} · {t('settings.lastUsed')}: {fmtDate(s.last_used_at)}
         </p>
       </div>
-      <button
-        onClick={handleRename}
-        title={t('settings.renameDevice')}
-        className="p-2 rounded text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-white/5 transition-colors"
-      >
-        <Pencil size={14} />
-      </button>
-      {!s.is_current && (
+      {editing ? (
+        // onMouseDown с preventDefault не даёт input'у потерять фокус ДО клика —
+        // иначе onBlur стрелял бы первым и затирал намерения cancel/commit.
+        <>
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={cancel}
+            title={t('cancel')}
+            className="p-2 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
+          >
+            <X size={14} />
+          </button>
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={commit}
+            title={t('save')}
+            className="p-2 rounded text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors"
+          >
+            <Check size={14} />
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={() => setEditing(true)}
+          title={t('settings.renameDevice')}
+          className="p-2 rounded text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-white/5 transition-colors"
+        >
+          <Pencil size={14} />
+        </button>
+      )}
+      {!editing && !s.is_current && (
         <button
           onClick={onRevoke}
           title={t('settings.revokeSession')}
