@@ -559,9 +559,10 @@ async def rename_session(
     if not sess or sess.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Session not found")
     sess.device_name = body.device_name.strip()[:100]
-    await db.commit()
 
-    # is_current снова считаем как в list_sessions
+    # is_current считаем заранее — после commit'а ORM-объект expired и любое
+    # обращение к sess.id вызовет ленивый SELECT в уже закрытой транзакции
+    # (MissingGreenlet). Снимаем все нужные поля в локальные переменные ДО commit.
     auth = http_request.headers.get('authorization', '')
     current_sid: str | None = None
     if auth.startswith('Bearer '):
@@ -572,8 +573,9 @@ async def rename_session(
         except Exception:
             pass
 
-    return SessionInfo(
-        id=str(sess.id),
+    sess_id_str = str(sess.id)
+    response = SessionInfo(
+        id=sess_id_str,
         user_agent=sess.user_agent or '',
         ip=str(sess.ip) if sess.ip else None,
         device_id=sess.device_id,
@@ -581,8 +583,10 @@ async def rename_session(
         created_at=sess.created_at,
         last_used_at=sess.last_used_at,
         expires_at=sess.expires_at,
-        is_current=(current_sid is not None and str(sess.id) == current_sid),
+        is_current=(current_sid is not None and sess_id_str == current_sid),
     )
+    await db.commit()
+    return response
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
