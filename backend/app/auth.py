@@ -129,6 +129,22 @@ async def create_session(
     и от случайного распухания таблицы при автоматизированных клиентах,
     забывающих logout.
     """
+    # Инвариант: одно устройство (device_id) = одна активная сессия. Если
+    # юзер повторно логинится на этом же устройстве (например, после явного
+    # logout-login), revoke'аем предыдущие активные сессии с тем же device_id,
+    # чтобы они не висели «фантомом» в /sessions. Без device_id (старые клиенты)
+    # не трогаем — нечем сопоставить.
+    if device_id:
+        await db.execute(
+            sql_update(AuthSession)
+            .where(
+                AuthSession.user_id == user_id,
+                AuthSession.device_id == device_id,
+                AuthSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(timezone.utc))
+        )
+
     token_id, plaintext, hashed = generate_refresh_token()
     sess = AuthSession(
         user_id=user_id,

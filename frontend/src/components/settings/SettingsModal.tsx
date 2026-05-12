@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Camera, Check, Eye, EyeOff, Mic, MicOff, Volume2, Smartphone, Monitor, LogOut, Pencil } from 'lucide-react';
 import { authApi, type SessionInfo } from '../../api/auth';
+import { setDeviceName } from '../../utils/device';
 import { useAuthStore } from '../../store/authStore';
 import { useSessionStore } from '../../store/sessionStore';
 import { ApiError } from '../../api/client';
@@ -295,7 +296,21 @@ function SessionsSection() {
 
   const rename = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => authApi.renameSession(id, name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['auth-sessions'] }),
+    onSuccess: (updated) => {
+      // Мгновенно подменяем строку в кеше — invalidate один не даёт UI
+      // обновиться синхронно, refetch может произойти лениво.
+      queryClient.setQueryData<SessionInfo[]>(['auth-sessions'], (old) =>
+        old?.map((s) => (s.id === updated.id ? updated : s)) ?? old,
+      );
+      // Если переименовали свою (текущую) сессию — записываем имя и в
+      // localStorage устройства. Иначе при следующем /refresh клиент пришлёт
+      // старое значение из getDeviceName() и сервер откатит имя обратно.
+      if (updated.is_current && updated.device_name) {
+        setDeviceName(updated.device_name);
+      }
+      // Подстраховка: фоновый рефреш на случай других вкладок/изменений.
+      queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
+    },
   });
 
   const revokeOthers = useMutation({
