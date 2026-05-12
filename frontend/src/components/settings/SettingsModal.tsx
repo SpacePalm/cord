@@ -556,17 +556,56 @@ function AudioTab() {
     setOutputs(devs.filter((d) => d.kind === 'audiooutput'));
   }, []);
 
-  // On mount — check if labels are already available (permission was granted before)
+  // Проверка реального статуса разрешения. Permissions API даёт точный ответ
+  // без необходимости дёргать getUserMedia. Fallback — проверка labels
+  // (Safari < 16 не поддерживает permissions.query({name:'microphone'})).
+  const checkPermission = useCallback(async () => {
+    let state: 'granted' | 'denied' | 'prompt' | null = null;
+    try {
+      // TS lib.dom не знает про 'microphone' как PermissionName — кастуем.
+      const status = await navigator.permissions.query({
+        name: 'microphone' as PermissionName,
+      });
+      state = status.state as 'granted' | 'denied' | 'prompt';
+      // Подписка на change — если юзер дал/отозвал доступ в адресной строке,
+      // UI обновится мгновенно без перезагрузки страницы.
+      status.onchange = () => {
+        const next = status.state as 'granted' | 'denied' | 'prompt';
+        setPermission(next === 'prompt' ? 'unknown' : next);
+        if (next === 'granted') enumerate();
+      };
+    } catch {
+      // Permissions API недоступен (Safari, старые браузеры) — fallback на labels.
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      state = devs.some((d) => d.label) ? 'granted' : 'prompt';
+    }
+    if (state === 'granted') {
+      setPermission('granted');
+      await enumerate();
+    } else if (state === 'denied') {
+      setPermission('denied');
+    } else {
+      setPermission('unknown');
+    }
+  }, [enumerate]);
+
   useEffect(() => {
-    navigator.mediaDevices.enumerateDevices().then((devs) => {
-      if (devs.some((d) => d.label)) {
-        setPermission('granted');
-        setInputs(devs.filter((d) => d.kind === 'audioinput'));
-        setOutputs(devs.filter((d) => d.kind === 'audiooutput'));
-      }
-    });
-    return () => stopMic();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    checkPermission();
+    // Когда подключают/отключают устройства ИЛИ браузер впервые присваивает
+    // labels после grant'а — devicechange срабатывает. Перепроверяем разрешение.
+    const onDeviceChange = () => { checkPermission(); };
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+    // Возврат на вкладку из системных настроек / адресной строки — тоже
+    // повод перепроверить (юзер мог вручную разрешить).
+    const onFocus = () => { checkPermission(); };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+      window.removeEventListener('focus', onFocus);
+      stopMic();
+    };
+  }, [checkPermission]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const requestPermission = async () => {
     try {
