@@ -296,20 +296,21 @@ function SessionsSection() {
 
   const rename = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => authApi.renameSession(id, name),
-    onSuccess: (updated) => {
-      // Мгновенно подменяем строку в кеше — invalidate один не даёт UI
-      // обновиться синхронно, refetch может произойти лениво.
-      queryClient.setQueryData<SessionInfo[]>(['auth-sessions'], (old) =>
-        old?.map((s) => (s.id === updated.id ? updated : s)) ?? old,
-      );
+    onSuccess: async (updated) => {
       // Если переименовали свою (текущую) сессию — записываем имя и в
       // localStorage устройства. Иначе при следующем /refresh клиент пришлёт
       // старое значение из getDeviceName() и сервер откатит имя обратно.
       if (updated.is_current && updated.device_name) {
         setDeviceName(updated.device_name);
       }
-      // Подстраховка: фоновый рефреш на случай других вкладок/изменений.
-      queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
+      // Оптимистично подменяем строку в кеше — мгновенно отражаем в UI.
+      queryClient.setQueryData<SessionInfo[]>(['auth-sessions'], (old) =>
+        old ? old.map((s) => (s.id === updated.id ? updated : s)) : old,
+      );
+      // refetchQueries (а не invalidate) гарантирует, что данные с сервера
+      // придут и подменят кеш СИНХРОННО, без ожидания подписчика. Если
+      // оптимистичный update почему-то не зацепил рендер — это закроет дыру.
+      await queryClient.refetchQueries({ queryKey: ['auth-sessions'] });
     },
   });
 
