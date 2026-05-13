@@ -1,9 +1,12 @@
+import logging
 import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request, UploadFile, File
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -34,11 +37,20 @@ refresh_limiter = RateLimiter(key='refresh', limit=20, window_seconds=60)
 # /logout: реже, чем refresh, но всё равно нужен лимит — оба эндпоинта делают bcrypt.
 logout_limiter = RateLimiter(key='logout', limit=10, window_seconds=60)
 
-# Grace period: если refresh-токен только-только revoked'ился (вкладки
-# юзера погнали два refresh'а одновременно), не считаем это steal-detection.
-# Атакующий за 10 секунд после первого refresh'а вряд ли успеет — этот
-# временной зазор защищает только от race condition, не от настоящей кражи.
-REFRESH_REUSE_GRACE_SECONDS = 60
+# Двухступенчатая защита от reuse refresh-токена (RFC 6819 §5.2.2.3):
+#
+# 1) age ≤ GRACE_SECONDS — race condition вкладок/устройств. 401 без последствий,
+#    клиент молча подхватит свежий refresh через retry-on-stale (см. client.ts).
+# 2) GRACE_SECONDS < age ≤ NUKE_SECONDS — подозрительно, но может быть лагающий
+#    клиент / Chrome Sync / iCloud Keychain с устаревшим токеном. Отказываем
+#    конкретному запросу, но другие сессии юзера не трогаем (логируем для аудита).
+# 3) age > NUKE_SECONDS — точно reuse. Жжём все сессии юзера.
+#
+# Раньше был один порог 10s → жесткий revoke_all. Это давало массовый logout
+# при медленной сети после wake-from-sleep, или если устройство принесло
+# refresh из устаревшей синхронизации.
+REFRESH_REUSE_GRACE_SECONDS = 60        # 1 мин — race условие
+REFRESH_REUSE_NUKE_SECONDS  = 3600      # 1 час — выше этого считаем кражей
 
 class RegisterRequest(BaseModel):
     username: str
@@ -405,8 +417,10 @@ async def refresh_tokens(
     """
     await refresh_limiter.check(http_request)
 
+    ip = fail2ban.get_client_ip(http_request)
     parsed = parse_refresh_token(body.refresh_token)
     if not parsed:
+        logger.info('refresh failed: malformed token (ip=%s)', ip)
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     token_id, secret = parsed
 
@@ -420,21 +434,46 @@ async def refresh_tokens(
         .with_for_update()
     )
 
-    if matched is None or not verify_refresh_secret(secret, matched.refresh_token_hash):
-        # Не существует или secret не совпадает (атакующий подсунул мусор)
+    if matched is None:
+        # Сессия не найдена — либо удалена cleanup'ом (старше 90 дней), либо
+        # token_id никогда не существовал. Это частая причина «вышло утром»:
+        # бэк перезапускался, refresh-сессия удалена админом, или другой инстанс
+        # её revoke'нул и потом physically удалил.
+        logger.info('refresh failed: token_id=%s not found (ip=%s)', token_id, ip)
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    if not verify_refresh_secret(secret, matched.refresh_token_hash):
+        logger.warning('refresh failed: secret mismatch (uid=%s, token_id=%s, ip=%s)',
+                       matched.user_id, token_id, ip)
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     if matched.expires_at <= datetime.now(timezone.utc):
+        logger.info('refresh failed: expired (uid=%s, expired %s, ip=%s)',
+                    matched.user_id, matched.expires_at, ip)
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
-    # Reuse detection с grace period
+    # Reuse detection с двумя порогами (см. константы выше).
     if matched.revoked_at is not None:
         age = (datetime.now(timezone.utc) - matched.revoked_at).total_seconds()
         if age <= REFRESH_REUSE_GRACE_SECONDS:
-            # Только что revoked — это race condition между параллельными
-            # refresh'ами с разных вкладок. Не паникуем.
+            # Race condition вкладок/refresh-параллелизма. Молча отказываем.
+            logger.info('refresh: grace race (uid=%s, age=%.1fs, ip=%s)',
+                        matched.user_id, age, ip)
             raise HTTPException(status_code=401, detail="Token already used; please retry")
-        # Реальный reuse: атакующий или старая копия токена. Жжём всё.
+        if age <= REFRESH_REUSE_NUKE_SECONDS:
+            # Подозрительно, но возможна лагающая сеть / устаревшая копия из
+            # browser-sync. Отказываем запросу, но другие сессии юзера не трогаем.
+            logger.warning(
+                'refresh: stale token reused (uid=%s, age=%ds, token_id=%s, ip=%s)',
+                matched.user_id, int(age), token_id, ip,
+            )
+            raise HTTPException(status_code=401, detail="Refresh token stale; please log in again")
+        # age > 1 часа — почти наверняка реальная кража. Жжём всё.
+        logger.error(
+            'REFRESH REUSE DETECTED — revoking all sessions (uid=%s, age=%ds, token_id=%s, ip=%s, ua=%s)',
+            matched.user_id, int(age), token_id, ip,
+            http_request.headers.get('user-agent', '')[:200],
+        )
         await revoke_all_user_sessions(db, matched.user_id)
         await db.commit()
         raise HTTPException(status_code=401, detail="Token reuse detected; all sessions revoked")
@@ -444,7 +483,7 @@ async def refresh_tokens(
         raise HTTPException(status_code=401, detail="Account inactive")
 
     # IP-блок чек: если юзер забанен fail2ban'ом — refresh не проходит
-    ip = fail2ban.get_client_ip(http_request)
+    # (`ip` уже снят выше для логирования).
     await fail2ban.assert_not_blocked(db, ip=ip, user=user)
 
     # Rotation: revoke старую сессию, создаём новую с свежим refresh.
