@@ -37,20 +37,21 @@ refresh_limiter = RateLimiter(key='refresh', limit=20, window_seconds=60)
 # /logout: реже, чем refresh, но всё равно нужен лимит — оба эндпоинта делают bcrypt.
 logout_limiter = RateLimiter(key='logout', limit=10, window_seconds=60)
 
-# Двухступенчатая защита от reuse refresh-токена (RFC 6819 §5.2.2.3):
+# Refresh-токен НЕ ротируется при /refresh.
 #
-# 1) age ≤ GRACE_SECONDS — race condition вкладок/устройств. 401 без последствий,
-#    клиент молча подхватит свежий refresh через retry-on-stale (см. client.ts).
-# 2) GRACE_SECONDS < age ≤ NUKE_SECONDS — подозрительно, но может быть лагающий
-#    клиент / Chrome Sync / iCloud Keychain с устаревшим токеном. Отказываем
-#    конкретному запросу, но другие сессии юзера не трогаем (логируем для аудита).
-# 3) age > NUKE_SECONDS — точно reuse. Жжём все сессии юзера.
+# Раньше каждый /refresh выдавал новую пару (access + refresh) и помечал
+# старый refresh как revoked. Это создавало нерешаемые проблемы:
+# - mobile-вкладки в фоне просыпаются со «старым» refresh → выкидывает;
+# - параллельные /refresh с разных вкладок → race + revoke_all;
+# - browser-sync с устаревшим токеном → revoke_all всех устройств.
 #
-# Раньше был один порог 10s → жесткий revoke_all. Это давало массовый logout
-# при медленной сети после wake-from-sleep, или если устройство принесло
-# refresh из устаревшей синхронизации.
-REFRESH_REUSE_GRACE_SECONDS = 60        # 1 мин — race условие
-REFRESH_REUSE_NUKE_SECONDS  = 3600      # 1 час — выше этого считаем кражей
+# Сейчас модель проще: refresh — long-lived bearer (30 дней без ротации).
+# При /refresh выдаём только новый access, refresh остаётся прежним.
+# Безопасность поддерживается за счёт:
+# - короткого access (15 мин);
+# - UI «Активные сессии» с ручным revoke;
+# - fail2ban на /refresh при атаке;
+# - cap 20 одновременных сессий на юзера.
 
 class RegisterRequest(BaseModel):
     username: str
@@ -404,16 +405,15 @@ async def refresh_tokens(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Обмен refresh-токена на новую пару (access + refresh) с rotation.
+    """Обмен refresh-токена на новый access-токен. БЕЗ ротации refresh.
 
     Поток:
-    1. Парсим token_id (32 hex) и secret из plaintext-токена
-    2. Indexed lookup сессии по token_id — O(1) вместо bcrypt-scan по всем
-    3. SELECT FOR UPDATE — сериализуем concurrent refresh от одного клиента
-    4. bcrypt-сравнение secret-части
-    5. Если revoked, но < 10 сек назад — race condition вкладок, отдаём 401
-       без катастрофы. Если > 10 сек — реальный reuse, жжём все сессии юзера
-    6. Rotation: revoke старую, создаём новую
+    1. Парсим token_id (32 hex) и secret из plaintext-токена.
+    2. Indexed lookup сессии по token_id (O(1)).
+    3. HMAC-сравнение secret-части.
+    4. Проверки: не expired, не revoked, юзер активен, IP не забанен.
+    5. Обновляем last_used_at (+ device_id/name если клиент прислал).
+    6. Возвращаем НОВЫЙ access, ТОТ ЖЕ refresh-токен (без ротации).
     """
     await refresh_limiter.check(http_request)
 
@@ -424,10 +424,8 @@ async def refresh_tokens(
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     token_id, secret = parsed
 
-    # SELECT FOR UPDATE сериализует concurrent /refresh от одного клиента
-    # (например двух вкладок с одинаковым refresh после перезапуска бэка).
-    # Второй refresh подождёт пока первый закоммитится, увидит revoked_at и
-    # уйдёт в grace-period или steal-detection.
+    # SELECT FOR UPDATE предотвращает гонку конкурентных обновлений last_used_at
+    # с одного клиента (несколько вкладок одновременно делают /refresh).
     matched = await db.scalar(
         select(AuthSession)
         .where(AuthSession.token_id == token_id)
@@ -435,10 +433,9 @@ async def refresh_tokens(
     )
 
     if matched is None:
-        # Сессия не найдена — либо удалена cleanup'ом (старше 90 дней), либо
-        # token_id никогда не существовал. Это частая причина «вышло утром»:
-        # бэк перезапускался, refresh-сессия удалена админом, или другой инстанс
-        # её revoke'нул и потом physically удалил.
+        # Сессия не найдена — либо удалена cleanup'ом, либо token_id никогда
+        # не существовал, либо юзер сделал «Revoke Others» в UI и эту запись
+        # снесли. В любом случае клиент идёт на /login.
         logger.info('refresh failed: token_id=%s not found (ip=%s)', token_id, ip)
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
@@ -452,62 +449,43 @@ async def refresh_tokens(
                     matched.user_id, matched.expires_at, ip)
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
-    # Reuse detection с двумя порогами (см. константы выше).
+    # Сессия revoked в БД (юзер вышел на этом устройстве через logout, или
+    # админ revoke'нул). Клиент идёт на /login. revoked_at тут — это явное
+    # действие, а не следствие rotation (rotation мы убрали).
     if matched.revoked_at is not None:
-        age = (datetime.now(timezone.utc) - matched.revoked_at).total_seconds()
-        if age <= REFRESH_REUSE_GRACE_SECONDS:
-            # Race condition вкладок/refresh-параллелизма. Молча отказываем.
-            logger.info('refresh: grace race (uid=%s, age=%.1fs, ip=%s)',
-                        matched.user_id, age, ip)
-            raise HTTPException(status_code=401, detail="Token already used; please retry")
-        if age <= REFRESH_REUSE_NUKE_SECONDS:
-            # Подозрительно, но возможна лагающая сеть / устаревшая копия из
-            # browser-sync. Отказываем запросу, но другие сессии юзера не трогаем.
-            logger.warning(
-                'refresh: stale token reused (uid=%s, age=%ds, token_id=%s, ip=%s)',
-                matched.user_id, int(age), token_id, ip,
-            )
-            raise HTTPException(status_code=401, detail="Refresh token stale; please log in again")
-        # age > 1 часа — почти наверняка реальная кража. Жжём всё.
-        logger.error(
-            'REFRESH REUSE DETECTED — revoking all sessions (uid=%s, age=%ds, token_id=%s, ip=%s, ua=%s)',
-            matched.user_id, int(age), token_id, ip,
-            http_request.headers.get('user-agent', '')[:200],
-        )
-        await revoke_all_user_sessions(db, matched.user_id)
-        await db.commit()
-        raise HTTPException(status_code=401, detail="Token reuse detected; all sessions revoked")
+        logger.info('refresh failed: session revoked (uid=%s, token_id=%s, ip=%s)',
+                    matched.user_id, token_id, ip)
+        raise HTTPException(status_code=401, detail="Session revoked; please log in again")
 
     user = await db.get(User, matched.user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Account inactive")
 
-    # IP-блок чек: если юзер забанен fail2ban'ом — refresh не проходит
-    # (`ip` уже снят выше для логирования).
+    # IP-блок чек: если юзер забанен fail2ban'ом — refresh не проходит.
     await fail2ban.assert_not_blocked(db, ip=ip, user=user)
 
-    # Rotation: revoke старую сессию, создаём новую с свежим refresh.
-    # device_id/name переносим из старой сессии, чтобы устройство сохраняло
-    # идентичность через ротации. Если клиент прислал свои значения — они
-    # имеют приоритет (например, после переименования устройства в UI).
-    matched.revoked_at = datetime.now(timezone.utc)
-    new_session, new_refresh = await create_session(
-        db, user.id,
-        http_request.headers.get('user-agent'),
-        ip,
-        device_id=body.device_id or matched.device_id,
-        device_name=body.device_name or matched.device_name,
-    )
-    new_session_id = new_session.id
+    # Обновляем last_used_at в БД (для UI «Активные сессии»). Заодно
+    # подхватываем новый device_name если юзер только что переименовал
+    # на этом устройстве — иначе при следующем /refresh оно вернёт старое.
+    matched.last_used_at = datetime.now(timezone.utc)
+    if body.device_id and not matched.device_id:
+        matched.device_id = body.device_id[:64]
+    if body.device_name:
+        matched.device_name = body.device_name[:100]
+
+    session_id_str = str(matched.id)
     user_id_local = user.id
     user_username = user.username
     user_role = user.role
     await db.commit()
 
-    new_access = create_access_token(user_id_local, user_username, user_role, session_id=str(new_session_id))
+    new_access = create_access_token(user_id_local, user_username, user_role, session_id=session_id_str)
     return RefreshResponse(
         access_token=new_access,
-        refresh_token=new_refresh,
+        # Возвращаем тот же refresh, что прислал клиент. Клиент перезапишет
+        # его в localStorage — это безопасный no-op, но проще чем условный
+        # код на фронте «обновляй только если новый отличается».
+        refresh_token=body.refresh_token,
         token_type="bearer",
         expires_in=60 * 15,
     )

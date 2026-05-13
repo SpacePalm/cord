@@ -41,17 +41,13 @@ function handleBlocked(detail: { kind?: string; expires_at?: string | null } | n
 let refreshInflight: Promise<boolean> | null = null;
 
 /**
- * Единственная точка ротации refresh-токена в приложении.
+ * Обмен refresh-токена на новый access. Refresh-токен НЕ ротируется на бэке
+ * (long-lived bearer 30 дней), поэтому возвращается тот же что прислали —
+ * race condition между вкладками невозможна, всем достаётся одинаковый refresh.
  *
- * Несколько параллельных вызовов СЛИВАЮТСЯ в одну сетевую попытку через
- * shared inflight — но это работает только внутри одной вкладки.
- * Между вкладками shared inflight нет, поэтому добавлен retry-on-stale:
- * если /refresh вернул 401, но в localStorage уже появился новый
- * refresh-token (значит соседняя вкладка успела отротировать), считаем
- * что нас всё ещё авторизованы и переиспользуем её результат.
- *
- * Экспортируется чтобы useWebSocket.tsx и другой код шёл через тот же
- * inflight, а не делал свой /refresh.
+ * Несколько параллельных вызовов внутри одной вкладки сливаются в одну сетевую
+ * попытку через shared inflight — это всё ещё полезно, чтобы не плодить лишних
+ * запросов при одновременных 401 от HTTP и WS.
  */
 export async function tryRefresh(): Promise<boolean> {
   if (refreshInflight) return refreshInflight;
@@ -65,20 +61,18 @@ export async function tryRefresh(): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           refresh_token: sentToken,
-          // Передаём device-метку чтобы новая сессия после ротации сохранила
-          // идентичность устройства (важно для UI /sessions: «текущее устройство»).
+          // device_id/name — бэк подхватит для UI «Активные сессии».
           device_id: getDeviceId(),
           device_name: getDeviceName(),
         }),
       });
       if (r.ok) {
         const data = await r.json();
-        // Ротация: пишем оба новых токена и в localStorage, и в Zustand-store.
+        // refresh не меняется на бэке, но setTokens идемпотентен — пишем оба.
         useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
         return true;
       }
-      // 403 на /refresh = IP/аккаунт забанили fail2ban'ом за время простоя.
-      // Юзера надо вести на /blocked со ссылкой на причину, а не на /login.
+      // 403 = IP/аккаунт забанили fail2ban'ом — ведём на /blocked.
       if (r.status === 403) {
         try {
           const body = await r.json();
@@ -88,17 +82,10 @@ export async function tryRefresh(): Promise<boolean> {
           }
         } catch { /* не json — игнор */ }
       }
-      // Не-ok ответ. Проверяем, не успела ли соседняя вкладка отротировать
-      // тот же самый sentToken, пока мы ждали ответ от бэка. Если в
-      // localStorage уже лежит ДРУГОЙ refresh-token — значит сосед прошёл
-      // первым, у нас уже свежая пара, считаем успехом.
-      const current = localStorage.getItem('refresh_token');
-      if (current && current !== sentToken) return true;
       return false;
     } catch {
       return false;
     } finally {
-      // Сброс через микротик — другие ожидающие 401 уже подхватят результат.
       setTimeout(() => { refreshInflight = null; }, 0);
     }
   })();
