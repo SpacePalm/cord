@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Pencil, Trash2, Forward, Check, Reply, Play, Pause, Copy, Pin, CheckSquare, MoreHorizontal, Smile, Download } from 'lucide-react';
@@ -384,6 +384,7 @@ function ForwardedBanner({ msg }: { msg: Message }) {
 function EditForm({ msg, onDone }: { msg: Message; onDone: () => void }) {
   const [value, setValue] = useState(msg.content ?? '');
   const queryClient = useQueryClient();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const editMutation = useMutation({
     mutationFn: () => messagesApi.edit(msg.chat_id, msg.id, value),
@@ -396,6 +397,18 @@ function EditForm({ msg, onDone }: { msg: Message; onDone: () => void }) {
     },
   });
 
+  const adjustHeight = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 400)}px`;
+  };
+
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    adjustHeight(el);
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); editMutation.mutate(); }
     if (e.key === 'Escape') onDone();
@@ -404,12 +417,13 @@ function EditForm({ msg, onDone }: { msg: Message; onDone: () => void }) {
   return (
     <div className="mt-1">
       <textarea
+        ref={textareaRef}
         autoFocus
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => { setValue(e.target.value); adjustHeight(e.target); }}
         onKeyDown={handleKey}
-        rows={2}
-        className="w-full px-3 py-2 rounded bg-[var(--bg-input)] text-sm text-[var(--text-primary)] resize-none outline-none focus:ring-1 focus:ring-[var(--accent)]"
+        rows={1}
+        className="w-full px-3 py-2 rounded bg-[var(--bg-input)] text-sm text-[var(--text-primary)] resize-none outline-none focus:ring-1 focus:ring-[var(--accent)] overflow-y-auto min-h-[40px]"
       />
       <div className="flex items-center gap-2 mt-1 text-xs text-[var(--text-muted)]">
         Enter — сохранить · Esc — отмена
