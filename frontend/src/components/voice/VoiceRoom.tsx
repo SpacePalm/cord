@@ -1274,13 +1274,6 @@ function RoomContent() {
   const cols = Math.ceil(Math.sqrt(count));
   const rows = Math.ceil(count / cols);
 
-  // Список доступных источников для main pane (только когда есть screen share —
-  // в этом режиме мы переключаемся между ними; без screen share показываем grid
-  // всех участников). Сначала screen-shares (приоритет — трансляция), потом
-  // камеры/аватары участников.
-  const screenKeys = screenTracks.map((tr) => `screen:${tr.participant.identity}`);
-  const participantKeys = participants.map((p) => `participant:${p.identity}`);
-
   // Если нет ни одной screen share — обычный grid всех участников.
   if (!hasScreenShare) {
     return (
