@@ -942,11 +942,12 @@ function DeviceSync() {
 
 // ─── Small participant (strip below screen share) ───────────────────
 
-function SmallParticipant({ participant, isLocal, onFocus, active }: {
+function SmallParticipant({ participant, isLocal, onFocus, active, sizeClass }: {
   participant: any;
   isLocal: boolean;
   onFocus?: () => void;
   active?: boolean;
+  sizeClass: string;
 }) {
   const t = useT();
   const isSpeaking = useIsSpeaking(participant);
@@ -997,29 +998,37 @@ function SmallParticipant({ participant, isLocal, onFocus, active }: {
   return (
     <div
       onClick={onFocus}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/cord-source', `participant:${participant.identity}`);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
       title={onFocus && !active ? t('voice.focusSource') : undefined}
       className={`
-        relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 group
+        relative rounded-lg overflow-hidden shrink-0 group ${sizeClass}
         ${onFocus && !active ? 'cursor-pointer hover:ring-2 hover:ring-[var(--accent)]' : ''}
         ${active ? 'ring-2 ring-[var(--accent)]' : ''}
-        ${isSpeaking && !deafened && !isUserMuted ? 'bg-green-500/20 ring-1 ring-green-400' : 'bg-white/5'}
+        ${isSpeaking && !deafened && !isUserMuted ? 'bg-green-500/20 ring-1 ring-green-400' : 'bg-black/40'}
         transition-all
       `}
     >
       {hasCamera ? (
-        <div className="relative w-[72px] h-[54px] rounded overflow-hidden bg-black">
-          <video ref={videoRef} autoPlay playsInline muted={isLocal} className="absolute inset-0 w-full h-full object-cover" />
-        </div>
+        <video ref={videoRef} autoPlay playsInline muted={isLocal} className="absolute inset-0 w-full h-full object-cover" />
       ) : (
-        <ParticipantAvatar
-          participant={participant}
-          size={40}
-          bgClass={isSpeaking && !deafened && !isUserMuted ? 'bg-green-500' : 'bg-[var(--accent)]'}
-        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <ParticipantAvatar
+            participant={participant}
+            size={40}
+            bgClass={isSpeaking && !deafened && !isUserMuted ? 'bg-green-500' : 'bg-[var(--accent)]'}
+          />
+        </div>
       )}
-      <span className="text-[11px] text-[var(--text-secondary)] truncate max-w-[72px]">
-        {participant.name || participant.identity}
-      </span>
+      {/* Имя поверх внизу — на чёрном градиенте, как у ScreenShareThumbnail */}
+      <div className="absolute inset-x-0 bottom-0 px-1.5 py-1 bg-gradient-to-t from-black/70 via-black/30 to-transparent pointer-events-none">
+        <span className="text-[10px] text-white truncate block">
+          {participant.name || participant.identity}
+        </span>
+      </div>
       <div className="absolute top-1 left-1 flex items-center gap-0.5 pointer-events-none">
         <QualityIndicator participant={participant} small />
         {isMuted && (
@@ -1057,10 +1066,11 @@ function SmallParticipant({ participant, isLocal, onFocus, active }: {
 
 // ─── Маленькая превьюшка screen share — для strip-а когда камера primary ─
 
-function ScreenShareThumbnail({ trackRef, onClick, active }: {
+function ScreenShareThumbnail({ trackRef, onClick, active, sizeClass }: {
   trackRef: any;
   onClick: () => void;
   active?: boolean;
+  sizeClass: string;
 }) {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1078,9 +1088,14 @@ function ScreenShareThumbnail({ trackRef, onClick, active }: {
 
   return (
     <button
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/cord-source', `screen:${trackRef?.participant?.identity || ''}`);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
       onClick={onClick}
       title={active ? undefined : t('voice.focusSource')}
-      className={`relative shrink-0 w-32 h-20 rounded-lg overflow-hidden bg-black group transition-all ${
+      className={`relative shrink-0 rounded-lg overflow-hidden bg-black group transition-all ${sizeClass} ${
         active
           ? 'ring-2 ring-[var(--accent)]'
           : 'hover:ring-2 hover:ring-[var(--accent)]'
@@ -1092,7 +1107,6 @@ function ScreenShareThumbnail({ trackRef, onClick, active }: {
           <MonitorUp size={10} /> {pName}
         </span>
       </div>
-      {/* Hover-overlay только для неактивных — нажимать на активную бессмысленно */}
       {!active && (
         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-black/30 flex items-center justify-center transition-opacity pointer-events-none">
           <ArrowLeftRight size={20} className="text-white" />
@@ -1219,16 +1233,16 @@ function StripPositionMenu({ position, onChange }: {
   const options: Array<'bottom' | 'right' | 'top' | 'left'> = ['bottom', 'right', 'top', 'left'];
 
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div ref={rootRef} className="absolute top-2 right-2 z-20">
       <button
         onClick={() => setOpen((v) => !v)}
         title={t('voice.stripMenu')}
-        className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+        className="p-1.5 rounded-md bg-black/40 hover:bg-black/60 text-white/80 hover:text-white backdrop-blur-sm transition-colors"
       >
         {iconFor(position)}
       </button>
       {open && (
-        <div className="absolute z-30 bottom-full mb-1 left-0 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-xl py-1 min-w-[140px]">
+        <div className="absolute z-30 top-full mt-1 right-0 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-xl py-1 min-w-[140px]">
           {options.map((p) => (
             <button
               key={p}
@@ -1374,9 +1388,14 @@ function RoomContent() {
   const stripStyle: React.CSSProperties = isHorizontalStrip
     ? { height: stripSize }
     : { width: stripSize };
+  // Резервируем место под absolute кнопку-меню в углу: в horizontal strip —
+  // справа (pr-12), в vertical — сверху (pt-12).
   const stripDirCls = isHorizontalStrip
-    ? 'flex-row overflow-x-auto items-center'
-    : 'flex-col overflow-y-auto items-center';
+    ? 'flex-row overflow-x-auto items-center pr-12'
+    : 'flex-col overflow-y-auto items-center pt-12';
+  // Размер плитки: в horizontal strip ограничиваем по высоте (h-full + aspect),
+  // в vertical — по ширине (w-full + aspect). Всё на одной 16:9 базе.
+  const tileSizeCls = isHorizontalStrip ? 'h-full aspect-video' : 'w-full aspect-video';
   const dividerCls = isHorizontalStrip
     ? 'w-px h-12 bg-[var(--border-color)] shrink-0 mx-1'
     : 'h-px w-12 bg-[var(--border-color)] shrink-0 my-1';
@@ -1387,7 +1406,19 @@ function RoomContent() {
           (absolute) корректно позиционировался в верхнем правом углу.
           ScreenShareView сам — flex-1; для ParticipantTile нужен flex-1 wrapper
           плюс h-full w-full на самой плитке. */}
-      <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
+      <div
+        className="relative flex-1 min-h-0 min-w-0 flex flex-col"
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('text/cord-source')) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+          }
+        }}
+        onDrop={(e) => {
+          const key = e.dataTransfer.getData('text/cord-source');
+          if (key) { e.preventDefault(); setFocusedKey(key); }
+        }}
+      >
         {focusedScreenTrack ? (
           <ScreenShareView
             key={focusedScreenTrack.participant.identity}
@@ -1428,6 +1459,7 @@ function RoomContent() {
                   trackRef={tr}
                   active={focusedKey === key}
                   onClick={() => setFocusedKey(key)}
+                  sizeClass={tileSizeCls}
                 />
               );
             })}
@@ -1443,6 +1475,7 @@ function RoomContent() {
                   isLocal={p.identity === localParticipant.identity}
                   active={focusedKey === key}
                   onFocus={() => setFocusedKey(key)}
+                  sizeClass={tileSizeCls}
                 />
               );
             })}
