@@ -18,7 +18,7 @@ import {
   MonitorUp, MonitorOff, X, Volume2, VolumeX,
   Maximize, Minimize, Headphones, HeadphoneOff,
   MoreVertical, Signal, MessageSquare, Video, VideoOff, ArrowLeftRight,
-  PanelBottom, PanelRight,
+  PanelBottom, PanelTop, PanelLeft, PanelRight,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { voiceApi } from '../../api/voice';
@@ -683,6 +683,7 @@ function ParticipantTile({ participant, isLocal, large }: { participant: any; is
       className={`
         relative rounded-xl overflow-hidden flex flex-col items-center justify-center
         text-white font-bold transition-all duration-200 min-h-0
+        ${large ? 'w-full h-full flex-1' : ''}
         ${isSpeaking && !deafened && !isUserMuted ? 'bg-green-500/20 ring-2 ring-green-400' : 'bg-white/5'}
       `}
     >
@@ -1103,19 +1104,20 @@ function ScreenShareThumbnail({ trackRef, onClick, active }: {
 
 // ─── Resize handle для strip-а (mouse + touch) ────────────────────
 
-function StripResizeHandle({ orientation, onResize, containerRef }: {
-  orientation: 'horizontal' | 'vertical';
+function StripResizeHandle({ position, onResize, containerRef }: {
+  position: 'bottom' | 'top' | 'right' | 'left';
   onResize: (px: number) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const draggingRef = useRef(false);
+  const isHorizontalAxis = position === 'bottom' || position === 'top';
 
   const startDrag = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     draggingRef.current = true;
     document.body.style.userSelect = 'none';
-    document.body.style.cursor = orientation === 'horizontal' ? 'row-resize' : 'col-resize';
-  }, [orientation]);
+    document.body.style.cursor = isHorizontalAxis ? 'row-resize' : 'col-resize';
+  }, [isHorizontalAxis]);
 
   useEffect(() => {
     const clientPoint = (e: MouseEvent | TouchEvent) => {
@@ -1131,17 +1133,20 @@ function StripResizeHandle({ orientation, onResize, containerRef }: {
       const pt = clientPoint(e);
       if (!pt) return;
       const rect = container.getBoundingClientRect();
-      if (orientation === 'horizontal') {
-        // Strip снизу → размер = bottom_контейнера - cursor.y
-        const px = rect.bottom - pt.y;
-        // Min 60 (плитки видны) / max 60% контейнера, чтобы main pane не пропал
-        const clamped = Math.max(60, Math.min(rect.height * 0.6, px));
-        onResize(Math.round(clamped));
-      } else {
-        const px = rect.right - pt.x;
-        const clamped = Math.max(100, Math.min(rect.width * 0.5, px));
-        onResize(Math.round(clamped));
-      }
+      // Размер strip-а = расстояние от его «дальнего» края контейнера до курсора.
+      //   bottom: rect.bottom - cursor.y
+      //   top:    cursor.y - rect.top
+      //   right:  rect.right - cursor.x
+      //   left:   cursor.x - rect.left
+      let px: number;
+      let maxPx: number;
+      let minPx: number;
+      if (position === 'bottom') { px = rect.bottom - pt.y; maxPx = rect.height * 0.6; minPx = 60; }
+      else if (position === 'top') { px = pt.y - rect.top; maxPx = rect.height * 0.6; minPx = 60; }
+      else if (position === 'right') { px = rect.right - pt.x; maxPx = rect.width * 0.5; minPx = 100; }
+      else { px = pt.x - rect.left; maxPx = rect.width * 0.5; minPx = 100; }
+      const clamped = Math.max(minPx, Math.min(maxPx, px));
+      onResize(Math.round(clamped));
     };
 
     const onUp = () => {
@@ -1163,19 +1168,82 @@ function StripResizeHandle({ orientation, onResize, containerRef }: {
       window.removeEventListener('touchend', onUp);
       window.removeEventListener('touchcancel', onUp);
     };
-  }, [orientation, onResize, containerRef]);
+  }, [position, onResize, containerRef]);
 
   return (
     <div
       onMouseDown={startDrag}
       onTouchStart={startDrag}
-      className={`shrink-0 group ${
-        orientation === 'horizontal'
-          ? 'h-1.5 w-full cursor-row-resize'
-          : 'w-1.5 h-full cursor-col-resize'
+      className={`shrink-0 ${
+        isHorizontalAxis ? 'h-1.5 w-full cursor-row-resize' : 'w-1.5 h-full cursor-col-resize'
       } bg-[var(--border-color)] hover:bg-[var(--accent)] transition-colors`}
-      title=" "
     />
+  );
+}
+
+// ─── Меню выбора позиции strip-а — dropdown в углу main pane ──────
+
+function StripPositionMenu({ position, onChange }: {
+  position: 'bottom' | 'top' | 'right' | 'left';
+  onChange: (p: 'bottom' | 'top' | 'right' | 'left') => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Закрытие меню при клике вне — стандартный outside-click pattern.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  const iconFor = (p: 'bottom' | 'top' | 'right' | 'left') => {
+    if (p === 'bottom') return <PanelBottom size={14} />;
+    if (p === 'top') return <PanelTop size={14} />;
+    if (p === 'right') return <PanelRight size={14} />;
+    return <PanelLeft size={14} />;
+  };
+
+  const labelFor = (p: 'bottom' | 'top' | 'right' | 'left') => ({
+    bottom: t('voice.stripBottom'),
+    top: t('voice.stripTop'),
+    right: t('voice.stripRight'),
+    left: t('voice.stripLeft'),
+  }[p]);
+
+  const options: Array<'bottom' | 'right' | 'top' | 'left'> = ['bottom', 'right', 'top', 'left'];
+
+  return (
+    <div ref={rootRef} className="absolute top-2 right-2 z-20">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={t('voice.stripMenu')}
+        className="p-1.5 rounded-md bg-black/40 hover:bg-black/60 text-white/80 hover:text-white backdrop-blur-sm transition-colors"
+      >
+        {iconFor(position)}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-xl py-1 min-w-[160px]">
+          {options.map((p) => (
+            <button
+              key={p}
+              onClick={() => { onChange(p); setOpen(false); }}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-white/5 transition-colors ${
+                p === position ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
+              }`}
+            >
+              {iconFor(p)}
+              <span>{labelFor(p)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1194,14 +1262,15 @@ function RoomContent() {
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
 
   // Strip layout (persisted в sessionStore, per-device).
-  const stripOrientation = useSessionStore((s) => s.voiceStripOrientation);
+  const stripPosition = useSessionStore((s) => s.voiceStripPosition);
   const stripSizeH = useSessionStore((s) => s.voiceStripSizeHorizontal);
   const stripSizeV = useSessionStore((s) => s.voiceStripSizeVertical);
-  const setStripOrientation = useSessionStore((s) => s.setVoiceStripOrientation);
+  const setStripPosition = useSessionStore((s) => s.setVoiceStripPosition);
   const setStripSizeH = useSessionStore((s) => s.setVoiceStripSizeHorizontal);
   const setStripSizeV = useSessionStore((s) => s.setVoiceStripSizeVertical);
-  const stripSize = stripOrientation === 'horizontal' ? stripSizeH : stripSizeV;
-  const setStripSize = stripOrientation === 'horizontal' ? setStripSizeH : setStripSizeV;
+  const isHorizontalStrip = stripPosition === 'bottom' || stripPosition === 'top';
+  const stripSize = isHorizontalStrip ? stripSizeH : stripSizeV;
+  const setStripSize = isHorizontalStrip ? setStripSizeH : setStripSizeV;
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Звук на join/leave участников. Первый tick только инициализирует snapshot,
@@ -1293,25 +1362,32 @@ function RoomContent() {
     ? participants.find((p) => `participant:${p.identity}` === focusedKey)
     : null;
 
-  const isHorizontal = stripOrientation === 'horizontal';
-  // Контейнер и strip разворачиваются в зависимости от ориентации:
-  //   horizontal — flex-col, strip снизу с высотой stripSize
-  //   vertical   — flex-row, strip справа с шириной stripSize
-  const containerDirCls = isHorizontal ? 'flex-col' : 'flex-row';
-  const stripStyle: React.CSSProperties = isHorizontal
+  // Direction контейнера: для bottom/right — main pane сначала, strip потом.
+  // Для top/left — наоборот (strip сначала). Реализуем через flex-direction
+  // с -reverse: например 'top' = flex-col-reverse.
+  const containerDirCls =
+    stripPosition === 'bottom' ? 'flex-col'
+    : stripPosition === 'top' ? 'flex-col-reverse'
+    : stripPosition === 'right' ? 'flex-row'
+    : 'flex-row-reverse';
+
+  const stripStyle: React.CSSProperties = isHorizontalStrip
     ? { height: stripSize }
     : { width: stripSize };
-  const stripDirCls = isHorizontal
+  const stripDirCls = isHorizontalStrip
     ? 'flex-row overflow-x-auto items-center'
     : 'flex-col overflow-y-auto items-center';
-  const dividerCls = isHorizontal
+  const dividerCls = isHorizontalStrip
     ? 'w-px h-12 bg-[var(--border-color)] shrink-0 mx-1'
     : 'h-px w-12 bg-[var(--border-color)] shrink-0 my-1';
 
   return (
     <div ref={containerRef} className={`flex-1 h-0 flex ${containerDirCls} overflow-hidden`}>
-      {/* Main pane: либо screen share, либо большая плитка участника */}
-      <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+      {/* Main pane обёрнут в relative-контейнер — чтобы StripPositionMenu
+          (absolute) корректно позиционировался в верхнем правом углу.
+          ScreenShareView сам — flex-1; для ParticipantTile нужен flex-1 wrapper
+          плюс h-full w-full на самой плитке. */}
+      <div className="relative flex-1 min-h-0 min-w-0 flex">
         {focusedScreenTrack ? (
           <ScreenShareView
             key={focusedScreenTrack.participant.identity}
@@ -1320,7 +1396,7 @@ function RoomContent() {
             onToggleFullscreen={() => setIsFullscreen((v) => !v)}
           />
         ) : focusedParticipant ? (
-          <div className="flex-1 h-0 p-4 overflow-hidden">
+          <div className="flex-1 min-h-0 min-w-0 p-4 overflow-hidden flex">
             <ParticipantTile
               participant={focusedParticipant}
               isLocal={focusedParticipant.identity === localParticipant.identity}
@@ -1328,14 +1404,19 @@ function RoomContent() {
             />
           </div>
         ) : (
-          <div className="flex-1 h-0" />
+          <div className="flex-1 min-h-0 min-w-0" />
+        )}
+
+        {/* Кнопка-меню позиции strip-а — скрыта во fullscreen */}
+        {!isFullscreen && (
+          <StripPositionMenu position={stripPosition} onChange={setStripPosition} />
         )}
       </div>
 
       {!isFullscreen && (
         <>
           <StripResizeHandle
-            orientation={stripOrientation}
+            position={stripPosition}
             onResize={setStripSize}
             containerRef={containerRef}
           />
@@ -1343,15 +1424,6 @@ function RoomContent() {
             style={stripStyle}
             className={`shrink-0 flex gap-2 p-3 ${stripDirCls} relative`}
           >
-            {/* Кнопка переключения ориентации — в углу strip-а */}
-            <button
-              onClick={() => setStripOrientation(isHorizontal ? 'vertical' : 'horizontal')}
-              title={isHorizontal ? t('voice.stripVertical') : t('voice.stripHorizontal')}
-              className="shrink-0 p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-            >
-              {isHorizontal ? <PanelRight size={14} /> : <PanelBottom size={14} />}
-            </button>
-
             {screenTracks.map((tr) => {
               const key = `screen:${tr.participant.identity}`;
               return (

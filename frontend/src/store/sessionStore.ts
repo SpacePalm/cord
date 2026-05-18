@@ -59,15 +59,17 @@ interface SessionState {
   setCameraAllowed: (v: boolean) => void;
 
   // Voice room layout (per-device, localStorage):
-  //   stripOrientation — где располагать strip с источниками: 'horizontal'
-  //     (под main pane) или 'vertical' (справа от main pane).
+  //   stripPosition — где располагать strip с источниками: 'bottom' (низ),
+  //     'top' (верх), 'right' (справа), 'left' (слева).
   //   stripSize{Horizontal|Vertical} — текущий размер strip в px по той оси
-  //     которой он растёт. Раздельные значения чтобы переключение ориентации
-  //     не сламывало комфортное соотношение из другого режима.
-  voiceStripOrientation: 'horizontal' | 'vertical';
+  //     которой он растёт. Один размер для top/bottom (по высоте),
+  //     один — для left/right (по ширине), чтобы переключение между
+  //     горизонтальными или между вертикальными позициями не сламывало
+  //     комфортное соотношение из другого режима.
+  voiceStripPosition: 'bottom' | 'top' | 'right' | 'left';
   voiceStripSizeHorizontal: number;
   voiceStripSizeVertical: number;
-  setVoiceStripOrientation: (v: 'horizontal' | 'vertical') => void;
+  setVoiceStripPosition: (v: 'bottom' | 'top' | 'right' | 'left') => void;
   setVoiceStripSizeHorizontal: (px: number) => void;
   setVoiceStripSizeVertical: (px: number) => void;
 
@@ -180,10 +182,10 @@ export const useSessionStore = create<SessionState>()(
       setCameraAllowed: (v) => set({ cameraAllowed: v }),
 
       // --- Voice strip layout ---
-      voiceStripOrientation: 'horizontal',
+      voiceStripPosition: 'bottom',
       voiceStripSizeHorizontal: 110,
       voiceStripSizeVertical: 180,
-      setVoiceStripOrientation: (v) => set({ voiceStripOrientation: v }),
+      setVoiceStripPosition: (v) => set({ voiceStripPosition: v }),
       setVoiceStripSizeHorizontal: (px) => set({ voiceStripSizeHorizontal: px }),
       setVoiceStripSizeVertical: (px) => set({ voiceStripSizeVertical: px }),
 
@@ -255,7 +257,7 @@ export const useSessionStore = create<SessionState>()(
         autoMic: state.autoMic,
         videoInputId: state.videoInputId,
         cameraAllowed: state.cameraAllowed,
-        voiceStripOrientation: state.voiceStripOrientation,
+        voiceStripPosition: state.voiceStripPosition,
         voiceStripSizeHorizontal: state.voiceStripSizeHorizontal,
         voiceStripSizeVertical: state.voiceStripSizeVertical,
         drafts: state.drafts,
