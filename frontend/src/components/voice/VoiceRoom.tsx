@@ -1232,6 +1232,27 @@ function RoomContent() {
     prevIdsRef.current = currentIds;
   }, [participants, localParticipant]);
 
+  // Авто-выбор focusedKey: при появлении screen share — становится дефолтом.
+  // Если focused-источник исчез (трансляция остановлена / участник вышел) —
+  // переключаемся на следующий доступный (приоритет: первая screen share,
+  // иначе первый участник).
+  // ВАЖНО: этот useEffect должен быть ДО любых ранних return'ов (Reconnecting/
+  // Disconnected/!hasScreenShare), иначе количество хуков между рендерами
+  // меняется → React error #310.
+  useEffect(() => {
+    const hasScreen = screenTracks.length > 0;
+    if (!hasScreen) {
+      if (focusedKey !== null) setFocusedKey(null);
+      return;
+    }
+    const sKeys = screenTracks.map((tr) => `screen:${tr.participant.identity}`);
+    const pKeys = participants.map((p) => `participant:${p.identity}`);
+    const all = [...sKeys, ...pKeys];
+    if (!focusedKey || !all.includes(focusedKey)) {
+      setFocusedKey(sKeys[0] ?? pKeys[0] ?? null);
+    }
+  }, [screenTracks, participants, focusedKey]);
+
   if (connectionState === ConnectionState.Reconnecting) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
@@ -1259,23 +1280,6 @@ function RoomContent() {
   // камеры/аватары участников.
   const screenKeys = screenTracks.map((tr) => `screen:${tr.participant.identity}`);
   const participantKeys = participants.map((p) => `participant:${p.identity}`);
-  const allKeys = [...screenKeys, ...participantKeys];
-
-  // Авто-выбор focusedKey: при появлении первой screen share — она становится
-  // дефолтом. Если текущий focused исчез (юзер выключил камеру, screen share
-  // прекратился, участник вышел) — переключаемся на следующий доступный по
-  // приоритету (сначала любая screen share, потом сам автор focused-камеры
-  // как «participant», иначе первый по списку).
-  useEffect(() => {
-    if (!hasScreenShare) {
-      // Без screen share — focused-режим выключен, рендерим обычный grid.
-      if (focusedKey !== null) setFocusedKey(null);
-      return;
-    }
-    if (!focusedKey || !allKeys.includes(focusedKey)) {
-      setFocusedKey(screenKeys[0] ?? participantKeys[0] ?? null);
-    }
-  }, [hasScreenShare, focusedKey, allKeys.join('|')]);
 
   // Если нет ни одной screen share — обычный grid всех участников.
   if (!hasScreenShare) {
