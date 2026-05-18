@@ -18,6 +18,7 @@ import {
   MonitorUp, MonitorOff, X, Volume2, VolumeX,
   Maximize, Minimize, Headphones, HeadphoneOff,
   MoreVertical, Signal, MessageSquare, Video, VideoOff, ArrowLeftRight,
+  PanelBottom, PanelRight,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { voiceApi } from '../../api/voice';
@@ -623,7 +624,7 @@ function ScreenShareModal({ onStart, onCancel }: {
 
 // ─── Room participant (fills a grid cell) ───────────────────────────
 
-function ParticipantTile({ participant, isLocal }: { participant: any; isLocal: boolean }) {
+function ParticipantTile({ participant, isLocal, large }: { participant: any; isLocal: boolean; large?: boolean }) {
   const isSpeaking = useIsSpeaking(participant);
   const isMuted = !participant.isMicrophoneEnabled;
   const { mutedUsers, deafened, openMenuId, setOpenMenuId } = useContext(VolumeContext);
@@ -687,13 +688,15 @@ function ParticipantTile({ participant, isLocal }: { participant: any; isLocal: 
     >
       {hasCamera ? (
         <>
-          {/* muted=true для local — иначе echo из своего же микрофона/динамика */}
+          {/* muted=true для local — иначе echo из своего же микрофона/динамика.
+              В large-режиме (главная область) — object-contain чтобы видеть всё
+              видео без обрезки; в grid (маленькие плитки) — object-cover. */}
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted={isLocal}
-            className="absolute inset-0 w-full h-full object-cover"
+            className={`absolute inset-0 w-full h-full ${large ? 'object-contain' : 'object-cover'}`}
           />
           {/* Имя в углу поверх видео — как в Zoom/Discord */}
           <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/50 text-xs text-white max-w-[calc(100%-1rem)] truncate">
@@ -704,10 +707,10 @@ function ParticipantTile({ participant, isLocal }: { participant: any; isLocal: 
         <>
           <ParticipantAvatar
             participant={participant}
-            size={96}
+            size={large ? 160 : 96}
             bgClass={isSpeaking && !deafened && !isUserMuted ? 'bg-green-500' : 'bg-[var(--accent)]'}
           />
-          <span className="mt-2 text-sm text-[var(--text-secondary)] truncate max-w-[80%] text-center">
+          <span className={`${large ? 'mt-4 text-base' : 'mt-2 text-sm'} text-[var(--text-secondary)] truncate max-w-[80%] text-center`}>
             {participant.name || participant.identity}
           </span>
         </>
@@ -938,7 +941,13 @@ function DeviceSync() {
 
 // ─── Small participant (strip below screen share) ───────────────────
 
-function SmallParticipant({ participant, isLocal }: { participant: any; isLocal: boolean }) {
+function SmallParticipant({ participant, isLocal, onFocus, active }: {
+  participant: any;
+  isLocal: boolean;
+  onFocus?: () => void;
+  active?: boolean;
+}) {
+  const t = useT();
   const isSpeaking = useIsSpeaking(participant);
   const isMuted = !participant.isMicrophoneEnabled;
   const { mutedUsers, deafened, openMenuId, setOpenMenuId } = useContext(VolumeContext);
@@ -985,10 +994,17 @@ function SmallParticipant({ participant, isLocal }: { participant: any; isLocal:
   }, [cameraTrack, isVideoLive]);
 
   return (
-    <div className={`
-      relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0
-      ${isSpeaking && !deafened && !isUserMuted ? 'bg-green-500/20 ring-1 ring-green-400' : 'bg-white/5'}
-    `}>
+    <div
+      onClick={onFocus}
+      title={onFocus && !active ? t('voice.focusSource') : undefined}
+      className={`
+        relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 group
+        ${onFocus && !active ? 'cursor-pointer hover:ring-2 hover:ring-[var(--accent)]' : ''}
+        ${active ? 'ring-2 ring-[var(--accent)]' : ''}
+        ${isSpeaking && !deafened && !isUserMuted ? 'bg-green-500/20 ring-1 ring-green-400' : 'bg-white/5'}
+        transition-all
+      `}
+    >
       {hasCamera ? (
         <div className="relative w-[72px] h-[54px] rounded overflow-hidden bg-black">
           <video ref={videoRef} autoPlay playsInline muted={isLocal} className="absolute inset-0 w-full h-full object-cover" />
@@ -1003,7 +1019,7 @@ function SmallParticipant({ participant, isLocal }: { participant: any; isLocal:
       <span className="text-[11px] text-[var(--text-secondary)] truncate max-w-[72px]">
         {participant.name || participant.identity}
       </span>
-      <div className="absolute top-1 left-1 flex items-center gap-0.5">
+      <div className="absolute top-1 left-1 flex items-center gap-0.5 pointer-events-none">
         <QualityIndicator participant={participant} small />
         {isMuted && (
           <div className="bg-[var(--danger)] rounded p-0.5"><MicOff size={8} className="text-white" /></div>
@@ -1017,7 +1033,7 @@ function SmallParticipant({ participant, isLocal }: { participant: any; isLocal:
         <button
           ref={btnRef}
           onClick={(e) => { e.stopPropagation(); setOpenMenuId(showMenu ? null : menuKey); }}
-          className="absolute top-0.5 right-0.5 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors"
+          className="absolute top-0.5 right-0.5 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors z-10"
         >
           <MoreVertical size={12} />
         </button>
@@ -1026,15 +1042,24 @@ function SmallParticipant({ participant, isLocal }: { participant: any; isLocal:
       {showMenu && !isLocal && (
         <UserMenu participant={participant} anchorRef={btnRef} onClose={() => setOpenMenuId(null)} />
       )}
+
+      {/* Focus-hint поверх блока — как у ScreenShareThumbnail. Только для
+          неактивного блока (для активного не имеет смысла). */}
+      {onFocus && !active && (
+        <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 bg-black/30 flex items-center justify-center transition-opacity pointer-events-none">
+          <ArrowLeftRight size={20} className="text-white" />
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Маленькая превьюшка screen share — для strip-а когда камера primary ─
 
-function ScreenShareThumbnail({ trackRef, onClick }: {
+function ScreenShareThumbnail({ trackRef, onClick, active }: {
   trackRef: any;
   onClick: () => void;
+  active?: boolean;
 }) {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1053,8 +1078,12 @@ function ScreenShareThumbnail({ trackRef, onClick }: {
   return (
     <button
       onClick={onClick}
-      title={t('voice.swapBack')}
-      className="relative shrink-0 w-32 h-20 rounded-lg overflow-hidden bg-black group hover:ring-2 hover:ring-[var(--accent)] transition-all"
+      title={active ? undefined : t('voice.focusSource')}
+      className={`relative shrink-0 w-32 h-20 rounded-lg overflow-hidden bg-black group transition-all ${
+        active
+          ? 'ring-2 ring-[var(--accent)]'
+          : 'hover:ring-2 hover:ring-[var(--accent)]'
+      }`}
     >
       <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-contain" />
       <div className="absolute inset-0 flex items-end p-1.5 bg-gradient-to-t from-black/70 via-transparent to-transparent">
@@ -1062,10 +1091,91 @@ function ScreenShareThumbnail({ trackRef, onClick }: {
           <MonitorUp size={10} /> {pName}
         </span>
       </div>
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-black/30 flex items-center justify-center transition-opacity">
-        <ArrowLeftRight size={20} className="text-white" />
-      </div>
+      {/* Hover-overlay только для неактивных — нажимать на активную бессмысленно */}
+      {!active && (
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-black/30 flex items-center justify-center transition-opacity pointer-events-none">
+          <ArrowLeftRight size={20} className="text-white" />
+        </div>
+      )}
     </button>
+  );
+}
+
+// ─── Resize handle для strip-а (mouse + touch) ────────────────────
+
+function StripResizeHandle({ orientation, onResize, containerRef }: {
+  orientation: 'horizontal' | 'vertical';
+  onResize: (px: number) => void;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const draggingRef = useRef(false);
+
+  const startDrag = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = orientation === 'horizontal' ? 'row-resize' : 'col-resize';
+  }, [orientation]);
+
+  useEffect(() => {
+    const clientPoint = (e: MouseEvent | TouchEvent) => {
+      if (e instanceof MouseEvent) return { x: e.clientX, y: e.clientY };
+      const t = e.touches[0] || e.changedTouches[0];
+      return t ? { x: t.clientX, y: t.clientY } : null;
+    };
+
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      if (!draggingRef.current) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const pt = clientPoint(e);
+      if (!pt) return;
+      const rect = container.getBoundingClientRect();
+      if (orientation === 'horizontal') {
+        // Strip снизу → размер = bottom_контейнера - cursor.y
+        const px = rect.bottom - pt.y;
+        // Min 60 (плитки видны) / max 60% контейнера, чтобы main pane не пропал
+        const clamped = Math.max(60, Math.min(rect.height * 0.6, px));
+        onResize(Math.round(clamped));
+      } else {
+        const px = rect.right - pt.x;
+        const clamped = Math.max(100, Math.min(rect.width * 0.5, px));
+        onResize(Math.round(clamped));
+      }
+    };
+
+    const onUp = () => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+    window.addEventListener('touchcancel', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+      window.removeEventListener('touchcancel', onUp);
+    };
+  }, [orientation, onResize, containerRef]);
+
+  return (
+    <div
+      onMouseDown={startDrag}
+      onTouchStart={startDrag}
+      className={`shrink-0 group ${
+        orientation === 'horizontal'
+          ? 'h-1.5 w-full cursor-row-resize'
+          : 'w-1.5 h-full cursor-col-resize'
+      } bg-[var(--border-color)] hover:bg-[var(--accent)] transition-colors`}
+      title=" "
+    />
   );
 }
 
@@ -1077,23 +1187,22 @@ function RoomContent() {
   const { localParticipant } = useLocalParticipant();
   const connectionState = useConnectionState();
   const screenTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: true });
-  const [selectedIdx, setSelectedIdx] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // Когда есть и screen share, и камеры — что главное в большой области.
-  // Дефолт: screen (классическое поведение). Юзер может переключить кнопкой
-  // swap, тогда основной view — grid камер, а screen уходит в strip-thumb.
-  const [primaryView, setPrimaryView] = useState<'screen' | 'camera'>('screen');
+  // Один выбранный источник, который показывается в большой main-области.
+  // Формат ключа: "screen:<identity>" для трансляции или "participant:<identity>"
+  // для камеры/аватара. null — нет screen share вообще (тогда показываем grid).
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (selectedIdx >= screenTracks.length) setSelectedIdx(0);
-  }, [screenTracks.length, selectedIdx]);
-
-  // Когда screen share полностью пропадает — сбрасываем primaryView в дефолт
-  // 'screen', чтобы при возобновлении новой трансляции она была в основной
-  // области (а не неожиданно скукоженной в strip).
-  useEffect(() => {
-    if (screenTracks.length === 0) setPrimaryView('screen');
-  }, [screenTracks.length]);
+  // Strip layout (persisted в sessionStore, per-device).
+  const stripOrientation = useSessionStore((s) => s.voiceStripOrientation);
+  const stripSizeH = useSessionStore((s) => s.voiceStripSizeHorizontal);
+  const stripSizeV = useSessionStore((s) => s.voiceStripSizeVertical);
+  const setStripOrientation = useSessionStore((s) => s.setVoiceStripOrientation);
+  const setStripSizeH = useSessionStore((s) => s.setVoiceStripSizeHorizontal);
+  const setStripSizeV = useSessionStore((s) => s.setVoiceStripSizeVertical);
+  const stripSize = stripOrientation === 'horizontal' ? stripSizeH : stripSizeV;
+  const setStripSize = stripOrientation === 'horizontal' ? setStripSizeH : setStripSizeV;
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Звук на join/leave участников. Первый tick только инициализирует snapshot,
   // чтобы при заходе в комнату не ревело на каждого уже присутствующего.
@@ -1144,74 +1253,137 @@ function RoomContent() {
   const cols = Math.ceil(Math.sqrt(count));
   const rows = Math.ceil(count / cols);
 
-  if (hasScreenShare) {
-    const activeTrack = screenTracks[selectedIdx] ?? screenTracks[0];
+  // Список доступных источников для main pane (только когда есть screen share —
+  // в этом режиме мы переключаемся между ними; без screen share показываем grid
+  // всех участников). Сначала screen-shares (приоритет — трансляция), потом
+  // камеры/аватары участников.
+  const screenKeys = screenTracks.map((tr) => `screen:${tr.participant.identity}`);
+  const participantKeys = participants.map((p) => `participant:${p.identity}`);
+  const allKeys = [...screenKeys, ...participantKeys];
 
-    // Режим «камера-primary»: grid камер сверху, screen share — thumb внизу.
-    // isFullscreen в этом режиме не используется (он привязан к ScreenShareView).
-    if (primaryView === 'camera') {
-      return (
-        <div className="flex-1 h-0 flex flex-col overflow-hidden">
-          <div className="flex-1 h-0 grid gap-2 p-4 overflow-hidden" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
-            {participants.map((p) => (
-              <ParticipantTile key={p.identity} participant={p} isLocal={p.identity === localParticipant.identity} />
-            ))}
-          </div>
-          <div className="shrink-0 flex gap-2 p-3 overflow-x-auto items-center">
-            <ScreenShareThumbnail trackRef={activeTrack} onClick={() => setPrimaryView('screen')} />
-            {screenTracks.length > 1 && screenTracks.filter((_, i) => i !== selectedIdx).map((tr) => (
-              <ScreenShareThumbnail key={tr.participant.identity} trackRef={tr} onClick={() => {
-                // Клик по чужой трансляции — делаем её активной и возвращаем primary
-                const realIdx = screenTracks.findIndex((s) => s.participant.identity === tr.participant.identity);
-                if (realIdx >= 0) setSelectedIdx(realIdx);
-                setPrimaryView('screen');
-              }} />
-            ))}
-          </div>
-        </div>
-      );
+  // Авто-выбор focusedKey: при появлении первой screen share — она становится
+  // дефолтом. Если текущий focused исчез (юзер выключил камеру, screen share
+  // прекратился, участник вышел) — переключаемся на следующий доступный по
+  // приоритету (сначала любая screen share, потом сам автор focused-камеры
+  // как «participant», иначе первый по списку).
+  useEffect(() => {
+    if (!hasScreenShare) {
+      // Без screen share — focused-режим выключен, рендерим обычный grid.
+      if (focusedKey !== null) setFocusedKey(null);
+      return;
     }
+    if (!focusedKey || !allKeys.includes(focusedKey)) {
+      setFocusedKey(screenKeys[0] ?? participantKeys[0] ?? null);
+    }
+  }, [hasScreenShare, focusedKey, allKeys.join('|')]);
 
-    // Режим «screen-primary» (дефолт): screen сверху, participants strip снизу.
+  // Если нет ни одной screen share — обычный grid всех участников.
+  if (!hasScreenShare) {
     return (
-      <div className="flex-1 h-0 flex flex-col overflow-hidden">
-        {screenTracks.length > 1 && (
-          <div className="shrink-0 flex gap-1 px-4 pt-3 overflow-x-auto">
-            {screenTracks.map((t, i) => {
-              const pName = t.participant?.name || t.participant?.identity || `#${i + 1}`;
-              return (
-                <button key={t.participant.identity} onClick={() => setSelectedIdx(i)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 transition-colors flex items-center gap-1.5 ${i === selectedIdx ? 'bg-[var(--accent)] text-white' : 'bg-white/5 text-[var(--text-muted)] hover:bg-white/10'}`}>
-                  <MonitorUp size={12} /> {pName}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <ScreenShareView key={activeTrack.participant.identity} trackRef={activeTrack} isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen((v) => !v)} />
-        {!isFullscreen && (
-          <div className="shrink-0 flex gap-2 p-3 overflow-x-auto items-center">
-            <button
-              onClick={() => setPrimaryView('camera')}
-              title={t('voice.swapToCamera')}
-              className="shrink-0 p-2 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-            >
-              <ArrowLeftRight size={16} />
-            </button>
-            {participants.map((p) => (
-              <SmallParticipant key={p.identity} participant={p} isLocal={p.identity === localParticipant.identity} />
-            ))}
-          </div>
-        )}
+      <div className="flex-1 h-0 grid gap-2 p-4 overflow-hidden" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+          {participants.map((p) => (
+            <ParticipantTile key={p.identity} participant={p} isLocal={p.identity === localParticipant.identity} />
+          ))}
       </div>
     );
   }
 
+  // Focused-mode: одна большая область + strip всех источников.
+  const focusedScreenTrack = focusedKey?.startsWith('screen:')
+    ? screenTracks.find((tr) => `screen:${tr.participant.identity}` === focusedKey)
+    : null;
+  const focusedParticipant = focusedKey?.startsWith('participant:')
+    ? participants.find((p) => `participant:${p.identity}` === focusedKey)
+    : null;
+
+  const isHorizontal = stripOrientation === 'horizontal';
+  // Контейнер и strip разворачиваются в зависимости от ориентации:
+  //   horizontal — flex-col, strip снизу с высотой stripSize
+  //   vertical   — flex-row, strip справа с шириной stripSize
+  const containerDirCls = isHorizontal ? 'flex-col' : 'flex-row';
+  const stripStyle: React.CSSProperties = isHorizontal
+    ? { height: stripSize }
+    : { width: stripSize };
+  const stripDirCls = isHorizontal
+    ? 'flex-row overflow-x-auto items-center'
+    : 'flex-col overflow-y-auto items-center';
+  const dividerCls = isHorizontal
+    ? 'w-px h-12 bg-[var(--border-color)] shrink-0 mx-1'
+    : 'h-px w-12 bg-[var(--border-color)] shrink-0 my-1';
+
   return (
-    <div className="flex-1 h-0 grid gap-2 p-4 overflow-hidden" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
-        {participants.map((p) => (
-          <ParticipantTile key={p.identity} participant={p} isLocal={p.identity === localParticipant.identity} />
-        ))}
+    <div ref={containerRef} className={`flex-1 h-0 flex ${containerDirCls} overflow-hidden`}>
+      {/* Main pane: либо screen share, либо большая плитка участника */}
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+        {focusedScreenTrack ? (
+          <ScreenShareView
+            key={focusedScreenTrack.participant.identity}
+            trackRef={focusedScreenTrack}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={() => setIsFullscreen((v) => !v)}
+          />
+        ) : focusedParticipant ? (
+          <div className="flex-1 h-0 p-4 overflow-hidden">
+            <ParticipantTile
+              participant={focusedParticipant}
+              isLocal={focusedParticipant.identity === localParticipant.identity}
+              large
+            />
+          </div>
+        ) : (
+          <div className="flex-1 h-0" />
+        )}
+      </div>
+
+      {!isFullscreen && (
+        <>
+          <StripResizeHandle
+            orientation={stripOrientation}
+            onResize={setStripSize}
+            containerRef={containerRef}
+          />
+          <div
+            style={stripStyle}
+            className={`shrink-0 flex gap-2 p-3 ${stripDirCls} relative`}
+          >
+            {/* Кнопка переключения ориентации — в углу strip-а */}
+            <button
+              onClick={() => setStripOrientation(isHorizontal ? 'vertical' : 'horizontal')}
+              title={isHorizontal ? t('voice.stripVertical') : t('voice.stripHorizontal')}
+              className="shrink-0 p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              {isHorizontal ? <PanelRight size={14} /> : <PanelBottom size={14} />}
+            </button>
+
+            {screenTracks.map((tr) => {
+              const key = `screen:${tr.participant.identity}`;
+              return (
+                <ScreenShareThumbnail
+                  key={key}
+                  trackRef={tr}
+                  active={focusedKey === key}
+                  onClick={() => setFocusedKey(key)}
+                />
+              );
+            })}
+            {screenTracks.length > 0 && participants.length > 0 && (
+              <div className={dividerCls} />
+            )}
+            {participants.map((p) => {
+              const key = `participant:${p.identity}`;
+              return (
+                <SmallParticipant
+                  key={key}
+                  participant={p}
+                  isLocal={p.identity === localParticipant.identity}
+                  active={focusedKey === key}
+                  onFocus={() => setFocusedKey(key)}
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }

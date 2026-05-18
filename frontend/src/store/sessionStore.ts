@@ -58,6 +58,19 @@ interface SessionState {
   setVideoInput: (id: string | null) => void;
   setCameraAllowed: (v: boolean) => void;
 
+  // Voice room layout (per-device, localStorage):
+  //   stripOrientation — где располагать strip с источниками: 'horizontal'
+  //     (под main pane) или 'vertical' (справа от main pane).
+  //   stripSize{Horizontal|Vertical} — текущий размер strip в px по той оси
+  //     которой он растёт. Раздельные значения чтобы переключение ориентации
+  //     не сламывало комфортное соотношение из другого режима.
+  voiceStripOrientation: 'horizontal' | 'vertical';
+  voiceStripSizeHorizontal: number;
+  voiceStripSizeVertical: number;
+  setVoiceStripOrientation: (v: 'horizontal' | 'vertical') => void;
+  setVoiceStripSizeHorizontal: (px: number) => void;
+  setVoiceStripSizeVertical: (px: number) => void;
+
   // Voice channel
   voicePresence: VoicePresence | null;
   joinVoice: (channelId: string, channelName: string, groupName: string, groupId: string) => void;
@@ -166,6 +179,14 @@ export const useSessionStore = create<SessionState>()(
       setVideoInput: (id) => set({ videoInputId: id }),
       setCameraAllowed: (v) => set({ cameraAllowed: v }),
 
+      // --- Voice strip layout ---
+      voiceStripOrientation: 'horizontal',
+      voiceStripSizeHorizontal: 110,
+      voiceStripSizeVertical: 180,
+      setVoiceStripOrientation: (v) => set({ voiceStripOrientation: v }),
+      setVoiceStripSizeHorizontal: (px) => set({ voiceStripSizeHorizontal: px }),
+      setVoiceStripSizeVertical: (px) => set({ voiceStripSizeVertical: px }),
+
       // --- Voice channel ---
       voicePresence: null,
 
@@ -234,6 +255,9 @@ export const useSessionStore = create<SessionState>()(
         autoMic: state.autoMic,
         videoInputId: state.videoInputId,
         cameraAllowed: state.cameraAllowed,
+        voiceStripOrientation: state.voiceStripOrientation,
+        voiceStripSizeHorizontal: state.voiceStripSizeHorizontal,
+        voiceStripSizeVertical: state.voiceStripSizeVertical,
         drafts: state.drafts,
         voicePresence: state.voicePresence,
       }),
