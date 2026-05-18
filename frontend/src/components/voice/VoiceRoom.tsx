@@ -1219,16 +1219,16 @@ function StripPositionMenu({ position, onChange }: {
   const options: Array<'bottom' | 'right' | 'top' | 'left'> = ['bottom', 'right', 'top', 'left'];
 
   return (
-    <div ref={rootRef} className="absolute top-2 right-2 z-20">
+    <div ref={rootRef} className="relative shrink-0">
       <button
         onClick={() => setOpen((v) => !v)}
         title={t('voice.stripMenu')}
-        className="p-1.5 rounded-md bg-black/40 hover:bg-black/60 text-white/80 hover:text-white backdrop-blur-sm transition-colors"
+        className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
       >
         {iconFor(position)}
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-xl py-1 min-w-[160px]">
+        <div className="absolute z-30 bottom-full mb-1 left-0 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-xl py-1 min-w-[140px]">
           {options.map((p) => (
             <button
               key={p}
@@ -1387,7 +1387,7 @@ function RoomContent() {
           (absolute) корректно позиционировался в верхнем правом углу.
           ScreenShareView сам — flex-1; для ParticipantTile нужен flex-1 wrapper
           плюс h-full w-full на самой плитке. */}
-      <div className="relative flex-1 min-h-0 min-w-0 flex">
+      <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
         {focusedScreenTrack ? (
           <ScreenShareView
             key={focusedScreenTrack.participant.identity}
@@ -1406,11 +1406,6 @@ function RoomContent() {
         ) : (
           <div className="flex-1 min-h-0 min-w-0" />
         )}
-
-        {/* Кнопка-меню позиции strip-а — скрыта во fullscreen */}
-        {!isFullscreen && (
-          <StripPositionMenu position={stripPosition} onChange={setStripPosition} />
-        )}
       </div>
 
       {!isFullscreen && (
@@ -1424,6 +1419,7 @@ function RoomContent() {
             style={stripStyle}
             className={`shrink-0 flex gap-2 p-3 ${stripDirCls} relative`}
           >
+            <StripPositionMenu position={stripPosition} onChange={setStripPosition} />
             {screenTracks.map((tr) => {
               const key = `screen:${tr.participant.identity}`;
               return (
