@@ -17,7 +17,7 @@ import {
   Mic, MicOff, PhoneOff, Loader2, WifiOff,
   MonitorUp, MonitorOff, X, Volume2, VolumeX,
   Maximize, Minimize, Headphones, HeadphoneOff,
-  MoreVertical, Signal, MessageSquare, Video, VideoOff,
+  MoreVertical, Signal, MessageSquare, Video, VideoOff, ArrowLeftRight,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { voiceApi } from '../../api/voice';
@@ -632,19 +632,50 @@ function ParticipantTile({ participant, isLocal }: { participant: any; isLocal: 
   const btnRef = useRef<HTMLButtonElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Камера-трек participant'а (если включена). useTracks реактивен на subscribe/
-  // unsubscribe — при включении/выключении камеры рендер обновится автоматически.
+  // Камера-трек participant'а. useTracks реактивен на publish/unpublish, но в
+  // LiveKit v2 `setCameraEnabled(false)` по умолчанию НЕ unpublish'ит трек —
+  // только мьютит его. Поэтому отдельно слушаем 'muted'/'unmuted' события трека
+  // и держим isLive в state, чтобы видео скрывалось мгновенно при выключении
+  // (иначе остаётся последний кадр).
   const cameraTracks = useTracks([Track.Source.Camera]);
   const myCameraRef = cameraTracks.find((tr) => tr.participant.identity === participant.identity);
   const cameraTrack = myCameraRef?.publication?.track;
-  const hasCamera = !!cameraTrack;
+
+  const [isVideoLive, setIsVideoLive] = useState(false);
+  useEffect(() => {
+    if (!cameraTrack) { setIsVideoLive(false); return; }
+    const update = () => setIsVideoLive(!cameraTrack.isMuted);
+    update();
+    cameraTrack.on('muted', update);
+    cameraTrack.on('unmuted', update);
+    return () => {
+      cameraTrack.off('muted', update);
+      cameraTrack.off('unmuted', update);
+    };
+  }, [cameraTrack]);
+
+  const hasCamera = !!cameraTrack && isVideoLive;
 
   useEffect(() => {
     const el = videoRef.current;
-    if (!el || !cameraTrack) return;
+    if (!el) return;
+    if (!cameraTrack || !isVideoLive) {
+      // Сброс srcObject + load() — иначе Chrome/Safari могут оставить
+      // последний кадр прилипшим. detach() от LiveKit ставит src=null, но
+      // браузер не всегда очищает кадр без явного load().
+      el.srcObject = null;
+      try { el.load(); } catch { /* ignore */ }
+      return;
+    }
     cameraTrack.attach(el);
-    return () => { cameraTrack.detach(el); };
-  }, [cameraTrack]);
+    return () => {
+      cameraTrack.detach(el);
+      if (el) {
+        el.srcObject = null;
+        try { el.load(); } catch { /* ignore */ }
+      }
+    };
+  }, [cameraTrack, isVideoLive]);
 
   return (
     <div
@@ -915,18 +946,61 @@ function SmallParticipant({ participant, isLocal }: { participant: any; isLocal:
   const menuKey = 'small-' + participant.identity;
   const showMenu = openMenuId === menuKey;
   const btnRef = useRef<HTMLButtonElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Камера: подписываемся на muted/unmuted чтобы strip переключался без фриза
+  // (как в ParticipantTile — см. там комментарий о поведении LiveKit v2).
+  const cameraTracks = useTracks([Track.Source.Camera]);
+  const myCameraRef = cameraTracks.find((tr) => tr.participant.identity === participant.identity);
+  const cameraTrack = myCameraRef?.publication?.track;
+
+  const [isVideoLive, setIsVideoLive] = useState(false);
+  useEffect(() => {
+    if (!cameraTrack) { setIsVideoLive(false); return; }
+    const update = () => setIsVideoLive(!cameraTrack.isMuted);
+    update();
+    cameraTrack.on('muted', update);
+    cameraTrack.on('unmuted', update);
+    return () => {
+      cameraTrack.off('muted', update);
+      cameraTrack.off('unmuted', update);
+    };
+  }, [cameraTrack]);
+
+  const hasCamera = !!cameraTrack && isVideoLive;
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (!cameraTrack || !isVideoLive) {
+      el.srcObject = null;
+      try { el.load(); } catch { /* ignore */ }
+      return;
+    }
+    cameraTrack.attach(el);
+    return () => {
+      cameraTrack.detach(el);
+      if (el) { el.srcObject = null; try { el.load(); } catch { /* ignore */ } }
+    };
+  }, [cameraTrack, isVideoLive]);
 
   return (
     <div className={`
       relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0
       ${isSpeaking && !deafened && !isUserMuted ? 'bg-green-500/20 ring-1 ring-green-400' : 'bg-white/5'}
     `}>
-      <ParticipantAvatar
-        participant={participant}
-        size={40}
-        bgClass={isSpeaking && !deafened && !isUserMuted ? 'bg-green-500' : 'bg-[var(--accent)]'}
-      />
-      <span className="text-[11px] text-[var(--text-secondary)] truncate max-w-[60px]">
+      {hasCamera ? (
+        <div className="relative w-[72px] h-[54px] rounded overflow-hidden bg-black">
+          <video ref={videoRef} autoPlay playsInline muted={isLocal} className="absolute inset-0 w-full h-full object-cover" />
+        </div>
+      ) : (
+        <ParticipantAvatar
+          participant={participant}
+          size={40}
+          bgClass={isSpeaking && !deafened && !isUserMuted ? 'bg-green-500' : 'bg-[var(--accent)]'}
+        />
+      )}
+      <span className="text-[11px] text-[var(--text-secondary)] truncate max-w-[72px]">
         {participant.name || participant.identity}
       </span>
       <div className="absolute top-1 left-1 flex items-center gap-0.5">
@@ -956,6 +1030,45 @@ function SmallParticipant({ participant, isLocal }: { participant: any; isLocal:
   );
 }
 
+// ─── Маленькая превьюшка screen share — для strip-а когда камера primary ─
+
+function ScreenShareThumbnail({ trackRef, onClick }: {
+  trackRef: any;
+  onClick: () => void;
+}) {
+  const t = useT();
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    const track = trackRef?.publication?.track;
+    if (el && track) {
+      track.attach(el);
+      return () => { track.detach(el); };
+    }
+  }, [trackRef?.publication?.track]);
+
+  const pName = trackRef?.participant?.name || trackRef?.participant?.identity || '';
+
+  return (
+    <button
+      onClick={onClick}
+      title={t('voice.swapBack')}
+      className="relative shrink-0 w-32 h-20 rounded-lg overflow-hidden bg-black group hover:ring-2 hover:ring-[var(--accent)] transition-all"
+    >
+      <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-contain" />
+      <div className="absolute inset-0 flex items-end p-1.5 bg-gradient-to-t from-black/70 via-transparent to-transparent">
+        <span className="text-[10px] text-white truncate max-w-full flex items-center gap-1">
+          <MonitorUp size={10} /> {pName}
+        </span>
+      </div>
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-black/30 flex items-center justify-center transition-opacity">
+        <ArrowLeftRight size={20} className="text-white" />
+      </div>
+    </button>
+  );
+}
+
 // ─── Participants grid ──────────────────────────────────────────────
 
 function RoomContent() {
@@ -966,10 +1079,21 @@ function RoomContent() {
   const screenTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: true });
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Когда есть и screen share, и камеры — что главное в большой области.
+  // Дефолт: screen (классическое поведение). Юзер может переключить кнопкой
+  // swap, тогда основной view — grid камер, а screen уходит в strip-thumb.
+  const [primaryView, setPrimaryView] = useState<'screen' | 'camera'>('screen');
 
   useEffect(() => {
     if (selectedIdx >= screenTracks.length) setSelectedIdx(0);
   }, [screenTracks.length, selectedIdx]);
+
+  // Когда screen share полностью пропадает — сбрасываем primaryView в дефолт
+  // 'screen', чтобы при возобновлении новой трансляции она была в основной
+  // области (а не неожиданно скукоженной в strip).
+  useEffect(() => {
+    if (screenTracks.length === 0) setPrimaryView('screen');
+  }, [screenTracks.length]);
 
   // Звук на join/leave участников. Первый tick только инициализирует snapshot,
   // чтобы при заходе в комнату не ревело на каждого уже присутствующего.
@@ -1018,9 +1142,37 @@ function RoomContent() {
   const hasScreenShare = screenTracks.length > 0;
   const count = participants.length;
   const cols = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / cols);
 
   if (hasScreenShare) {
     const activeTrack = screenTracks[selectedIdx] ?? screenTracks[0];
+
+    // Режим «камера-primary»: grid камер сверху, screen share — thumb внизу.
+    // isFullscreen в этом режиме не используется (он привязан к ScreenShareView).
+    if (primaryView === 'camera') {
+      return (
+        <div className="flex-1 h-0 flex flex-col overflow-hidden">
+          <div className="flex-1 h-0 grid gap-2 p-4 overflow-hidden" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+            {participants.map((p) => (
+              <ParticipantTile key={p.identity} participant={p} isLocal={p.identity === localParticipant.identity} />
+            ))}
+          </div>
+          <div className="shrink-0 flex gap-2 p-3 overflow-x-auto items-center">
+            <ScreenShareThumbnail trackRef={activeTrack} onClick={() => setPrimaryView('screen')} />
+            {screenTracks.length > 1 && screenTracks.filter((_, i) => i !== selectedIdx).map((tr) => (
+              <ScreenShareThumbnail key={tr.participant.identity} trackRef={tr} onClick={() => {
+                // Клик по чужой трансляции — делаем её активной и возвращаем primary
+                const realIdx = screenTracks.findIndex((s) => s.participant.identity === tr.participant.identity);
+                if (realIdx >= 0) setSelectedIdx(realIdx);
+                setPrimaryView('screen');
+              }} />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // Режим «screen-primary» (дефолт): screen сверху, participants strip снизу.
     return (
       <div className="flex-1 h-0 flex flex-col overflow-hidden">
         {screenTracks.length > 1 && (
@@ -1038,7 +1190,14 @@ function RoomContent() {
         )}
         <ScreenShareView key={activeTrack.participant.identity} trackRef={activeTrack} isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen((v) => !v)} />
         {!isFullscreen && (
-          <div className="shrink-0 flex gap-2 p-3 overflow-x-auto">
+          <div className="shrink-0 flex gap-2 p-3 overflow-x-auto items-center">
+            <button
+              onClick={() => setPrimaryView('camera')}
+              title={t('voice.swapToCamera')}
+              className="shrink-0 p-2 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <ArrowLeftRight size={16} />
+            </button>
             {participants.map((p) => (
               <SmallParticipant key={p.identity} participant={p} isLocal={p.identity === localParticipant.identity} />
             ))}
@@ -1047,8 +1206,6 @@ function RoomContent() {
       </div>
     );
   }
-
-  const rows = Math.ceil(count / cols);
 
   return (
     <div className="flex-1 h-0 grid gap-2 p-4 overflow-hidden" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>

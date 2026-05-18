@@ -14,7 +14,7 @@ import { playNotificationSound } from '../../utils/notificationSound';
 import { startRingtone, stopRingtone } from '../../utils/ringtone';
 import { Download, Upload, RotateCcw, BellOff, Search, Save, Trash2 } from 'lucide-react';
 
-type Tab = 'profile' | 'security' | 'audio' | 'notifications' | 'appearance' | 'language';
+type Tab = 'profile' | 'security' | 'audio' | 'video' | 'notifications' | 'appearance' | 'language';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -858,17 +858,16 @@ function AudioTab() {
           }`} />
         </button>
       </div>
-
-      <VideoSettings />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// VideoSettings — секция камеры внутри AudioTab. Может быть полностью скрыта
-// если cameraAllowed=false (privacy: не показываем UI и не дёргаем getUserMedia).
+// VideoTab — отдельная вкладка настроек камеры. Если cameraAllowed=false
+// (privacy mode), показываем только один toggle для включения, остальное
+// скрыто — getUserMedia не вызывается, browser-промпт не появится.
 // ---------------------------------------------------------------------------
-function VideoSettings() {
+function VideoTab() {
   const t = useT();
   const videoInputId    = useSessionStore((s) => s.videoInputId);
   const cameraAllowed   = useSessionStore((s) => s.cameraAllowed);
@@ -972,7 +971,7 @@ function VideoSettings() {
   // Кнопка-тоггл «Разрешить доступ к камере» — её показываем всегда, остальное
   // только при cameraAllowed=true.
   return (
-    <div className="border-t border-[var(--border-color)] pt-6 mt-2 flex flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-[var(--text-primary)]">{t('camera.allow')}</p>
@@ -1645,7 +1644,7 @@ function LanguageTab() {
 // ---------------------------------------------------------------------------
 // SettingsModal
 // ---------------------------------------------------------------------------
-const ALL_TABS: Tab[] = ['profile', 'security', 'audio', 'notifications', 'appearance', 'language'];
+const ALL_TABS: Tab[] = ['profile', 'security', 'audio', 'video', 'notifications', 'appearance', 'language'];
 
 export function SettingsModal({ onClose, initialTab }: SettingsModalProps) {
   const t = useT();
@@ -1665,6 +1664,7 @@ export function SettingsModal({ onClose, initialTab }: SettingsModalProps) {
     { id: 'profile',       label: t('settings.profile')       },
     { id: 'security',      label: t('settings.security')      },
     { id: 'audio',         label: t('settings.audio')         },
+    { id: 'video',         label: t('settings.video')         },
     { id: 'notifications', label: t('settings.notifications') },
     ...(!isMobile ? [{ id: 'appearance' as Tab, label: t('appearance.title') }] : []),
     { id: 'language',      label: t('settings.language')      },
@@ -1713,6 +1713,7 @@ export function SettingsModal({ onClose, initialTab }: SettingsModalProps) {
             {tab === 'profile'       && <ProfileTab onClose={onClose} />}
             {tab === 'security'      && <SecurityTab onClose={onClose} />}
             {tab === 'audio'         && <AudioTab />}
+            {tab === 'video'         && <VideoTab />}
             {tab === 'notifications' && <NotificationsTab />}
             {tab === 'appearance'    && <AppearanceTab />}
             {tab === 'language'      && <LanguageTab />}
