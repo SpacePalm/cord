@@ -387,8 +387,11 @@ function EditForm({ msg, onDone }: { msg: Message; onDone: () => void }) {
 
   const editMutation = useMutation({
     mutationFn: () => messagesApi.edit(msg.chat_id, msg.id, value),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messages', msg.chat_id] });
+    onSuccess: (updated) => {
+      queryClient.setQueryData<Message[]>(['messages', msg.chat_id], (old) => {
+        if (!old) return old;
+        return old.map((m) => (m.id === updated.id ? updated : m));
+      });
       onDone();
     },
   });
@@ -1138,7 +1141,10 @@ function MessageList({ chatId, onReply }, ref) {
   const handleDelete = useCallback((msg: Message) => {
     if (!confirm(t('chat.deleteConfirm'))) return;
     messagesApi.delete(msg.chat_id, msg.id).then(() => {
-      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+      queryClient.setQueryData<Message[]>(['messages', chatId], (old) => {
+        if (!old) return old;
+        return old.filter((m) => m.id !== msg.id);
+      });
       setOlderMessages((prev) => prev.filter((m) => m.id !== msg.id));
     });
   }, [chatId, queryClient]);
@@ -1181,9 +1187,13 @@ function MessageList({ chatId, onReply }, ref) {
   const handleBulkDelete = useCallback(() => {
     const count = selectedIds.size;
     if (!confirm(t('chat.deleteSelectedConfirm', { count: String(count) }))) return;
-    messagesApi.deleteBulk(chatId, Array.from(selectedIds)).then(() => {
-      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
-      setOlderMessages((prev) => prev.filter((m) => !selectedIds.has(m.id)));
+    const ids = selectedIds;
+    messagesApi.deleteBulk(chatId, Array.from(ids)).then(() => {
+      queryClient.setQueryData<Message[]>(['messages', chatId], (old) => {
+        if (!old) return old;
+        return old.filter((m) => !ids.has(m.id));
+      });
+      setOlderMessages((prev) => prev.filter((m) => !ids.has(m.id)));
       setSelectedIds(new Set());
     });
   }, [selectedIds, chatId, queryClient, t]);
@@ -1193,15 +1203,21 @@ function MessageList({ chatId, onReply }, ref) {
     setForwardMsgs(selected);
   }, [selectedIds, messages]);
   const handleReact = useCallback((msg: Message, emoji: string) => {
-    messagesApi.react(msg.chat_id, msg.id, emoji).then(() => {
-      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+    messagesApi.react(msg.chat_id, msg.id, emoji).then((updated) => {
+      queryClient.setQueryData<Message[]>(['messages', chatId], (old) => {
+        if (!old) return old;
+        return old.map((m) => (m.id === updated.id ? updated : m));
+      });
     });
   }, [chatId, queryClient]);
 
   const handlePin = useCallback((msg: Message) => {
     const fn = msg.is_pinned ? messagesApi.unpin : messagesApi.pin;
-    fn(msg.chat_id, msg.id).then(() => {
-      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+    fn(msg.chat_id, msg.id).then((updated) => {
+      queryClient.setQueryData<Message[]>(['messages', chatId], (old) => {
+        if (!old) return old;
+        return old.map((m) => (m.id === updated.id ? updated : m));
+      });
       queryClient.invalidateQueries({ queryKey: ['pinned', chatId] });
     });
   }, [chatId, queryClient]);
