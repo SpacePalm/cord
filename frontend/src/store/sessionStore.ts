@@ -36,7 +36,9 @@ interface SessionState {
   removeAttachment: (channelId: string, index: number) => void;
   clearAttachments: (channelId: string) => void;
 
-  // Audio devices (persisted)
+  // Audio devices (persisted ТОЛЬКО в localStorage — per-device, не синкается
+  // через preferencesSync: deviceId физического микрофона/динамика на одном
+  // устройстве не имеет смысла на другом).
   audioInputId: string | null;
   audioOutputId: string | null;
   audioInputGain: number; // 0–3, 1 = normal
@@ -46,9 +48,11 @@ interface SessionState {
   setAudioInputGain: (gain: number) => void;
   setAutoMic: (v: boolean) => void;
 
-  // Video device (persisted). cameraAllowed=false полностью скрывает функционал:
-  // кнопка камеры не рендерится, секция в настройках не активна, getUserMedia
-  // для камеры не вызывается — браузер не будет запрашивать permission.
+  // Video device (persisted в localStorage, per-device — не синкается через
+  // preferencesSync, как и audio device ids).
+  // cameraAllowed=false полностью скрывает функционал: кнопка камеры не
+  // рендерится, секция в настройках не активна, getUserMedia для камеры
+  // не вызывается — браузер не будет запрашивать permission.
   videoInputId: string | null;
   cameraAllowed: boolean;
   setVideoInput: (id: string | null) => void;

@@ -15,6 +15,11 @@ import { authApi } from '../api/auth';
 
 // Громкости (soundVolume, ringtoneVolume) намеренно НЕ синкаются —
 // они device-specific: телефон/колонки/наушники требуют разных уровней.
+//
+// Также НЕ синкается всё из sessionStore: audioInputId/audioOutputId/
+// videoInputId (deviceId-ы конкретного устройства — на другом ноуте/телефоне
+// эти ID просто не существуют), audioInputGain, autoMic, cameraAllowed.
+// Эти настройки осознанно per-device.
 interface Preferences {
   lang?: string;
   notifications?: {
