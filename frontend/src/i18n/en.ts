@@ -88,6 +88,9 @@ export const en: Record<string, string> = {
   'voice.disconnected': 'Connection lost',
   'voice.mic': 'Unmute',
   'voice.micOff': 'Mute',
+  'voice.camera': 'Turn on camera',
+  'voice.cameraOff': 'Turn off camera',
+  'voice.cameraError': 'Could not turn on camera. Check that it isn’t used by another app, and that access is allowed in browser settings.',
   'voice.deafen': 'Deafen',
   'voice.undeafen': 'Undeafen',
   'voice.screenShare': 'Share Screen',
@@ -252,6 +255,17 @@ export const en: Record<string, string> = {
   'audio.outputNotSupported': 'Output device selection is not supported by this browser',
   'audio.autoMic': 'Auto-enable microphone',
   'audio.autoMicHint': 'Automatically turn on microphone when joining voice chat',
+
+  // ─── Camera ───────────────────────────────────────────────────────
+  'camera.allow': 'Allow camera access',
+  'camera.allowHint': 'When off — the camera button doesn’t appear in calls, and the browser doesn’t ask for permission',
+  'camera.device': 'Camera',
+  'camera.needed': 'Camera access needed',
+  'camera.grant': 'Allow',
+  'camera.denied': 'Camera access denied',
+  'camera.deniedHint': 'Allow access in your browser settings and reload the page',
+  'camera.test': 'Test',
+  'camera.stop': 'Stop',
 
   // ─── Sidebar ──────────────────────────────────────────────────────
   'sidebar.cord': 'Cord',

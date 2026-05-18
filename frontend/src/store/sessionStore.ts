@@ -46,6 +46,14 @@ interface SessionState {
   setAudioInputGain: (gain: number) => void;
   setAutoMic: (v: boolean) => void;
 
+  // Video device (persisted). cameraAllowed=false полностью скрывает функционал:
+  // кнопка камеры не рендерится, секция в настройках не активна, getUserMedia
+  // для камеры не вызывается — браузер не будет запрашивать permission.
+  videoInputId: string | null;
+  cameraAllowed: boolean;
+  setVideoInput: (id: string | null) => void;
+  setCameraAllowed: (v: boolean) => void;
+
   // Voice channel
   voicePresence: VoicePresence | null;
   joinVoice: (channelId: string, channelName: string, groupName: string, groupId: string) => void;
@@ -148,6 +156,12 @@ export const useSessionStore = create<SessionState>()(
       setAudioInputGain: (gain) => set({ audioInputGain: gain }),
       setAutoMic: (v) => set({ autoMic: v }),
 
+      // --- Video device ---
+      videoInputId: null,
+      cameraAllowed: true,
+      setVideoInput: (id) => set({ videoInputId: id }),
+      setCameraAllowed: (v) => set({ cameraAllowed: v }),
+
       // --- Voice channel ---
       voicePresence: null,
 
@@ -214,6 +228,8 @@ export const useSessionStore = create<SessionState>()(
         audioOutputId: state.audioOutputId,
         audioInputGain: state.audioInputGain,
         autoMic: state.autoMic,
+        videoInputId: state.videoInputId,
+        cameraAllowed: state.cameraAllowed,
         drafts: state.drafts,
         voicePresence: state.voicePresence,
       }),

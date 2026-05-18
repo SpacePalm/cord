@@ -17,7 +17,7 @@ import {
   Mic, MicOff, PhoneOff, Loader2, WifiOff,
   MonitorUp, MonitorOff, X, Volume2, VolumeX,
   Maximize, Minimize, Headphones, HeadphoneOff,
-  MoreVertical, Signal, MessageSquare,
+  MoreVertical, Signal, MessageSquare, Video, VideoOff,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { voiceApi } from '../../api/voice';
@@ -630,23 +630,57 @@ function ParticipantTile({ participant, isLocal }: { participant: any; isLocal: 
   const isUserMuted = !!mutedUsers[participant.identity];
   const showMenu = openMenuId === participant.identity;
   const btnRef = useRef<HTMLButtonElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Камера-трек participant'а (если включена). useTracks реактивен на subscribe/
+  // unsubscribe — при включении/выключении камеры рендер обновится автоматически.
+  const cameraTracks = useTracks([Track.Source.Camera]);
+  const myCameraRef = cameraTracks.find((tr) => tr.participant.identity === participant.identity);
+  const cameraTrack = myCameraRef?.publication?.track;
+  const hasCamera = !!cameraTrack;
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !cameraTrack) return;
+    cameraTrack.attach(el);
+    return () => { cameraTrack.detach(el); };
+  }, [cameraTrack]);
 
   return (
     <div
       className={`
-        relative rounded-xl flex flex-col items-center justify-center
+        relative rounded-xl overflow-hidden flex flex-col items-center justify-center
         text-white font-bold transition-all duration-200 min-h-0
         ${isSpeaking && !deafened && !isUserMuted ? 'bg-green-500/20 ring-2 ring-green-400' : 'bg-white/5'}
       `}
     >
-      <ParticipantAvatar
-        participant={participant}
-        size={96}
-        bgClass={isSpeaking && !deafened && !isUserMuted ? 'bg-green-500' : 'bg-[var(--accent)]'}
-      />
-      <span className="mt-2 text-sm text-[var(--text-secondary)] truncate max-w-[80%] text-center">
-        {participant.name || participant.identity}
-      </span>
+      {hasCamera ? (
+        <>
+          {/* muted=true для local — иначе echo из своего же микрофона/динамика */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={isLocal}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          {/* Имя в углу поверх видео — как в Zoom/Discord */}
+          <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/50 text-xs text-white max-w-[calc(100%-1rem)] truncate">
+            {participant.name || participant.identity}
+          </span>
+        </>
+      ) : (
+        <>
+          <ParticipantAvatar
+            participant={participant}
+            size={96}
+            bgClass={isSpeaking && !deafened && !isUserMuted ? 'bg-green-500' : 'bg-[var(--accent)]'}
+          />
+          <span className="mt-2 text-sm text-[var(--text-secondary)] truncate max-w-[80%] text-center">
+            {participant.name || participant.identity}
+          </span>
+        </>
+      )}
 
       {/* Indicators */}
       <div className="absolute top-3 left-3 flex items-center gap-1.5">
@@ -817,6 +851,60 @@ function ParticipantSync() {
   return null;
 }
 
+// При выходе из звонка LiveKit room.disconnect() не всегда корректно вызывает
+// MediaStreamTrack.stop() для screen-share треков — браузер продолжает показывать
+// индикатор «сайт записывает экран» пока вкладка не перезагружена. Явно стопаем
+// screen-share-треки при размонтировании. Покрывает все способы выхода (кнопка
+// в RoomControls, FloatingCallBar, OutgoingCallWatcher, VoicePresencePanel) —
+// все они приводят к unmount <LiveKitRoom>.
+function LocalTrackCleanup() {
+  const { localParticipant } = useLocalParticipant();
+  const lpRef = useRef(localParticipant);
+  lpRef.current = localParticipant;
+
+  useEffect(() => {
+    return () => {
+      const lp = lpRef.current;
+      if (!lp) return;
+      try {
+        lp.getTrackPublication(Track.Source.ScreenShare)?.track?.stop();
+        lp.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.stop();
+        lp.getTrackPublication(Track.Source.Camera)?.track?.stop();
+      } catch { /* ignore — track уже мог быть остановлен */ }
+    };
+  }, []);
+
+  return null;
+}
+
+// Реагирует на смену audioInputId/audioOutputId/videoInputId в настройках:
+// если юзер во время активного звонка выбирает другой микрофон/наушники/камеру
+// — переключаем устройство «на лету» без переподключения к LiveKit-комнате.
+// При первом подключении устройства уже применены через props <LiveKitRoom>.
+function DeviceSync() {
+  const room = useRoomContext();
+  const audioInputId = useSessionStore((s) => s.audioInputId);
+  const audioOutputId = useSessionStore((s) => s.audioOutputId);
+  const videoInputId = useSessionStore((s) => s.videoInputId);
+
+  useEffect(() => {
+    if (!room || !audioInputId) return;
+    room.switchActiveDevice('audioinput', audioInputId).catch(() => {});
+  }, [room, audioInputId]);
+
+  useEffect(() => {
+    if (!room || !audioOutputId) return;
+    room.switchActiveDevice('audiooutput', audioOutputId).catch(() => {});
+  }, [room, audioOutputId]);
+
+  useEffect(() => {
+    if (!room || !videoInputId) return;
+    room.switchActiveDevice('videoinput', videoInputId).catch(() => {});
+  }, [room, videoInputId]);
+
+  return null;
+}
+
 // ─── Small participant (strip below screen share) ───────────────────
 
 function SmallParticipant({ participant, isLocal }: { participant: any; isLocal: boolean }) {
@@ -982,12 +1070,25 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
   const { localParticipant } = useLocalParticipant();
   const isMuted = !localParticipant.isMicrophoneEnabled;
   const isScreenSharing = localParticipant.isScreenShareEnabled;
+  const isCameraEnabled = localParticipant.isCameraEnabled;
+  const cameraAllowed = useSessionStore((s) => s.cameraAllowed);
   const [showModal, setShowModal] = useState(false);
   const [showStats, setShowStats] = useState(false);
 
   const toggleMic = useCallback(async () => {
     await localParticipant.setMicrophoneEnabled(isMuted);
   }, [localParticipant, isMuted]);
+
+  const toggleCamera = useCallback(async () => {
+    try {
+      await localParticipant.setCameraEnabled(!isCameraEnabled);
+    } catch (err) {
+      // getUserMedia мог отказать (юзер заблокировал permission в браузере,
+      // камера не подключена, занята другим приложением). Показываем тост.
+      console.error('[VoiceRoom] camera toggle failed:', err);
+      pushRichToast({ title: t('voice.camera'), message: t('voice.cameraError') });
+    }
+  }, [localParticipant, isCameraEnabled, t]);
 
   const handleScreenShareClick = useCallback(() => {
     if (isScreenSharing) localParticipant.setScreenShareEnabled(false);
@@ -1052,6 +1153,13 @@ function RoomControls({ onLeave, deafened, onToggleDeafen }: {
           className={`p-3 rounded-full transition-colors ${isMuted ? 'bg-[var(--danger)] text-white' : 'bg-white/10 text-[var(--text-secondary)] hover:bg-white/20'}`}>
           {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
         </button>
+
+        {cameraAllowed && (
+          <button onClick={toggleCamera} title={isCameraEnabled ? t('voice.cameraOff') : t('voice.camera')}
+            className={`p-3 rounded-full transition-colors ${isCameraEnabled ? 'bg-[var(--accent)] text-white hover:opacity-90' : 'bg-white/10 text-[var(--text-secondary)] hover:bg-white/20'}`}>
+            {isCameraEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+          </button>
+        )}
 
         <button onClick={onToggleDeafen} title={deafened ? t('voice.undeafen') : t('voice.deafen')}
           className={`p-3 rounded-full transition-colors ${deafened ? 'bg-[var(--danger)] text-white' : 'bg-white/10 text-[var(--text-secondary)] hover:bg-white/20'}`}>
@@ -1123,6 +1231,7 @@ export function VoiceRoom({ channelId }: VoiceRoomProps) {
   const leaveVoice = useSessionStore((s) => s.leaveVoice);
   const setCallStartedAt = useSessionStore((s) => s.setCallStartedAt);
   const autoMic = useSessionStore((s) => s.autoMic) ?? true;
+  const audioInputId = useSessionStore((s) => s.audioInputId);
 
   useEffect(() => {
     let cancelled = false;
@@ -1165,12 +1274,20 @@ export function VoiceRoom({ channelId }: VoiceRoomProps) {
   }, [leaveVoice, channelId]);
   const handleError = useCallback((err: Error) => console.error('[VoiceRoom] LiveKit error:', err), []);
 
+  // iOS Safari/Chrome выгружают вкладку при locked screen → срабатывает pagehide
+  // → LiveKit по умолчанию делает clean-disconnect и звонок обрывается, а юзер
+  // слышит серию iOS-звуков «mic on/off» (это переключения audio-session при
+  // попытках reconnect перед окончательным disconnect). На мобильных отключаем
+  // авто-disconnect — даём шанс восстановиться когда экран снова включат.
+  // На десктопе оставляем дефолт true: закрыл вкладку = вышел из звонка.
+  const isMobileDevice = typeof window !== 'undefined' && window.innerWidth < 768;
   const roomOptions: RoomOptions = {
     publishDefaults: {
       red: true,
       // dtx: false,
       audioPreset: AudioPresets.speech,
     },
+    disconnectOnPageLeave: !isMobileDevice,
   };
 
   if (loading) {
@@ -1195,10 +1312,21 @@ export function VoiceRoom({ channelId }: VoiceRoomProps) {
   return (
     <div className="flex-1 h-0 flex flex-col overflow-hidden">
       <VolumeContext.Provider value={volumeCtx} >
-        <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={autoMic} video={false} onError={handleError} options={roomOptions} className="flex-1 h-0 flex flex-col overflow-hidden">
+        <LiveKitRoom
+          serverUrl={serverUrl}
+          token={token}
+          connect={true}
+          audio={autoMic ? (audioInputId ? { deviceId: { exact: audioInputId } } : true) : false}
+          video={false}
+          onError={handleError}
+          options={roomOptions}
+          className="flex-1 h-0 flex flex-col overflow-hidden"
+        >
           <RoomAudioRenderer />
           <ParticipantSync />
           <VolumeApplier />
+          <LocalTrackCleanup />
+          <DeviceSync />
           <div className="flex-1 h-0 flex flex-col overflow-hidden">
             <div className="flex-1 h-0 flex flex-col overflow-hidden">
               <RoomContent />

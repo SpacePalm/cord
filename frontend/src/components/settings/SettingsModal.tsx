@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X, Camera, Check, Eye, EyeOff, Mic, MicOff, Volume2, Smartphone, Monitor, LogOut, Pencil } from 'lucide-react';
+import { X, Camera, Check, Eye, EyeOff, Mic, MicOff, Volume2, Smartphone, Monitor, LogOut, Pencil, Video, VideoOff } from 'lucide-react';
 import { authApi, type SessionInfo } from '../../api/auth';
 import { setDeviceName } from '../../utils/device';
 import { useAuthStore } from '../../store/authStore';
@@ -858,6 +858,208 @@ function AudioTab() {
           }`} />
         </button>
       </div>
+
+      <VideoSettings />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// VideoSettings — секция камеры внутри AudioTab. Может быть полностью скрыта
+// если cameraAllowed=false (privacy: не показываем UI и не дёргаем getUserMedia).
+// ---------------------------------------------------------------------------
+function VideoSettings() {
+  const t = useT();
+  const videoInputId    = useSessionStore((s) => s.videoInputId);
+  const cameraAllowed   = useSessionStore((s) => s.cameraAllowed);
+  const setVideoInput   = useSessionStore((s) => s.setVideoInput);
+  const setCameraAllowed = useSessionStore((s) => s.setCameraAllowed);
+
+  const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
+  const [permission, setPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown');
+  const [active, setActive] = useState(false);
+
+  const streamRef = useRef<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const enumerate = useCallback(async () => {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    setInputs(devs.filter((d) => d.kind === 'videoinput'));
+  }, []);
+
+  const checkPermission = useCallback(async () => {
+    let state: 'granted' | 'denied' | 'prompt' | null = null;
+    try {
+      const status = await navigator.permissions.query({
+        name: 'camera' as PermissionName,
+      });
+      state = status.state as 'granted' | 'denied' | 'prompt';
+      status.onchange = () => {
+        const next = status.state as 'granted' | 'denied' | 'prompt';
+        setPermission(next === 'prompt' ? 'unknown' : next);
+        if (next === 'granted') enumerate();
+      };
+    } catch {
+      // Permissions API без 'camera' (старые Safari) — fallback на labels.
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      state = devs.filter((d) => d.kind === 'videoinput').some((d) => d.label)
+        ? 'granted' : 'prompt';
+    }
+    if (state === 'granted') {
+      setPermission('granted');
+      await enumerate();
+    } else if (state === 'denied') {
+      setPermission('denied');
+    } else {
+      setPermission('unknown');
+    }
+  }, [enumerate]);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((tr) => tr.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setActive(false);
+  }, []);
+
+  useEffect(() => {
+    if (!cameraAllowed) {
+      stopCamera();
+      setPermission('unknown');
+      return;
+    }
+    checkPermission();
+    const onDeviceChange = () => { checkPermission(); };
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+    const onFocus = () => { checkPermission(); };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+      window.removeEventListener('focus', onFocus);
+      stopCamera();
+    };
+  }, [checkPermission, cameraAllowed, stopCamera]);
+
+  const requestPermission = async () => {
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
+      tmp.getTracks().forEach((tr) => tr.stop());
+      setPermission('granted');
+      await enumerate();
+    } catch {
+      setPermission('denied');
+    }
+  };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: videoInputId ? { deviceId: { exact: videoInputId } } : true,
+      });
+      streamRef.current = stream;
+      setPermission('granted');
+      await enumerate();
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setActive(true);
+    } catch {
+      setPermission('denied');
+    }
+  };
+
+  // Кнопка-тоггл «Разрешить доступ к камере» — её показываем всегда, остальное
+  // только при cameraAllowed=true.
+  return (
+    <div className="border-t border-[var(--border-color)] pt-6 mt-2 flex flex-col gap-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-[var(--text-primary)]">{t('camera.allow')}</p>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">{t('camera.allowHint')}</p>
+        </div>
+        <button
+          onClick={() => {
+            if (cameraAllowed) { stopCamera(); setCameraAllowed(false); }
+            else setCameraAllowed(true);
+          }}
+          className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+            cameraAllowed ? 'bg-[var(--accent)]' : 'bg-white/10'
+          }`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+            cameraAllowed ? 'translate-x-5' : 'translate-x-0'
+          }`} />
+        </button>
+      </div>
+
+      {cameraAllowed && (
+        <>
+          {/* Permission banner */}
+          {permission !== 'granted' && (
+            <div className="flex flex-col items-center gap-3 py-5 rounded-lg bg-[var(--bg-input)] text-center">
+              {permission === 'denied' ? (
+                <>
+                  <VideoOff size={24} className="text-[var(--danger)]" />
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{t('camera.denied')}</p>
+                  <p className="text-xs text-[var(--text-muted)]">{t('camera.deniedHint')}</p>
+                </>
+              ) : (
+                <>
+                  <Video size={24} className="text-[var(--text-muted)]" />
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{t('camera.needed')}</p>
+                  <button
+                    onClick={requestPermission}
+                    className="px-4 py-2 rounded bg-[var(--accent)] text-white text-sm font-medium hover:bg-[var(--accent-hover)] transition-colors"
+                  >
+                    {t('camera.grant')}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold uppercase text-[var(--text-muted)] mb-1.5">
+              {t('camera.device')}
+            </label>
+            <select
+              value={videoInputId ?? ''}
+              onChange={(e) => setVideoInput(e.target.value || null)}
+              disabled={permission !== 'granted'}
+              className="w-full px-3 py-2 rounded bg-[var(--bg-input)] text-sm text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent)] disabled:opacity-50"
+            >
+              <option value="">{t('audio.default')}</option>
+              {inputs.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `Camera (${d.deviceId.slice(0, 8)}…)`}
+                </option>
+              ))}
+            </select>
+
+            <div className="mt-3 flex flex-col gap-3">
+              <button
+                onClick={active ? stopCamera : startCamera}
+                disabled={permission === 'denied'}
+                className={`self-start flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors disabled:opacity-40 ${
+                  active
+                    ? 'bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20'
+                    : 'bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20'
+                }`}
+              >
+                {active ? <><VideoOff size={14} /> {t('camera.stop')}</> : <><Video size={14} /> {t('camera.test')}</>}
+              </button>
+
+              {/* Preview — рендерим всегда но скрываем чтобы videoRef был доступен
+                  до клика "Тест". Иначе getUserMedia успеет вернуть stream до
+                  того как <video> смонтируется. */}
+              <div className={`relative rounded-lg overflow-hidden bg-black aspect-video ${active ? '' : 'hidden'}`}>
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
