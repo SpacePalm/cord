@@ -34,10 +34,16 @@ function ThemeInit() {
   const initTheme = useThemeStore((s) => s.initTheme);
   const loadFromServer = useThemeStore((s: { loadFromServer: (json: string | null) => void }) => s.loadFromServer);
   const token = useAuthStore((s) => s.token);
+  const setUser = useAuthStore((s) => s.setUser);
   useEffect(() => {
     initTheme();
     if (token) {
       authApi.me().then((user) => {
+        // Backfill стора свежим пользователем с сервера. /me — источник правды;
+        // персист может прийти с user: null, если setTokens (после refresh на
+        // старте) сработал в окне асинхронной гидрации Zustand и затёр user.
+        // Без этого пропадал нижний блок (UserPanel) и кнопки настроек (canManage).
+        setUser(user);
         if (user.theme_json) loadFromServer(user.theme_json);
         // Подтягиваем prefs с сервера (язык + уведомления + mute чатов).
         // Порядок важен: сначала применяем серверные значения, потом включаем
@@ -46,7 +52,7 @@ function ThemeInit() {
         startPreferencesAutoSync();
       }).catch(() => {});
     }
-  }, [initTheme, loadFromServer, token]);
+  }, [initTheme, loadFromServer, token, setUser]);
   return null;
 }
 
