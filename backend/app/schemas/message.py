@@ -84,3 +84,7 @@ class MessageBulkForward(BaseModel):
 
 class MessageBulkDelete(BaseModel):
     message_ids: list[UUID]
+
+
+class MessageCleanup(BaseModel):
+    days: int  # удалить сообщения старше N дней в этом чате

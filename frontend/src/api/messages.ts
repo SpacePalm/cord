@@ -47,6 +47,9 @@ export const messagesApi = {
       message_ids: messageIds,
     }),
 
+  cleanup: (chatId: string, days: number): Promise<{ deleted: number }> =>
+    api.post<{ deleted: number }>(`/chats/${chatId}/messages/cleanup`, { days }),
+
   react: (chatId: string, messageId: string, emoji: string): Promise<Message> =>
     api.put<Message>(`/chats/${chatId}/messages/${messageId}/reactions`, { emoji }),
 

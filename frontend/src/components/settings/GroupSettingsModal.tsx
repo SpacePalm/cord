@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X, Camera, Check, Trash2, Hash, Volume2, Pencil, Copy, RefreshCw, UserX, AlertTriangle } from 'lucide-react';
+import { X, Camera, Check, Trash2, Hash, Volume2, Pencil, Copy, RefreshCw, UserX, AlertTriangle, Eraser } from 'lucide-react';
 import { groupsApi } from '../../api/groups';
+import { messagesApi } from '../../api/messages';
 import { useAuthStore } from '../../store/authStore';
 import { useT, useLocale } from '../../i18n';
 import type { Group, Chat } from '../../types';
@@ -307,11 +308,16 @@ function MembersTab({ group }: { group: Group }) {
 // ---------------------------------------------------------------------------
 function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }: { group: Group; channels: Chat[]; onChannelsChanged: () => void; isPersonal?: boolean }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<'text' | 'voice'>('text');
   const [newColor, setNewColor] = useState<string | null>(null);
+  // ID канала, для которого открыта панель очистки старых сообщений, + введённый срок.
+  const [cleanupChatId, setCleanupChatId] = useState<string | null>(null);
+  const [cleanupDays, setCleanupDays] = useState(30);
+  const [cleanupResult, setCleanupResult] = useState<{ chatId: string; deleted: number } | null>(null);
   const textChannelCount = channels.filter((c) => c.type === 'text').length;
 
   const renameMutation = useMutation({
@@ -335,6 +341,21 @@ function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }:
     mutationFn: (chatId: string) => groupsApi.deleteChat(group.id, chatId),
     onSuccess: () => onChannelsChanged(),
   });
+
+  const cleanupMutation = useMutation({
+    mutationFn: ({ chatId, days }: { chatId: string; days: number }) =>
+      messagesApi.cleanup(chatId, days),
+    onSuccess: (res, vars) => {
+      setCleanupResult({ chatId: vars.chatId, deleted: res.deleted });
+      // На случай, если канал сейчас открыт — подтянуть свежую историю.
+      queryClient.invalidateQueries({ queryKey: ['messages', vars.chatId] });
+    },
+  });
+
+  const toggleCleanup = (chatId: string) => {
+    setCleanupResult(null);
+    setCleanupChatId((cur) => (cur === chatId ? null : chatId));
+  };
 
   const createMutation = useMutation({
     mutationFn: () => groupsApi.createChat(group.id, newName.trim(), newType, newColor),
@@ -361,7 +382,8 @@ function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }:
 
       <div className="flex flex-col gap-1">
         {channels.map((ch) => (
-          <div key={ch.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[var(--bg-input)] group/row">
+          <div key={ch.id}>
+          <div className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[var(--bg-input)] group/row">
             <ChannelColorPicker
               value={ch.color}
               onChange={(color) => colorMutation.mutate({ chatId: ch.id, color })}
@@ -386,7 +408,16 @@ function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }:
               <span className="flex-1 text-sm text-[var(--text-primary)] truncate">{ch.name}</span>
             )}
 
-            <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+            <div className={`flex items-center gap-1 transition-opacity ${cleanupChatId === ch.id ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-100'}`}>
+              {ch.type === 'text' && (
+                <button
+                  onClick={() => toggleCleanup(ch.id)}
+                  title={t('saved.cleanupTitle')}
+                  className={`p-1 rounded hover:bg-white/10 ${cleanupChatId === ch.id ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+                >
+                  <Eraser size={13} />
+                </button>
+              )}
               <button
                 onClick={() => { setEditingId(ch.id); setEditName(ch.name); }}
                 title="Переименовать"
@@ -405,6 +436,43 @@ function ChannelsTab({ group, channels, onChannelsChanged, isPersonal = false }:
                 </button>
               )}
             </div>
+          </div>
+
+          {cleanupChatId === ch.id && (
+            <div className="mx-2 mt-1 mb-1.5 p-3 rounded-lg bg-[var(--bg-input)] border border-[var(--border-color)] flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={14} className="text-yellow-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-[var(--text-muted)]">{t('saved.cleanupHint')}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-[var(--text-secondary)]">{t('saved.cleanupOlderThan')}</span>
+                <input
+                  type="number"
+                  value={cleanupDays}
+                  onChange={(e) => setCleanupDays(Math.max(1, Number(e.target.value)))}
+                  min={1}
+                  className="w-16 px-2 py-1.5 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-sm text-[var(--text-primary)] text-center focus:outline-none focus:border-[var(--accent)]"
+                />
+                <span className="text-sm text-[var(--text-muted)]">{t('admin.days')}</span>
+                <button
+                  onClick={() => {
+                    if (!confirm(t('saved.cleanupConfirm', { days: String(cleanupDays) }))) return;
+                    setCleanupResult(null);
+                    cleanupMutation.mutate({ chatId: ch.id, days: cleanupDays });
+                  }}
+                  disabled={cleanupMutation.isPending}
+                  className="px-3 py-1.5 rounded bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {cleanupMutation.isPending ? t('admin.deleting') : t('delete')}
+                </button>
+                {cleanupResult?.chatId === ch.id && (
+                  <span className="flex items-center gap-1 text-xs text-green-400">
+                    <Check size={12} /> {t('admin.deletedMessages', { count: String(cleanupResult.deleted) })}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
           </div>
         ))}
       </div>

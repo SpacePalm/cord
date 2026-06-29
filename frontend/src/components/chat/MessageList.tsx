@@ -9,6 +9,7 @@ import { ForwardModal } from './ForwardModal';
 import { renderContent, Spoiler as _Spoiler } from '../../utils/renderContent';
 import { EMOJI_TABS } from './ChatInput';
 import { useProtectedUrl, toProtectedUrl } from '../../hooks/useProtectedUrl';
+import { onMessagesCleared } from '../../hooks/useWebSocket';
 import type { Message, ReplyTo, Poll } from '../../types';
 import { useT, useLocale } from '../../i18n';
 import { useUserActionsPopover } from '../UserActionsPopover';
@@ -1042,6 +1043,16 @@ function MessageList({ chatId, onReply }, ref) {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     };
   }, []);
+
+  // Массовая очистка чата (сообщения старше N дней): central WS-обработчик уже
+  // почистил query-кэш, но локальную историю (olderMessages) чистим здесь.
+  useEffect(() => {
+    return onMessagesCleared((e) => {
+      if (e.chat_id !== chatId) return;
+      const before = new Date(e.before).getTime();
+      setOlderMessages((prev) => prev.filter((m) => new Date(m.created_at).getTime() >= before));
+    });
+  }, [chatId]);
 
   const { data: latest = [], isLoading } = useQuery({
     queryKey: ['messages', chatId],

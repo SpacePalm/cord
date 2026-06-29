@@ -17,11 +17,11 @@ import re
 import uuid
 import shutil
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func as sa_func, text as sa_text, literal
+from sqlalchemy import select, or_, func as sa_func, text as sa_text, literal, delete as sa_delete
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -29,7 +29,7 @@ from app.auth import get_current_user
 from app.models.user import User
 from app.models.group import Chat, GroupMember, Group
 from app.models.message import Message, MessageAttachment, MessageReaction
-from app.schemas.message import MessageOut, MessageEdit, MessageForward, MessageBulkForward, MessageBulkDelete, ForwardedFrom, ReplyTo, PollOut, PollOptionOut, EmbedOut, ReactionGroupOut, ReactionUserOut
+from app.schemas.message import MessageOut, MessageEdit, MessageForward, MessageBulkForward, MessageBulkDelete, MessageCleanup, ForwardedFrom, ReplyTo, PollOut, PollOptionOut, EmbedOut, ReactionGroupOut, ReactionUserOut
 from app.models.poll import Poll, PollOption, PollVote
 from app.models.user_chat_state import UserChatState
 from app.cache import get_cached_messages, set_cached_messages, invalidate_messages, get_cached_search, set_cached_search, invalidate_unread
@@ -636,6 +636,47 @@ async def delete_messages_bulk(
             "chat_id": str(chat_id),
             "message_id": mid,
         })
+
+
+# POST cleanup — удалить сообщения старше N дней в чате
+
+@router.post('/{chat_id}/messages/cleanup', status_code=200)
+async def cleanup_chat_messages(
+    chat_id: uuid.UUID,
+    body: MessageCleanup,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Массово удаляет в чате сообщения старше N дней.
+
+    Доступно владельцу группы, админу, а также владельцу личной группы
+    («Сохранённое») — там очистка касается только собственных сообщений.
+    """
+    if body.days < 1:
+        raise HTTPException(status_code=400, detail='days must be >= 1')
+
+    chat = await _require_chat_member(chat_id, user, db)
+    group = await db.get(Group, chat.group_id)
+    is_owner = group and group.owner_id == user.id
+    is_personal_owner = group and group.is_personal and group.owner_id == user.id
+    if not (is_owner or is_personal_owner or user.role == 'admin'):
+        raise HTTPException(status_code=403, detail='Not allowed to clear this chat')
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=body.days)
+    result = await db.execute(
+        sa_delete(Message).where(
+            Message.chat_id == chat_id,
+            Message.created_at < cutoff,
+        )
+    )
+    await db.commit()
+    await invalidate_messages(str(chat_id))
+    await manager.broadcast(chat_id, {
+        "type": "messages_cleared",
+        "chat_id": str(chat_id),
+        "before": cutoff.isoformat(),
+    })
+    return {'deleted': result.rowcount}
 
 
 # PATCH edit

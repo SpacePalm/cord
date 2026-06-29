@@ -23,6 +23,12 @@ interface WsMessageDeleted {
   message_id: string;
 }
 
+interface WsMessagesCleared {
+  type: 'messages_cleared';
+  chat_id: string;
+  before: string; // ISO timestamp — все сообщения старше удалены
+}
+
 interface WsTyping {
   type: 'typing';
   chat_id: string;
@@ -74,7 +80,7 @@ interface WsCallCancelled {
   };
 }
 
-type WsEvent = WsMessageCreated | WsMessageEdited | WsMessageDeleted | WsTyping | WsStopTyping | WsVoiceParticipants | WsIncomingCall | WsCallDeclined | WsCallCancelled;
+type WsEvent = WsMessageCreated | WsMessageEdited | WsMessageDeleted | WsMessagesCleared | WsTyping | WsStopTyping | WsVoiceParticipants | WsIncomingCall | WsCallDeclined | WsCallCancelled;
 
 // Fallback-таймаут: если пришёл typing, но stop_typing потерян (disconnect, замедление сети),
 // всё равно снимаем индикатор. 6 секунд = 4с бездействия на отправителе + запас на задержку сети.
@@ -100,6 +106,16 @@ const incomingMessageListeners = new Set<(e: IncomingMessageEvent) => void>();
 export function onIncomingMessage(fn: (e: IncomingMessageEvent) => void): () => void {
   incomingMessageListeners.add(fn);
   return () => { incomingMessageListeners.delete(fn); };
+}
+
+// Подписчики на массовую очистку чата (сообщения старше N дней удалены).
+// Открытый MessageList держит историю в локальном state — ему нужно вычистить её сам.
+export type MessagesClearedEvent = WsMessagesCleared;
+const messagesClearedListeners = new Set<(e: MessagesClearedEvent) => void>();
+
+export function onMessagesCleared(fn: (e: MessagesClearedEvent) => void): () => void {
+  messagesClearedListeners.add(fn);
+  return () => { messagesClearedListeners.delete(fn); };
 }
 
 // Подписчики на «звонок отклонён» — инициатору приходит когда собеседник нажал отмену.
@@ -270,6 +286,17 @@ export function useCordWebSocket() {
           if (!old) return old;
           return old.filter((m) => m.id !== event.message_id);
         });
+      }
+
+      if (event.type === 'messages_cleared') {
+        const before = new Date(event.before).getTime();
+        queryClient.setQueryData<Message[]>(['messages', event.chat_id], (old) => {
+          if (!old) return old;
+          return old.filter((m) => new Date(m.created_at).getTime() >= before);
+        });
+        // Открытый список держит историю в локальном state (olderMessages) —
+        // оповещаем его, чтобы вычистил и оттуда.
+        messagesClearedListeners.forEach((fn) => fn(event));
       }
 
       if (event.type === 'voice_participants') {

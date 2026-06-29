@@ -283,6 +283,10 @@ export const en: Record<string, string> = {
   // ─── Saved Messages ─────────────────────────────────────────────
   'saved.title': 'Saved Messages',
   'saved.manageChats': 'Manage chats',
+  'saved.cleanupTitle': 'Clear old messages',
+  'saved.cleanupHint': 'Permanently deletes messages in this chat older than the given period. This cannot be undone.',
+  'saved.cleanupOlderThan': 'Delete messages older than',
+  'saved.cleanupConfirm': 'Delete all messages in this chat older than {days} days? This cannot be undone.',
 
   // ─── Direct Messages ──────────────────────────────────────────────
   'dms.title': 'Direct Messages',
