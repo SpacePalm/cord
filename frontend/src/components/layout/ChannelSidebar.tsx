@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Hash, Volume2, ChevronDown, Settings, LogIn, Cog, Search, Phone } from 'lucide-react';
 import type { Chat, User } from '../../types';
@@ -169,6 +169,10 @@ export function UserPanel({ user }: { user: User }) {
   const showSettings = settingsOpen || uiSettingsOpen;
   const [statusOpen, setStatusOpen] = useState(false);
   const [customText, setCustomText] = useState(user.status_text || '');
+  // Если файл аватара не отдался (404/битый путь) — показываем инициалы,
+  // а не пустую «сломанную» картинку. Сбрасываем при смене image_path.
+  const [avatarError, setAvatarError] = useState(false);
+  useEffect(() => { setAvatarError(false); }, [user.image_path]);
   const initials = (user.display_name || user.username).slice(0, 2).toUpperCase();
   const currentStatus = user.status || 'online';
 
@@ -185,10 +189,11 @@ export function UserPanel({ user }: { user: User }) {
     <>
       <div className="flex items-center gap-2 p-2">
         <div className="relative shrink-0">
-          {user.image_path ? (
+          {user.image_path && !avatarError ? (
             <img
               src={user.image_path}
               alt="avatar"
+              onError={() => setAvatarError(true)}
               className="w-8 h-8 rounded-full object-cover"
             />
           ) : (
