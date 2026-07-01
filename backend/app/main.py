@@ -7,13 +7,14 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base, AsyncSessionLocal
 from app.api import auth, groups, messages, admin, polls, media, voice, notifications, ws, users, dms
-from app.api import admin_fail2ban
+from app.api import admin_fail2ban, devices
 from app.api.groups import invite_router
 from app.api.messages import search_router
 from app.models import poll as _poll_models  # noqa: F401 — registers Poll tables
 from app.models import user_chat_state as _user_chat_state_models  # noqa: F401 — registers UserChatState table
 from app.models import fail2ban as _fail2ban_models  # noqa: F401 — registers LoginAttempt + IpBlock
 from app.models import session as _session_models  # noqa: F401 — registers Session (refresh tokens)
+from app.models import device_token as _device_token_models  # noqa: F401 — registers DeviceToken (APNs)
 from app.config import settings
 
 app = FastAPI(title='Cord API')
@@ -44,6 +45,7 @@ app.include_router(admin.router)
 app.include_router(admin_fail2ban.router)
 app.include_router(users.router)
 app.include_router(dms.router)
+app.include_router(devices.router)
 app.include_router(search_router)
 app.include_router(ws.router)
 

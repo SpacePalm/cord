@@ -23,6 +23,56 @@ from app.models.user_chat_state import UserChatState
 router = APIRouter(prefix='/api/chats', tags=['notifications'])
 
 
+async def compute_unread(db: AsyncSession, user_id: uuid.UUID) -> dict:
+    """Непрочитанное по всем чатам пользователя: {chat_id: {count, group_id}}.
+
+    Вынесено из get_unread_counts для переиспользования (в т.ч. для APNs-badge —
+    суммарный unread получателя). БЕЗ кэша — вызывающий кэширует при необходимости.
+    """
+    user_groups = (
+        select(GroupMember.group_id)
+        .where(GroupMember.user_id == user_id)
+        .subquery()
+    )
+
+    chats = (
+        select(Chat.id.label('chat_id'), Chat.group_id)
+        .where(Chat.group_id.in_(select(user_groups.c.group_id)))
+        .subquery()
+    )
+
+    epoch = datetime(1970, 1, 1)
+    stmt = (
+        select(
+            chats.c.chat_id,
+            chats.c.group_id,
+            func.count(Message.id).label('count'),
+        )
+        .select_from(chats)
+        .outerjoin(
+            UserChatState,
+            (UserChatState.chat_id == chats.c.chat_id)
+            & (UserChatState.user_id == user_id),
+        )
+        .outerjoin(
+            Message,
+            (Message.chat_id == chats.c.chat_id)
+            & (Message.created_at > func.coalesce(UserChatState.last_read_at, epoch)),
+        )
+        .group_by(chats.c.chat_id, chats.c.group_id)
+        .having(func.count(Message.id) > 0)
+    )
+
+    rows = await db.execute(stmt)
+    unread: dict = {}
+    for row in rows:
+        unread[str(row.chat_id)] = {
+            'count': row.count,
+            'group_id': str(row.group_id),
+        }
+    return unread
+
+
 @router.post('/{chat_id}/read', status_code=204)
 async def mark_chat_read(
     chat_id: uuid.UUID,
@@ -67,47 +117,7 @@ async def get_unread_counts(
         return cached
 
     # Считаем из БД
-    user_groups = (
-        select(GroupMember.group_id)
-        .where(GroupMember.user_id == user.id)
-        .subquery()
-    )
-
-    chats = (
-        select(Chat.id.label('chat_id'), Chat.group_id)
-        .where(Chat.group_id.in_(select(user_groups.c.group_id)))
-        .subquery()
-    )
-
-    epoch = datetime(1970, 1, 1)
-    stmt = (
-        select(
-            chats.c.chat_id,
-            chats.c.group_id,
-            func.count(Message.id).label('count'),
-        )
-        .select_from(chats)
-        .outerjoin(
-            UserChatState,
-            (UserChatState.chat_id == chats.c.chat_id)
-            & (UserChatState.user_id == user.id),
-        )
-        .outerjoin(
-            Message,
-            (Message.chat_id == chats.c.chat_id)
-            & (Message.created_at > func.coalesce(UserChatState.last_read_at, epoch)),
-        )
-        .group_by(chats.c.chat_id, chats.c.group_id)
-        .having(func.count(Message.id) > 0)
-    )
-
-    rows = await db.execute(stmt)
-    unread = {}
-    for row in rows:
-        unread[str(row.chat_id)] = {
-            'count': row.count,
-            'group_id': str(row.group_id),
-        }
+    unread = await compute_unread(db, user.id)
 
     result = {'unread': unread}
     await set_cached_unread(user_id, result)

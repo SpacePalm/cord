@@ -35,6 +35,7 @@ from app.models.user_chat_state import UserChatState
 from app.cache import get_cached_messages, set_cached_messages, invalidate_messages, get_cached_search, set_cached_search, invalidate_unread
 from app.rate_limit import RateLimiter
 from app.ws_manager import manager
+from app.push import enqueue_message_push, enqueue_bulk_forward_push
 
 router = APIRouter(prefix='/api/chats', tags=['messages'])
 # Отдельный роутер для глобального поиска — чтобы не ломать префикс /api/chats
@@ -397,6 +398,8 @@ async def send_message(
         "message": _to_out(created_msg, None).model_dump(mode="json"),
         "group_id": str(group_id),
     })
+    # APNs-пуш офлайн-получателям (гейтинг на сервере, best-effort в BackgroundTask).
+    enqueue_message_push(background_tasks, chat_id, group_id, msg_out)
 
     # Fetch link embeds in background — update message and notify via WS
     if content and 'http' in content:
@@ -439,6 +442,7 @@ async def send_message(
 async def forward_message(
     chat_id: uuid.UUID,
     body: MessageForward,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -505,6 +509,7 @@ async def forward_message(
         "message": _to_out(fwd_msg, None).model_dump(mode="json"),
         "group_id": str(group_id),
     })
+    enqueue_message_push(background_tasks, chat_id, group_id, msg_out)
     return msg_out
 
 
@@ -514,6 +519,7 @@ async def forward_message(
 async def forward_messages_bulk(
     chat_id: uuid.UUID,
     body: MessageBulkForward,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -590,6 +596,8 @@ async def forward_messages_bulk(
             "message": _to_out(m, None).model_dump(mode="json"),
             "group_id": str(group_id),
         })
+    # Один агрегированный пуш на всю пачку («N пересланных сообщений»), не по одному.
+    enqueue_bulk_forward_push(background_tasks, chat_id, group_id, out)
     return out
 
 

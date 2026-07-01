@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     livekit_api_key: str = "devkey"
     livekit_api_secret: str = "secret"
 
+    # ─── APNs push (iOS) ─────────────────────────────────────────────
+    # Token-based auth (.p8, ES256). Один ключ работает и на sandbox, и на
+    # production; конкретный хост выбирается по DeviceToken.apns_env.
+    # ВЕСЬ push-сабсистем гейтится на apns_auth_key != '' — dev без ключа
+    # = полный no-op (ничего не шлётся, никаких ошибок).
+    apns_auth_key: str = ""          # содержимое .p8 (EC private key, PEM)
+    apns_key_id: str = ""            # Key ID из Apple Developer → Keys
+    apns_team_id: str = ""           # Team ID
+    apns_topic: str = ""             # bundle id, напр. com.cord.app
+    apns_env: str = "sandbox"        # дефолт-окружение: sandbox | production
+
     model_config = {"env_prefix": "CORD_"}
 
 settings = Settings()
