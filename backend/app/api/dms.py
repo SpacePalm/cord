@@ -149,6 +149,8 @@ async def open_or_create_dm(
             db.add(text_chat)
             await db.commit()
             await db.refresh(text_chat)
+            # Живая доставка: подписываем оба живых WS-соединения на восстановленный чат.
+            manager.subscribe_all_members(text_chat.id, [caller_id, peer_id])
         return DMOpenResponse(
             group_id=existing_id,
             chat_id=text_chat.id,
@@ -177,6 +179,10 @@ async def open_or_create_dm(
     dm_group_id = dm_group.id
     await db.commit()
     await db.refresh(text_chat)
+
+    # Живая доставка: подписываем оба живых WS-соединения (инициатора и собеседника)
+    # на новый DM-чат, чтобы первое же сообщение дошло мгновенно, без реконнекта.
+    manager.subscribe_all_members(text_chat.id, [caller_id, peer_id])
 
     return DMOpenResponse(
         group_id=dm_group_id,

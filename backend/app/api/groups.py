@@ -42,6 +42,7 @@ from app.schemas.group import (
     GroupCreate, GroupOut, ChatCreate, ChatOut,
     MemberOut, GroupUpdate, ChatUpdate, InviteOut,
 )
+from app.ws_manager import manager
 
 router = APIRouter(prefix='/api/groups', tags=['groups'])
 invite_router = APIRouter(prefix='/api/invite', tags=['invite'])
@@ -102,8 +103,17 @@ async def _join_group(group_id: uuid.UUID, user: User, db: AsyncSession) -> None
         )
     )
     if not result.scalar_one_or_none():
-        db.add(GroupMember(group_id=group_id, user_id=user.id))
+        # Снимаем id до commit — после commit ORM-объект expired (MissingGreenlet).
+        user_id = user.id
+        db.add(GroupMember(group_id=group_id, user_id=user_id))
         await db.commit()
+        # Живая доставка: подписываем уже подключённые WS вступившего на все
+        # чаты группы, чтобы сообщения каналов доходили сразу, без реконнекта.
+        chat_ids = (await db.execute(
+            select(Chat.id).where(Chat.group_id == group_id)
+        )).scalars().all()
+        for cid in chat_ids:
+            manager.subscribe_all_members(cid, [user_id])
 
 
 # Groups
@@ -144,8 +154,16 @@ async def create_group(
     db.add(Chat(name='general', group_id=group.id, type='text'))
     db.add(Chat(name='voice', group_id=group.id, type='voice'))
 
+    owner_id = user.id  # снимаем до commit — после commit объект expired (MissingGreenlet).
     await db.commit()
     await db.refresh(group)
+    # Живая доставка: подписываем уже подключённое WS создателя на дефолтные
+    # каналы, чтобы сообщения других участников доходили сразу, без реконнекта.
+    chat_ids = (await db.execute(
+        select(Chat.id).where(Chat.group_id == group.id)
+    )).scalars().all()
+    for cid in chat_ids:
+        manager.subscribe_all_members(cid, [owner_id])
     return group
 
 
@@ -428,6 +446,12 @@ async def create_chat(
     db.add(chat)
     await db.commit()
     await db.refresh(chat)
+    # Живая доставка: подписываем уже подключённые WS всех участников группы на
+    # новый канал, чтобы его сообщения приходили сразу, без реконнекта.
+    member_ids = (await db.execute(
+        select(GroupMember.user_id).where(GroupMember.group_id == group_id)
+    )).scalars().all()
+    manager.subscribe_all_members(chat.id, list(member_ids))
     return chat
 
 
