@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func as sa_func, text as sa_text, literal, delete as sa_delete
+from sqlalchemy import select, or_, func as sa_func, text as sa_text, literal, delete as sa_delete, tuple_ as sa_tuple
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -992,6 +992,7 @@ async def get_media(
     chat_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=100),
     before: datetime | None = Query(None),
+    before_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1008,11 +1009,18 @@ async def get_media(
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
             selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
-        .order_by(Message.created_at.desc())
+        # id как тай-брейкер: bulk-forward коммитит пачку с ОДНИМ created_at
+        # (transaction timestamp) — без него порядок страниц недетерминирован.
+        .order_by(Message.created_at.desc(), Message.id.desc())
         .distinct()
         .limit(limit)
     )
-    if before:
+    # Compound-курсор (created_at, id): строгий '<' только по дате терял
+    # сообщения с одинаковым created_at на границе страницы. before без
+    # before_id — прежнее поведение (совместимость со старыми клиентами).
+    if before and before_id:
+        q = q.where(sa_tuple(Message.created_at, Message.id) < sa_tuple(literal(before), literal(before_id)))
+    elif before:
         q = q.where(Message.created_at < before)
 
     result = await db.execute(q)
@@ -1026,35 +1034,36 @@ async def get_links(
     chat_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=100),
     before: datetime | None = Query(None),
+    before_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     await _require_chat_member(chat_id, user, db)
 
-    # Сообщения содержащие http:// или https://
+    # Сообщения со ссылкой — фильтр regex'ом В SQL, ДО LIMIT. Прежний вариант
+    # (ilike '%http%' + пост-фильтр URL_RE в Python) мог вернуть страницу < limit
+    # при живом остатке: клиенты гасили hasMore и старые ссылки становились
+    # недостижимы. Пост-фильтр убран: страница = ровно limit SQL-строк.
     q = (
         select(Message)
-        .where(Message.chat_id == chat_id, Message.content.ilike('%http%'))
+        .where(Message.chat_id == chat_id, Message.content.op('~')('https?://'))
         .options(
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.poll).selectinload(Poll.options).selectinload(PollOption.votes),
             selectinload(Message.reactions).selectinload(MessageReaction.user),
         )
-        .order_by(Message.created_at.desc())
+        .order_by(Message.created_at.desc(), Message.id.desc())
         .limit(limit)
     )
-    if before:
+    # Compound-курсор — как в get_media.
+    if before and before_id:
+        q = q.where(sa_tuple(Message.created_at, Message.id) < sa_tuple(literal(before), literal(before_id)))
+    elif before:
         q = q.where(Message.created_at < before)
 
     result = await db.execute(q)
-    msgs = result.scalars().all()
-
-    # Оставляем только те, где regex реально находит ссылку
-    def has_url(m: Message) -> bool:
-        return bool(m.content and URL_RE.search(m.content))
-
-    return [_to_out(m, user.id) for m in msgs if has_url(m)]
+    return [_to_out(m, user.id) for m in result.scalars().all()]
 
 
 # ─── Глобальный поиск сообщений (для CommandPalette) ──────────────────────

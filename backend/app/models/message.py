@@ -59,7 +59,13 @@ class Message(Base):
         back_populates='message', cascade='all, delete-orphan'
     )
     author: Mapped['User'] = relationship('User', foreign_keys=[user_id])  # type: ignore[name-defined]
-    poll: Mapped['Poll | None'] = relationship('Poll', back_populates='message', uselist=False)  # type: ignore[name-defined]
+    # cascade обязателен: без него ORM при удалении сообщения пытается занулить
+    # poll.message_id (NOT NULL) -> IntegrityError -> 500 на DELETE любого
+    # сообщения с опросом. passive_deletes: удаление отдаёт БД (FK ON DELETE CASCADE).
+    poll: Mapped['Poll | None'] = relationship(  # type: ignore[name-defined]
+        'Poll', back_populates='message', uselist=False,
+        cascade='all, delete-orphan', passive_deletes=True,
+    )
     reactions: Mapped[list['MessageReaction']] = relationship(
         back_populates='message', cascade='all, delete-orphan'
     )
