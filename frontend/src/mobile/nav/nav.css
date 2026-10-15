@@ -1,0 +1,348 @@
+/* Nav stack, Screen chrome (iOS 26 nav bar, large title, scroll-edge effect, pull-to-refresh) and
+   Liquid Glass bar buttons. Every selector is scoped under .ios-root. */
+
+/* ───────────── stack ───────────── */
+.ios-root .ios-nav-stack {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+.ios-root .ios-nav-item {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+  z-index: 0;
+  box-shadow: -1px 0 14px rgba(0, 0, 0, 0.22);
+}
+.ios-root .ios-nav-item.is-under,
+.ios-root .ios-nav-item.is-hidden {
+  transform: translateX(-30%);
+  visibility: hidden;
+}
+.ios-root .ios-nav-item.is-leaving {
+  transform: translateX(100%);
+}
+.ios-root .ios-nav-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.25);
+  opacity: 0;
+}
+.ios-root .ios-nav-item.is-under > .ios-nav-shade,
+.ios-root .ios-nav-item.is-hidden > .ios-nav-shade {
+  opacity: 1;
+}
+
+/* ───────────── screen ───────────── */
+.ios-root .ios-screen {
+  --ios-screen-bg: var(--bg-primary);
+  --ios-bar-top: var(--ios-safe-top, env(safe-area-inset-top, 0px));
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--ios-screen-bg);
+  color: var(--text-primary);
+}
+.ios-root .ios-screen-scroller {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+.ios-root .ios-screen-content {
+  position: relative;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+.ios-root .ios-screen-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+.ios-root .ios-screen-large-title {
+  box-sizing: border-box;
+  height: 52px;
+  padding: 13px 16px 0;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 41px;
+  color: var(--ios-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ios-root .ios-screen-bottom-spacer {
+  flex: none;
+}
+
+/* scroll-edge effect */
+.ios-root .ios-screen-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--ios-bar-top) + 73px);
+  z-index: 8;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--ios-screen-bg) 0,
+    var(--ios-screen-bg) calc(var(--ios-bar-top) + 23px),
+    color-mix(in srgb, var(--ios-screen-bg) 55%, transparent) calc(var(--ios-bar-top) + 50px),
+    transparent 100%
+  );
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  -webkit-mask-image: linear-gradient(#000 60%, transparent);
+  mask-image: linear-gradient(#000 60%, transparent);
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+.ios-root .ios-screen-edge.is-sheet {
+  height: 95px;
+  background: linear-gradient(
+    to bottom,
+    var(--ios-screen-bg) 0,
+    var(--ios-screen-bg) 45px,
+    color-mix(in srgb, var(--ios-screen-bg) 55%, transparent) 72px,
+    transparent 100%
+  );
+}
+.ios-root .ios-screen[data-scrolled='true'] > .ios-screen-edge {
+  opacity: 1;
+}
+
+/* pinned strip under the bar (.safeAreaInset(.top)) */
+.ios-root .ios-screen-topinset {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--ios-bar-top) + 44px);
+  z-index: 9;
+}
+
+/* bottom bar riding on the keyboard */
+.ios-root .ios-screen-bottombar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+}
+
+/* pull to refresh */
+.ios-root .ios-screen-ptr {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--ios-bar-top) + 44px);
+  height: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* ───────────── nav bar ───────────── */
+.ios-root .ios-nav-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--ios-bar-top);
+  height: 44px;
+  z-index: 10;
+  pointer-events: none;
+}
+.ios-root .ios-nav-bar.is-sheet {
+  top: 10px;
+  height: 56px;
+}
+.ios-root .ios-nav-bar-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+.ios-root .ios-nav-bar-side.is-leading {
+  left: 16px;
+}
+.ios-root .ios-nav-bar-side.is-trailing {
+  right: 16px;
+}
+.ios-root .ios-nav-bar-side:empty {
+  display: none;
+}
+.ios-root .ios-nav-title {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--ios-label);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+.ios-root .ios-nav-title > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.ios-root .ios-nav-title.is-hidden {
+  opacity: 0;
+}
+.ios-root .ios-nav-title-measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: nowrap;
+  font-size: 17px;
+  font-weight: 600;
+  pointer-events: none;
+  left: 0;
+  top: 0;
+}
+
+/* ───────────── Liquid Glass bar controls ───────────── */
+.ios-root .ios-barbtn,
+.ios-root .ios-bargroup,
+.ios-root .ios-bartext {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ios-root .ios-barglass {
+  background: var(--ios-glass-control, rgba(255, 255, 255, 0.06));
+  -webkit-backdrop-filter: var(--ios-glass-control-blur, blur(12px) saturate(150%));
+  backdrop-filter: var(--ios-glass-control-blur, blur(12px) saturate(150%));
+  box-shadow: var(--ios-glass-control-rim, inset 0 0 0 1px rgba(255, 255, 255, 0.11));
+}
+.ios-root button.ios-barbtn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  color: var(--accent);
+  transition: transform 160ms ease-out, background-color 160ms ease-out, opacity 160ms ease-out;
+}
+.ios-root button.ios-barbtn.is-slot {
+  width: 46px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.ios-root button.ios-barbtn:not(.is-slot):active:not(:disabled),
+.ios-root button.ios-bartext:not(.is-slot):active:not(:disabled) {
+  transform: scale(0.95);
+  background: var(--ios-glass-control-pressed, rgba(255, 255, 255, 0.13));
+}
+.ios-root button.ios-barbtn.is-slot:active:not(:disabled) .ios-barbtn-glyph,
+.ios-root button.ios-bartext.is-slot:active:not(:disabled) {
+  opacity: 0.5;
+}
+/* disabled bar items: the glass stays, the label/glyph turns tertiaryLabel (e.g. "Создать" while the
+   name is empty) — not a faded capsule. !important beats the inline tint colour. */
+.ios-root button.ios-barbtn:disabled,
+.ios-root button.ios-bartext:disabled {
+  color: var(--ios-label-3, rgba(235, 235, 245, 0.3)) !important;
+}
+.ios-root .ios-barbtn-glyph {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 120ms ease-out;
+}
+.ios-root .ios-barbtn-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.ios-root .ios-bargroup {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 9.5px;
+  height: 44px;
+  padding: 0 0.5px;
+  border-radius: 9999px;
+}
+.ios-root button.ios-bartext {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 9999px;
+  font-size: 17px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--accent);
+  white-space: nowrap;
+  transition: transform 160ms ease-out, background-color 160ms ease-out, opacity 160ms ease-out;
+}
+.ios-root button.ios-bartext.is-prominent {
+  font-weight: 600;
+}
+.ios-root button.ios-bartext.is-slot {
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 0 14px;
+}
+.ios-root .ios-menu-trigger {
+  display: inline-flex;
+  flex: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .ios-menu-trigger[role='button'] {
+  cursor: pointer;
+}
+.ios-root .ios-menu-trigger[aria-disabled='true'] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-root .ios-nav-title,
+  .ios-root .ios-screen-edge,
+  .ios-root button.ios-barbtn,
+  .ios-root button.ios-bartext {
+    transition: none;
+  }
+}
+
+/* topInset strip on large-title screens: sits below the expanded large title and scrolls with it */
+.ios-root .ios-screen-topinset-inline {
+  margin: 0 0 2px;
+}

@@ -24,6 +24,40 @@ export function pushRichToast(toast: Omit<ToastNotification, 'id'>): void {
   toastListeners.forEach((fn) => fn(full));
 }
 
+// ─── Mobile in-app banner channel (iOS InAppBannerView) ──────────────────
+// The mobile shell (src/mobile) shows a single-slot top banner instead of the desktop toast stack.
+// MessageNotifier pushes here only on phones (isMobileNow()); desktop never uses this channel.
+export interface MobileBannerEvent {
+  id: number;
+  /** "author · server" (channel) or "author" (DM). */
+  title: string;
+  /** Preview text (or "📎 Attachment"), already cut/prefixed like iOS. */
+  body: string;
+  /** Author avatar path (or null → initials). */
+  avatar: string | null;
+  /** For the initials fallback. */
+  authorName: string;
+  chatId: string;
+  groupId: string;
+  /** Nav title of the chat opened by a tap (author for DMs, server name for channels — as iOS). */
+  routeTitle: string;
+}
+
+let mobileBannerId = 0;
+const mobileBannerListeners = new Set<(b: MobileBannerEvent) => void>();
+
+export function pushMobileBanner(banner: Omit<MobileBannerEvent, 'id'>): void {
+  const full: MobileBannerEvent = { id: ++mobileBannerId, ...banner };
+  mobileBannerListeners.forEach((fn) => fn(full));
+}
+
+export function subscribeMobileBanners(fn: (b: MobileBannerEvent) => void): () => void {
+  mobileBannerListeners.add(fn);
+  return () => {
+    mobileBannerListeners.delete(fn);
+  };
+}
+
 export function useUnreadCounts() {
   const { data } = useQuery({
     queryKey: ['unread'],

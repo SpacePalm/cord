@@ -1,0 +1,415 @@
+/* Presentation layer: card stack, sheets, full-screen covers, alerts, confirmation popovers, menus,
+   popovers. Every selector is scoped under .ios-root. */
+
+.ios-root .ios-present {
+  --ios-sheet-top: max(var(--ios-safe-top, env(safe-area-inset-top, 0px)), 12px);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+/* ───────────── card stack (base + receded sheets) ───────────── */
+.ios-root .ios-present-base {
+  --recede: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+  transform-origin: 50% 0;
+  transform: translateY(calc(var(--recede) * (var(--ios-sheet-top) - 12px))) scale(calc(1 - 0.08 * var(--recede)));
+  border-radius: calc(var(--recede) * 40px);
+  transition:
+    transform var(--ios-recede-dur, 500ms) cubic-bezier(0.32, 0.72, 0, 1),
+    border-radius var(--ios-recede-dur, 500ms) cubic-bezier(0.32, 0.72, 0, 1);
+}
+.ios-root .ios-present-base[data-receded='true'] {
+  --recede: 1;
+}
+.ios-root .ios-recede-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background: #000;
+  border-radius: inherit;
+  opacity: calc(var(--recede) * 0.6);
+  transition: opacity var(--ios-recede-dur, 500ms) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ───────────── sheets ───────────── */
+.ios-root .ios-sheet-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ios-root .ios-sheet-dim {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  background: var(--ios-dim-sheet, rgba(0, 0, 0, 0.3));
+}
+.ios-root .ios-sheet-frame {
+  position: absolute;
+  pointer-events: auto;
+  transition:
+    top 350ms cubic-bezier(0.32, 0.72, 0, 1),
+    left 350ms cubic-bezier(0.32, 0.72, 0, 1),
+    right 350ms cubic-bezier(0.32, 0.72, 0, 1),
+    bottom 350ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.ios-root .ios-sheet-card {
+  --recede: 0;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  outline: none;
+  background: var(--bg-primary);
+  border-radius: var(--ios-r-sheet, 44px) var(--ios-r-sheet, 44px) 0 0;
+  transform-origin: 50% 0;
+  transform: translateY(calc(var(--recede) * -10px)) scale(calc(1 - 0.06 * var(--recede)));
+  transition:
+    transform var(--ios-recede-dur, 500ms) cubic-bezier(0.32, 0.72, 0, 1),
+    border-radius 350ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.ios-root .ios-sheet-card[data-receded='true'] {
+  --recede: 1;
+}
+.ios-root .ios-sheet-card > .ios-recede-shade {
+  opacity: calc(var(--recede) * 0.3);
+}
+.ios-root .ios-sheet-frame.is-partial > .ios-sheet-card {
+  border-radius: 40px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
+}
+.ios-root .ios-sheet-grabber {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 36px;
+  height: 5px;
+  margin-left: -18px;
+  border-radius: 2.5px;
+  background: var(--ios-label-3, rgba(235, 235, 245, 0.3));
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* ───────────── full-screen cover ───────────── */
+.ios-root .ios-fullscreen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  outline: none;
+  background: var(--bg-primary);
+}
+
+/* ───────────── glass panels & capsule buttons ───────────── */
+.ios-root .ios-pr-panel {
+  background: var(--ios-glass-panel, rgba(28, 28, 31, 0.72));
+  -webkit-backdrop-filter: var(--ios-glass-panel-blur, blur(24px) saturate(160%));
+  backdrop-filter: var(--ios-glass-panel-blur, blur(24px) saturate(160%));
+  border: var(--ios-glass-panel-rim, 0.5px solid rgba(255, 255, 255, 0.1));
+  box-shadow: var(--ios-glass-panel-shadow, 0 10px 40px rgba(0, 0, 0, 0.45));
+  box-sizing: border-box;
+}
+.ios-root button.ios-alert-btn,
+.ios-root button.ios-pr-pill {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border-radius: 24px;
+  background: var(--ios-glass-pill, rgba(255, 255, 255, 0.12));
+  color: var(--accent);
+  font-size: 17px;
+  line-height: 20px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  touch-action: manipulation;
+  transition: background-color 150ms ease-out;
+}
+.ios-root button.ios-alert-btn:active,
+.ios-root button.ios-pr-pill:active {
+  background: var(--ios-glass-pill-pressed, rgba(255, 255, 255, 0.2));
+}
+.ios-root button.ios-alert-btn.is-destructive,
+.ios-root button.ios-pr-pill.is-destructive {
+  color: var(--ios-red, #ff4245);
+}
+
+/* ───────────── alert ───────────── */
+.ios-root .ios-alert-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ios-root .ios-alert-dim {
+  position: fixed;
+  inset: 0;
+  background: var(--ios-dim-alert, rgba(0, 0, 0, 0.47));
+}
+.ios-root .ios-alert {
+  position: relative;
+  box-sizing: border-box;
+  padding: 20px 14px 15px;
+  border-radius: var(--ios-r-alert, 34px);
+  background: var(--ios-glass-panel, rgba(28, 28, 31, 0.72));
+  -webkit-backdrop-filter: var(--ios-glass-panel-blur, blur(24px) saturate(160%));
+  backdrop-filter: var(--ios-glass-panel-blur, blur(24px) saturate(160%));
+  border: var(--ios-glass-panel-rim, 0.5px solid rgba(255, 255, 255, 0.1));
+  box-shadow: var(--ios-glass-panel-shadow, 0 10px 40px rgba(0, 0, 0, 0.45));
+  text-align: center;
+  outline: none;
+}
+.ios-root .ios-alert-title {
+  margin: 0 10px;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--ios-label, #fff);
+  overflow-wrap: break-word;
+}
+.ios-root .ios-alert-title.has-field {
+  font-weight: 500;
+}
+.ios-root .ios-alert-message {
+  margin: 4px 10px 0;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--ios-label-2, rgba(235, 235, 245, 0.6));
+  overflow-wrap: break-word;
+  white-space: pre-line;
+}
+.ios-root input.ios-alert-field {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  margin-top: 15px;
+  padding: 0 16px;
+  border-radius: 24px;
+  background: var(--ios-glass-pill, rgba(255, 255, 255, 0.12));
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--ios-label, #fff);
+  caret-color: var(--ios-blue, #0091ff);
+  text-align: left;
+}
+.ios-root .ios-alert-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+}
+.ios-root .ios-alert-actions.is-row {
+  flex-direction: row;
+  gap: 12px;
+}
+.ios-root .ios-alert-actions.is-row > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ───────────── confirmation dialog ───────────── */
+.ios-root .ios-confirm-layer,
+.ios-root .ios-menu-layer,
+.ios-root .ios-popover-layer {
+  position: absolute;
+  inset: 0;
+}
+.ios-root .ios-confirm-backdrop,
+.ios-root .ios-popover-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--ios-dim-popover, transparent);
+}
+.ios-root .ios-confirm-layer.is-sheet .ios-confirm-backdrop {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.25);
+}
+.ios-root .ios-popover-wrap {
+  position: absolute;
+  outline: none;
+}
+.ios-root .ios-confirm-panel {
+  border-radius: 34px;
+  padding-bottom: 15px;
+}
+/* iOS 26: first line box 20.5 below the panel top, buttons 16.7 below the text, 15 bottom */
+.ios-root .ios-confirm-text {
+  padding: 20.5px 40px 0 30px;
+}
+.ios-root .ios-confirm-title {
+  white-space: pre-line; /* "\n" in a title starts a new line, as on iOS */
+  margin-bottom: 6px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ios-label-2, rgba(235, 235, 245, 0.6));
+}
+.ios-root .ios-confirm-message {
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--ios-label, #fff);
+  -webkit-hyphens: auto;
+  hyphens: auto;
+  overflow-wrap: break-word;
+}
+.ios-root .ios-confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 17px 15px 0;
+}
+.ios-root .ios-confirm-panel > .ios-confirm-actions:first-child {
+  padding-top: 15px;
+}
+.ios-root .ios-confirm-sheet {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--ios-safe-bottom, env(safe-area-inset-bottom, 0px)) + 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  outline: none;
+}
+.ios-root .ios-confirm-sheet .ios-confirm-text {
+  padding: 22px 24px 0;
+  text-align: center;
+}
+.ios-root button.ios-pr-pill.ios-confirm-cancel {
+  height: 56px;
+  border-radius: 28px;
+  font-weight: 600;
+}
+
+/* popover arrow */
+.ios-root .ios-popover-arrow {
+  position: absolute;
+  width: 26px;
+  height: 12px;
+  margin: -0.5px 0;
+  background: var(--ios-glass-panel, rgba(28, 28, 31, 0.72));
+  -webkit-backdrop-filter: var(--ios-glass-panel-blur, blur(24px) saturate(160%));
+  backdrop-filter: var(--ios-glass-panel-blur, blur(24px) saturate(160%));
+  pointer-events: none;
+}
+.ios-root .ios-popover-panel {
+  border-radius: 26px;
+  overflow: hidden;
+}
+
+/* ───────────── menu ───────────── */
+.ios-root .ios-menu-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--ios-dim-menu, rgba(0, 0, 0, 0.08));
+}
+/* Vertical rhythm (iOS 26 toolbar menu: baselines 37.3 / +42.0 / +42.0 / +20.1 line, bottom 25 → panel 166.4;
+   another menu → 124.5): 0.5 rim + 9.75 padding, rows 11 + 20 + 11 (= 42), extra lines +20. */
+.ios-root .ios-menu {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 9.75px 0;
+  border-radius: var(--ios-r-menu, 30px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ios-root button.ios-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  /* trailing inset 26.5 → label column 157.5 (249 − 1 rim − 64 − 26.5): iOS keeps "Вложения и ссылки"
+     (advance 156.9) on one line but wraps "Присоединиться по" (157.9) */
+  padding: 11px 26.5px 11px 0;
+  text-align: left;
+  color: var(--ios-label, #fff);
+  font-size: 17px;
+  line-height: 20px;
+  font-weight: 400;
+  touch-action: manipulation;
+}
+.ios-root button.ios-menu-item.no-icon {
+  padding-left: 20px;
+}
+.ios-root button.ios-menu-item::before {
+  content: '';
+  position: absolute;
+  inset: 0 8px;
+  border-radius: 16px;
+  background: transparent;
+  transition: background-color 120ms ease-out;
+  pointer-events: none;
+}
+.ios-root button.ios-menu-item:active:not(:disabled)::before {
+  background: rgba(255, 255, 255, 0.1);
+}
+.ios-root button.ios-menu-item:disabled {
+  opacity: 0.35;
+}
+.ios-root .ios-menu-icon {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  margin: 0 13px 0 27px;
+  color: var(--accent);
+}
+.ios-root .ios-menu-label {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.ios-root button.ios-menu-item.is-destructive,
+.ios-root button.ios-menu-item.is-destructive .ios-menu-icon {
+  color: var(--ios-red, #ff4245);
+}
+.ios-root .ios-menu-divider {
+  height: 1px;
+  margin: 6px 12px;
+  background: var(--ios-separator, rgba(84, 84, 88, 0.5));
+}
+
+/* keyboard primer (see primeKeyboard) */
+.ios-root input.ios-focus-proxy {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  margin: 0;
+  opacity: 0;
+  font-size: 16px;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-root .ios-present-base,
+  .ios-root .ios-sheet-card,
+  .ios-root .ios-recede-shade,
+  .ios-root .ios-sheet-frame {
+    transition-duration: 1ms;
+  }
+}

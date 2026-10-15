@@ -1,0 +1,435 @@
+/* Admin panel (iOS 26 chrome).
+   Every selector is scoped under .ios-root; area prefix m-adm-. px only. */
+
+/* The tab bar never scrolls and the lists scroll below it, so there is no scroll-edge fade under the nav bar. */
+.ios-root .ios-screen:has(> .ios-screen-fill > .m-adm-root) > .ios-screen-edge {
+  display: none;
+}
+
+/* ───────────── container (AdminPanelView) ───────────── */
+.ios-root .m-adm-root {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding-top: var(--ios-content-top);
+  background: var(--bg-primary);
+}
+.ios-root .m-adm-tabs {
+  flex: none;
+  display: flex;
+  background: var(--bg-secondary);
+  border-bottom: 0.5px solid var(--bg-tertiary);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ios-root .m-adm-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-adm-tab.is-selected {
+  color: var(--accent);
+}
+.ios-root .m-adm-tab.is-selected::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+}
+.ios-root .m-adm-tab:active > * {
+  opacity: 0.4;
+}
+.ios-root .m-adm-tab:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.ios-root .m-adm-tab-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+}
+.ios-root .m-adm-tab-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 13px;
+  font-weight: 500;
+}
+.ios-root .m-adm-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ios-root .m-adm-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+.ios-root .m-adm-bottom-spacer {
+  height: calc(var(--ios-content-bottom, env(safe-area-inset-bottom, 0px)) + 35px);
+}
+/* Security: fixed segmented band above its List */
+.ios-root .m-adm-segband {
+  flex: none;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+}
+
+/* ───────────── shared rows ───────────── */
+.ios-root .m-adm-search-cell {
+  padding: 8px 12px;
+}
+.ios-root .m-adm-row .ios-row-trailing {
+  margin-left: var(--m-adm-trail-gap, 16px);
+  color: var(--text-muted);
+}
+/* HStack(spacing: s) { …; Spacer(minLength: 8); trailing } → minimum gap 2s + 8 */
+.ios-root .m-adm-row.m-adm-g28 {
+  --m-adm-trail-gap: 28px;
+}
+.ios-root .m-adm-row.m-adm-g32 {
+  --m-adm-trail-gap: 32px;
+}
+.ios-root .m-adm-vstack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  width: 100%;
+}
+.ios-root .m-adm-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ios-root .m-adm-1l {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ios-root .m-adm-body17 {
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--text-primary);
+}
+.ios-root .m-adm-sub15 {
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--text-primary);
+}
+.ios-root .m-adm-cap {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-muted);
+}
+.ios-root .m-adm-cap2 {
+  font-size: 11px;
+  line-height: 13px;
+  color: var(--text-muted);
+}
+.ios-root .m-adm-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 17px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ios-root .m-adm-msg {
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.ios-root .m-adm-muted-text {
+  width: 100%;
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--text-muted);
+}
+.ios-root .m-adm-loadmore {
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--accent);
+}
+.ios-root .m-adm-spacer {
+  flex: 1 1 auto;
+}
+
+/* buttons inside rows (plain style: content dims while pressed) */
+.ios-root :is(.m-adm-more, .m-adm-iconbtn, .m-adm-textbtn, .m-adm-hdr-btn) {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root :is(.m-adm-more, .m-adm-iconbtn, .m-adm-textbtn, .m-adm-hdr-btn):active:not(:disabled) {
+  opacity: 0.4;
+}
+.ios-root :is(.m-adm-more, .m-adm-iconbtn, .m-adm-hdr-btn)::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+.ios-root .m-adm-textbtn::before {
+  content: '';
+  position: absolute;
+  inset: -14px -8px;
+}
+.ios-root .m-adm-more {
+  width: 24px;
+  height: 24px;
+  margin-right: -2px;
+  color: var(--text-muted);
+}
+.ios-root .m-adm-iconbtn {
+  width: 24px;
+  height: 24px;
+}
+.ios-root .m-adm-textbtn {
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.ios-root .m-adm-hdr-btn {
+  width: 22px;
+  height: 20px;
+  color: var(--accent);
+}
+.ios-root .m-adm-hdr-btn:disabled {
+  color: var(--ios-label-3);
+  cursor: default;
+}
+.ios-root .ios-menu-trigger:has(> .m-adm-textbtn) {
+  display: inline-flex;
+}
+
+/* numeric fields (TextField(value:format:.number)) */
+.ios-root .m-adm-num-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ios-root .m-adm-num {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 17px;
+  line-height: 22px;
+  text-align: right;
+  caret-color: var(--accent);
+}
+.ios-root .m-adm-num::placeholder {
+  color: var(--ios-label-4);
+}
+.ios-root .m-adm-num-unit {
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--text-muted);
+}
+
+/* ───────────── People / Servers ───────────── */
+.ios-root .m-adm-pad4 {
+  padding: 4px 0;
+}
+.ios-root .m-adm-pad3 {
+  padding: 3px 0;
+}
+.ios-root .m-adm-pad2 {
+  padding: 2px 0;
+}
+.ios-root .m-adm-gap2 {
+  gap: 2px;
+}
+.ios-root .m-adm-gap1 {
+  gap: 1px;
+}
+.ios-root .m-adm-srv-lead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ios-root .m-adm-disclosure {
+  order: -1; /* drawn first; the avatar stays the first DOM child so the separator aligns to its initials */
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  color: var(--text-muted);
+}
+.ios-root .m-adm-member {
+  --ios-row-min-h: 52px;
+}
+
+/* ───────────── Security ───────────── */
+.ios-root .m-adm-block-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.ios-root .m-adm-grow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 0;
+}
+.ios-root .m-adm-gline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ios-root .m-adm-gline.is-toggle {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-adm-gline2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 16px;
+}
+.ios-root .m-adm-gchev {
+  flex: none;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+.ios-root .m-adm-guser {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 18px;
+  min-width: 0;
+}
+
+/* fail2ban dirty row: Save (CordButton, stretches) · Cancel (text, --text-muted) · spinner */
+.ios-root .m-adm-dirty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.ios-root .m-adm-cancel {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--text-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-adm-cancel:active:not(:disabled) {
+  opacity: 0.4;
+}
+.ios-root .m-adm-cancel:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* CordButtonStyle has no horizontal padding: while creating, the label sits flush left, spinner flush right */
+.ios-root .ios-cord-btn.m-adm-btn-busy {
+  justify-content: space-between;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ───────────── System ───────────── */
+.ios-root .m-adm-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 10px;
+  width: 100%;
+  padding: 4px 0;
+}
+.ios-root .m-adm-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 0;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+}
+.ios-root .m-adm-stat-value {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.ios-root .m-adm-stat-label {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-muted);
+}
+.ios-root .m-adm-disk-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

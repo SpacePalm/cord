@@ -119,6 +119,20 @@ function syncToServer(theme: Theme, customThemes?: Theme[]) {
 interface ThemeState {
   current: Theme;
   customThemes: Theme[];
+  /**
+   * Mobile Appearance screen (iOS draft semantics): a theme applied to the page for live preview but
+   * NOT stored in `current`, not persisted and not synced. null when nothing is being previewed.
+   */
+  previewing: Theme | null;
+  /** Apply `theme` to the page only (no store/localStorage/server write). Mobile-only. */
+  previewTheme: (theme: Theme) => void;
+  /** Drop any preview and re-apply the stored (last persisted) theme. Mobile-only. */
+  revertPreview: () => void;
+  /**
+   * Persist immediately (`PUT /auth/theme` with `customThemes`), then store theme + customThemes.
+   * Rejects with the API error (store unchanged) on failure. Mobile-only.
+   */
+  commitTheme: (theme: Theme, customThemes: Theme[]) => Promise<void>;
   setTheme: (theme: Theme) => void;
   setColor: (key: keyof ThemeColors, value: string) => void;
   setShape: <K extends keyof ThemeShape>(key: K, value: ThemeShape[K]) => void;
@@ -134,6 +148,35 @@ export const useThemeStore = create<ThemeState>()(
     (set, get) => ({
       current: darkTheme,
       customThemes: [],
+      previewing: null,
+
+      previewTheme: (theme) => {
+        applyTheme(theme);
+        set({ previewing: theme });
+      },
+
+      revertPreview: () => {
+        applyTheme(get().current);
+        set({ previewing: null });
+      },
+
+      commitTheme: async (theme, customThemes) => {
+        // an explicit save supersedes any pending debounced desktop-style sync
+        if (syncTimer) {
+          clearTimeout(syncTimer);
+          syncTimer = null;
+        }
+        const { authApi } = await import('../api/auth');
+        await authApi.saveTheme({ ...theme, customThemes });
+        const pv = get().previewing;
+        // keep a newer live preview (edits made while the request was in flight) on screen
+        if (!pv || pv === theme || JSON.stringify(pv) === JSON.stringify(theme)) {
+          applyTheme(theme);
+          set({ current: theme, customThemes, previewing: null });
+        } else {
+          set({ current: theme, customThemes });
+        }
+      },
 
       setTheme: (theme) => {
         applyTheme(theme);
@@ -202,7 +245,10 @@ export const useThemeStore = create<ThemeState>()(
         if (!current.colors.accentText) {
           current.colors.accentText = '#ffffff';
         }
-        applyTheme(current);
+        // mobile Appearance live preview on screen (never set on desktop): keep it — revertPreview()
+        // re-applies the stored theme when the preview ends
+        const pv = get().previewing;
+        applyTheme(pv ?? current);
       },
 
       loadFromServer: (themeJson: string | null) => {
@@ -214,7 +260,9 @@ export const useThemeStore = create<ThemeState>()(
           if (!data.shape.fontFamily) data.shape.fontFamily = 'system';
           const serverCustoms = Array.isArray(data.customThemes) ? data.customThemes : [];
           const { customThemes: _, ...theme } = data as Theme & { customThemes?: Theme[] };
-          applyTheme(theme);
+          // (ThemeInit re-runs this on every access-token refresh) don't wipe a mobile live preview
+          // off the page — it is stored, and applied by revertPreview() when the preview ends
+          if (!get().previewing) applyTheme(theme);
           set({ current: theme, customThemes: serverCustoms });
         } catch { /* invalid JSON */ }
       },

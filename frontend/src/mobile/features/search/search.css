@@ -1,0 +1,366 @@
+/* Quick switcher, advanced search, filters sheet.
+   Every selector is scoped under .ios-root. */
+
+/* The quick switcher and advanced search keep a transparent bar: the list never scrolls under it (a fixed
+   search field sits between), so the sheet's scroll-edge overlay must not cover the field. */
+.ios-root .ios-sheet-screen:has(> .ios-screen-fill > .m-srch-fill) > .ios-screen-edge {
+  display: none;
+}
+
+.ios-root .m-srch-fill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* sheet bar ends 66 below the sheet top; the field sits 12 lower [measured on iOS 26: field top = sheet top + 78] */
+  padding-top: var(--ios-content-top, 66px);
+  background: var(--bg-primary);
+}
+.ios-root .m-srch-field {
+  flex: none;
+  margin: 12px 12px 0;
+}
+/* long placeholders truncate with "…" like the iOS TextField */
+.ios-root .m-srch-fill .ios-search-field input {
+  text-overflow: ellipsis;
+}
+
+/* ── filter chips (QuickSwitcherView:300-322) ── */
+.ios-root .m-srch-chips {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.ios-root .m-srch-chips::-webkit-scrollbar {
+  display: none;
+}
+.ios-root button.m-srch-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  line-height: 14px;
+  font-weight: 400;
+  white-space: nowrap;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  transition: opacity 120ms ease-out;
+}
+.ios-root button.m-srch-chip[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.ios-root button.m-srch-chip:active {
+  opacity: 0.6;
+}
+.ios-root .m-srch-chip-prefix {
+  opacity: 0.6;
+}
+
+/* ── scrollable result lists (plain List under the fixed field) ── */
+.ios-root .m-srch-scroll {
+  --ios-scroll-top-inset: 0px; /* sticky plain headers pin to the scroller top, not under the bar */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding-bottom: calc(var(--ios-content-bottom, 0px) + 16px);
+  box-sizing: border-box;
+}
+
+/* row anatomy: [dot 8] 10 [icon 20] 10 [title / subtitle] */
+.ios-root .m-srch-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ios-root .m-srch-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.ios-root .m-srch-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+}
+.ios-root .m-srch-row .ios-row-body {
+  gap: 1px;
+}
+/* caption natural line ≈14.3 → title + subtitle rows ≈65 tall [measured on iOS 26: 65.1–65.5] */
+.ios-root .m-srch-row .ios-row-subtitle {
+  line-height: 14px;
+}
+.ios-root .m-srch-more {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--accent);
+}
+.ios-root .m-srch-noresults {
+  width: 100%;
+  text-align: center;
+  font-size: 17px;
+  line-height: 20px;
+  color: var(--text-muted);
+}
+.ios-root button.m-srch-hclear {
+  font-size: 12px;
+  line-height: 15px;
+  font-weight: 400;
+  color: var(--text-muted);
+  padding: 8px 0 8px 12px;
+  margin: -8px 0;
+}
+.ios-root button.m-srch-hclear:active {
+  opacity: 0.6;
+}
+
+/* search hit highlight (accent @30%, no padding / radius) */
+.ios-root mark.m-srch-hl {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* ── advanced search: sort / grouping menu pickers ── */
+.ios-root .m-srch-sortrow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  min-width: 0;
+}
+.ios-root button.m-srch-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 22px;
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--accent);
+  white-space: nowrap;
+  transition: opacity 120ms ease-out;
+}
+.ios-root button.m-srch-picker > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ios-root button.m-srch-picker:active {
+  opacity: 0.5;
+}
+
+.ios-root .m-srch-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ios-root .m-srch-center {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px calc(var(--ios-content-bottom, 0px));
+  text-align: center;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--text-muted);
+}
+
+/* ── result card (AdvancedSearchView ResultCard) ── */
+.ios-root .m-srch-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 0;
+}
+.ios-root .m-srch-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ios-root .m-srch-card-author {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.ios-root .m-srch-card-date {
+  flex: none;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ios-root .m-srch-card-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+.ios-root .m-srch-card-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.ios-root .m-srch-card-chat {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+.ios-root .m-srch-card-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+.ios-root .m-srch-card-att {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+.ios-root .m-srch-card-att > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ios-root .m-srch-card-flags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  font-size: 11px;
+  line-height: 13px;
+  color: var(--text-muted);
+}
+.ios-root .m-srch-footer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+.ios-root .m-srch-sentinel {
+  height: 1px;
+}
+
+/* ── filters sheet ── */
+.ios-root .m-srch-plainbtn:active .ios-row-leading,
+.ios-root .m-srch-plainbtn:active .ios-row-body,
+.ios-root .m-srch-plainbtn:active .ios-row-trailing {
+  opacity: 0.6;
+}
+.ios-root .m-srch-tree-lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ios-root button.m-srch-chev {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 20px;
+  /* larger hit area than the 14px glyph frame */
+  padding: 12px 8px;
+  margin: -12px -8px;
+  box-sizing: content-box;
+  color: var(--text-muted);
+}
+.ios-root button.m-srch-chev:active {
+  opacity: 0.6;
+}
+.ios-root .m-srch-check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+}
+.ios-root .m-srch-count {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+.ios-root .m-srch-chat-lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 22px;
+}
+.ios-root .m-srch-chat-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.ios-root .m-srch-daterow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+.ios-root .m-srch-daterow > span {
+  flex: none;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+.ios-root .m-srch-daterow > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  text-align: right;
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--text-primary);
+}

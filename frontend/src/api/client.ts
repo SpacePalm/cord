@@ -10,8 +10,14 @@
 
 import { useAuthStore } from '../store/authStore';
 import { getDeviceId, getDeviceName } from '../utils/device';
+import { isMobileNow } from '../hooks/useIsMobile';
 
 const BASE_URL = '/api';
+
+/** /auth/login and /auth/register — their errors are shown inline on phones. */
+function isCredentialPath(path: string): boolean {
+  return path.startsWith('/auth/login') || path.startsWith('/auth/register');
+}
 
 function handleUnauthorized(reason?: string) {
   // Помогает диагностировать «меня выкинуло»: в DevTools Console видна причина.
@@ -24,6 +30,17 @@ function handleUnauthorized(reason?: string) {
 
 function handleBlocked(detail: { kind?: string; expires_at?: string | null } | null) {
   useAuthStore.getState().logout();
+  if (isMobileNow()) {
+    // Phones (iOS handleBlockedInSession): forced logout → login screen with the blocked-notice box.
+    const mp = new URLSearchParams();
+    mp.set('blocked', detail?.kind || 'ip');
+    if (detail?.expires_at) mp.set('until', detail.expires_at);
+    const target = `/login?${mp}`;
+    if (window.location.pathname + window.location.search !== target) {
+      window.location.replace(target);
+    }
+    return;
+  }
   const sp = new URLSearchParams();
   if (detail?.kind) sp.set('kind', detail.kind);
   if (detail?.expires_at) sp.set('until', detail.expires_at);
@@ -163,10 +180,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const message = typeof error.detail === 'string'
       ? error.detail
       : (error.detail?.code ?? 'Request failed');
-    if (response.status === 401) {
+    // Phones show login/register failures inline (iOS LoginView/RegisterView), so the global
+    // redirects must not fire for the credential endpoints there.
+    const inlineAuthError = isMobileNow() && isCredentialPath(path);
+    if (response.status === 401 && !inlineAuthError) {
       handleUnauthorized(`${path} → 401 ${typeof error.detail === 'string' ? error.detail : ''}`);
     }
-    if (response.status === 403 && typeof error.detail === 'object' && error.detail?.code === 'blocked_by_security') {
+    if (response.status === 403 && !inlineAuthError && typeof error.detail === 'object' && error.detail?.code === 'blocked_by_security') {
       handleBlocked(error.detail);
     }
     throw new ApiError(response.status, message, error.detail);

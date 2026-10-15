@@ -1,0 +1,651 @@
+/* Mobile voice UI. Every selector is scoped
+   under .ios-root; px only. */
+
+/* ───────────── shared buttons ───────────── */
+.ios-root .m-voice-callbtn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  padding: 0;
+  touch-action: manipulation;
+  transition: opacity 200ms ease-out;
+}
+.ios-root .m-voice-callbtn:active:not(:disabled) {
+  opacity: 0.35;
+  transition: none;
+}
+.ios-root .m-voice-callbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* hand-drawn slash over "headphones" (SF has no headphones.slash) */
+.ios-root .m-voice-slash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 3px;
+  margin: -1.5px 0 0 -17px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--danger);
+  transform: rotate(-45deg);
+  pointer-events: none;
+}
+.ios-root .m-voice-glyphbtn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: inherit;
+  touch-action: manipulation;
+  transition: opacity 200ms ease-out;
+}
+/* ≥44px hit area without changing the layout spacing */
+.ios-root .m-voice-glyphbtn::before {
+  content: '';
+  position: absolute;
+  inset: -12px;
+}
+.ios-root .m-voice-glyphbtn:active {
+  opacity: 0.35;
+  transition: none;
+}
+
+/* ───────────── room sheet ───────────── */
+.ios-root .m-voice-room {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+.ios-root .m-voice-hdr {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  min-height: 64px;
+  box-sizing: border-box;
+}
+.ios-root .m-voice-hdr-speaker {
+  flex: none;
+}
+.ios-root .m-voice-hdr-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ios-root .m-voice-hdr-title {
+  color: var(--text-primary);
+}
+.ios-root .m-voice-hdr-status {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ios-root .m-voice-divider {
+  flex: none;
+  height: 0.5px;
+}
+.ios-root .m-voice-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.ios-root .m-voice-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ios-root .m-voice-hint {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 0 32px;
+}
+.ios-root .m-voice-peer {
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: calc(100% - 32px);
+  overflow-wrap: anywhere;
+}
+.ios-root .m-voice-controls {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 0 calc(18px + var(--ios-safe-bottom, env(safe-area-inset-bottom, 0px)));
+}
+
+/* grid of square tiles */
+.ios-root .m-voice-grid {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.ios-root .m-voice-grid-inner {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+.ios-root .m-voice-grid-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* participant tile */
+.ios-root .m-voice-tile {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+.ios-root .m-voice-tile.is-remote {
+  cursor: pointer;
+}
+.ios-root .m-voice-tile.is-speaking {
+  background: color-mix(in srgb, var(--ios-green) 16%, transparent);
+}
+/* border drawn ABOVE the video (deliberate deviation: iOS draws the speaking ring under the camera video) */
+.ios-root .m-voice-tile-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
+}
+.ios-root .m-voice-tile.is-speaking .m-voice-tile-ring {
+  box-shadow: inset 0 0 0 2px var(--ios-green);
+}
+.ios-root .m-voice-tile-body {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.ios-root .m-voice-tile-name {
+  flex: none;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ios-root .m-voice-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  pointer-events: none;
+}
+.ios-root .m-voice-video.is-mirror {
+  transform: scaleX(-1);
+}
+.ios-root .m-voice-tile-chip {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 2;
+  max-width: calc(100% - 12px);
+  box-sizing: border-box;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ios-root .m-voice-tile-ind {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 46px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+}
+.ios-root .m-voice-qchip {
+  flex: none;
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.3);
+}
+.ios-root .m-voice-qbars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 10px;
+}
+.ios-root .m-voice-qbars > i {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+  background: rgba(142, 142, 147, 0.35);
+}
+.ios-root .m-voice-badge {
+  flex: none;
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 5px;
+  color: #fff;
+}
+.ios-root .m-voice-tile-more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+  transition: opacity 200ms ease-out;
+}
+.ios-root .m-voice-tile-more:active {
+  opacity: 0.35;
+  transition: none;
+}
+
+/* screen-share layout */
+.ios-root .m-voice-shares {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ios-root .m-voice-share {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+}
+.ios-root .m-voice-share-hdr {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  color: var(--text-muted);
+}
+.ios-root .m-voice-share-title {
+  flex: 1;
+  min-width: 0;
+  margin-right: -2px; /* Spacer(minLength: 6) + gap 8 */
+}
+.ios-root .m-voice-share-video {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  cursor: pointer;
+}
+.ios-root .m-voice-strip {
+  flex: none;
+  height: 84px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+.ios-root .m-voice-strip-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 2px;
+}
+.ios-root .m-voice-strip-tile {
+  flex: none;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  -webkit-touch-callout: none;
+}
+.ios-root .m-voice-strip-av {
+  position: relative;
+  display: inline-flex;
+  border-radius: 50%;
+}
+.ios-root .m-voice-strip-av::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px transparent;
+  pointer-events: none;
+}
+.ios-root .m-voice-strip-av.is-speaking::after {
+  box-shadow: inset 0 0 0 2px var(--ios-green);
+}
+.ios-root .m-voice-strip-name {
+  max-width: 64px;
+  color: var(--text-muted);
+}
+
+/* per-user volume slider (share header / fullscreen) */
+.ios-root .m-voice-svol {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ───────────── member sheet (.height(300)) ───────────── */
+.ios-root .m-voice-member {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg-primary);
+}
+.ios-root .m-voice-member-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ios-root .m-voice-member-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  color: var(--accent);
+  transition: opacity 200ms ease-out;
+}
+.ios-root .m-voice-member-open:active {
+  opacity: 0.35;
+  transition: none;
+}
+.ios-root .m-voice-member-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ios-label);
+  cursor: pointer;
+}
+.ios-root .m-voice-member-vol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ios-root .m-voice-member-vol-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+/* ───────────── screen-share full-screen cover ───────────── */
+.ios-root .m-voice-cover {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+}
+.ios-root .m-voice-cover-surface {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ios-root .m-voice-cover-content {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+.ios-root .m-voice-cover-ended {
+  color: #fff;
+}
+.ios-root .m-voice-cover-bar {
+  position: absolute;
+  top: var(--ios-safe-top, env(safe-area-inset-top, 0px));
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  color: #fff;
+}
+.ios-root .m-voice-cover-title {
+  flex: 0 1 auto;
+  margin-right: auto;
+  color: #fff;
+}
+
+/* ───────────── floating voice bar ───────────── */
+.ios-root .m-voice-bar-wrap {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  box-sizing: border-box;
+  padding: 0 10px calc(6px + var(--ios-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+  animation: m-voice-from-bottom 360ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.ios-root .m-voice-bar-wrap.is-leaving {
+  pointer-events: none;
+  animation: m-voice-to-bottom 300ms ease-in both;
+}
+.ios-root .m-voice-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 54px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  box-shadow:
+    inset 0 0 0 0.5px var(--bg-tertiary),
+    0 5px 24px rgba(0, 0, 0, 0.28);
+}
+.ios-root .m-voice-bar-speaker {
+  flex: none;
+}
+.ios-root .m-voice-bar-text {
+  flex: 1;
+  min-width: 0;
+  margin-right: -8px; /* Spacer(minLength: 4) + gap 12 */
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ───────────── incoming call card ───────────── */
+.ios-root .m-voice-call-wrap {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 501;
+  box-sizing: border-box;
+  padding: calc(var(--ios-safe-top, env(safe-area-inset-top, 0px)) + 6px) 10px 0;
+  pointer-events: none;
+  animation: m-voice-from-top 360ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.ios-root .m-voice-call-wrap.is-leaving {
+  animation: m-voice-to-top 300ms ease-in both;
+}
+.ios-root .m-voice-call {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 66px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: var(--bg-secondary);
+  box-shadow:
+    inset 0 0 0 0.5px var(--bg-tertiary),
+    0 6px 28px rgba(0, 0, 0, 0.3);
+}
+.ios-root .m-voice-call-text {
+  flex: 1;
+  min-width: 0;
+  margin-right: -8px; /* Spacer(minLength: 4) + gap 12 */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ───────────── call notice capsule ───────────── */
+.ios-root .m-voice-notice-wrap {
+  position: fixed;
+  top: calc(var(--ios-safe-top, env(safe-area-inset-top, 0px)) + 8px);
+  left: 0;
+  right: 0;
+  z-index: 502;
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+  animation: m-voice-from-top 360ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.ios-root .m-voice-notice-wrap.is-leaving {
+  animation: m-voice-to-top 300ms ease-in both;
+}
+.ios-root .m-voice-notice {
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: center;
+  box-shadow:
+    inset 0 0 0 0.5px var(--bg-tertiary),
+    0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes m-voice-from-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(calc(100% + 8px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes m-voice-to-bottom {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(calc(100% + 8px));
+  }
+}
+@keyframes m-voice-from-top {
+  from {
+    opacity: 0;
+    transform: translateY(-120%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes m-voice-to-top {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-120%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ios-root .m-voice-bar-wrap,
+  .ios-root .m-voice-call-wrap,
+  .ios-root .m-voice-notice-wrap {
+    animation-name: m-voice-fade-in;
+  }
+  .ios-root .m-voice-bar-wrap.is-leaving,
+  .ios-root .m-voice-call-wrap.is-leaving,
+  .ios-root .m-voice-notice-wrap.is-leaving {
+    animation-name: m-voice-fade-out;
+  }
+}
+@keyframes m-voice-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes m-voice-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.ios-root .m-voice-call-wrap.is-leaving .m-voice-call {
+  pointer-events: none;
+}

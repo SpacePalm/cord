@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GroupSidebar } from '../components/layout/GroupSidebar';
 import { ChannelSidebar } from '../components/layout/ChannelSidebar';
@@ -22,6 +22,9 @@ import { useT } from '../i18n';
 import { useUnreadCounts } from '../hooks/useUnreadCounts';
 import { useWs, useTypingUsers } from '../hooks/useWebSocket';
 import { ToastContainer } from '../components/ui/ToastContainer';
+import { useIsMobile } from '../hooks/useIsMobile';
+// Code-split: desktop never downloads the iOS-style mobile shell.
+const MobileApp = lazy(() => import('../mobile/MobileApp').then((m) => ({ default: m.MobileApp })));
 
 type SidePanel = 'search' | 'media' | 'members' | null;
 
@@ -247,9 +250,19 @@ function TypingIndicator({ chatId }: { chatId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// AppPage
+// AppPage — phones get the iOS-style mobile shell, everything wider the desktop layout
 // ---------------------------------------------------------------------------
 export function AppPage() {
+  return useIsMobile() ? (
+    <Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)' }} />}>
+      <MobileApp />
+    </Suspense>
+  ) : (
+    <DesktopAppPage />
+  );
+}
+
+function DesktopAppPage() {
   const t = useT();
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);

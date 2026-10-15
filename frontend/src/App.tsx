@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
@@ -19,6 +19,13 @@ import { AdvancedSearchRoot } from './components/AdvancedSearchRoot';
 import { IncomingCallOverlay } from './components/IncomingCallOverlay';
 import { OutgoingCallWatcher } from './components/OutgoingCallWatcher';
 import { MessageNotifier } from './components/MessageNotifier';
+import { useIsMobile } from './hooks/useIsMobile';
+
+// Mobile pages are code-split: desktop never downloads the iOS-style shell.
+const MobileLoginPage = lazy(() => import('./mobile/features/auth/MobileLoginPage').then((m) => ({ default: m.MobileLoginPage })));
+const MobileInvitePage = lazy(() => import('./mobile/features/groups/MobileInvitePage').then((m) => ({ default: m.MobileInvitePage })));
+const MobileBlockedPage = lazy(() => import('./mobile/features/auth/MobileBlockedPage').then((m) => ({ default: m.MobileBlockedPage })));
+const MobileAdminRedirect = lazy(() => import('./mobile/features/admin/MobileAdminRedirect').then((m) => ({ default: m.MobileAdminRedirect })));
 
 // React Query client — caches API requests
 const queryClient = new QueryClient({
@@ -68,18 +75,33 @@ function Heartbeat() {
 }
 
 // Палитра команд и оверлей входящих звонков — только у авторизованных.
+// On phones the mobile shell (src/mobile) renders its own iOS-style equivalents.
 function AuthenticatedOverlays() {
   const token = useAuthStore((s) => s.token);
+  const isMobile = useIsMobile();
   if (!token) return null;
   return (
     <>
-      <CommandPalette />
-      <AdvancedSearchRoot />
-      <IncomingCallOverlay />
-      <OutgoingCallWatcher />
+      {!isMobile && (
+        <>
+          <CommandPalette />
+          <AdvancedSearchRoot />
+          <IncomingCallOverlay />
+          <OutgoingCallWatcher />
+        </>
+      )}
       <MessageNotifier />
     </>
   );
+}
+
+// Same URL, different presentation: phones get the iOS-style page.
+function Responsive({ desktop, mobile }: { desktop: JSX.Element; mobile: JSX.Element }) {
+  return useIsMobile() ? <Suspense fallback={<MobileLoading />}>{mobile}</Suspense> : desktop;
+}
+
+function MobileLoading() {
+  return <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)' }} />;
 }
 
 export default function App() {
@@ -93,15 +115,15 @@ export default function App() {
         <AuthenticatedOverlays />
         <Routes>
           {/* Public pages */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/invite/:code" element={<InvitePage />} />
-          <Route path="/blocked" element={<BlockedPage />} />
+          <Route path="/login" element={<Responsive desktop={<LoginPage />} mobile={<MobileLoginPage />} />} />
+          <Route path="/register" element={<Responsive desktop={<RegisterPage />} mobile={<MobileLoginPage register />} />} />
+          <Route path="/invite/:code" element={<Responsive desktop={<InvitePage />} mobile={<MobileInvitePage />} />} />
+          <Route path="/blocked" element={<Responsive desktop={<BlockedPage />} mobile={<MobileBlockedPage />} />} />
 
           {/* Protected pages — auth required */}
           <Route element={<ProtectedRoute />}>
             <Route path="/app" element={<AppPage />} />
-            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/admin" element={<Responsive desktop={<AdminPage />} mobile={<MobileAdminRedirect />} />} />
           </Route>
 
           {/* Redirect from root */}

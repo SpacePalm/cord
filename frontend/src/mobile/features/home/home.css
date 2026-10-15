@@ -1,0 +1,138 @@
+/* iOS MainView + InAppBannerView. */
+
+/* .safeAreaInset(.top): "Соединение…" caption2 textMuted, centred, padding-y 3, bgSecondary, full bleed */
+.ios-root .m-home-connecting {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 3px 16px;
+  font-size: 11px;
+  line-height: 13px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+}
+
+/* Servers header accessory: 17×17 plus.circle.fill (textMuted) at the header's trailing edge; the
+   menu anchors to the glyph (panel top/right = glyph top/right), the hit area is 44×44. */
+.ios-root .m-home-plus {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 19.5px;
+  height: 19.5px; /* glyph 17×17 → right edge at section-right − 17.3 */
+  color: var(--text-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 200ms ease-out;
+}
+.ios-root .m-home-plus::before {
+  content: '';
+  position: absolute;
+  inset: -12.25px;
+}
+.ios-root .m-home-plus:active {
+  opacity: 0.4;
+  transition: none;
+}
+
+/* ProgressView overlay centred in the list frame (below the bar + inset) while the first load runs */
+.ios-root .m-home-loading {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--ios-content-top, 0px);
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* ───────────── in-app banner ───────────── */
+/* Card: HStack(spacing 10) padding 10×12, bgSecondary, radius 16, 0.5 bgTertiary inner border,
+   shadow black@28% r12 y5; outer padding 10 (sides) / 6 (top) is part of the tap area. */
+.ios-root .m-home-banner-wrap {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(var(--ios-vv-top, 0px) + var(--ios-safe-top, env(safe-area-inset-top, 0px)));
+  z-index: 500;
+  box-sizing: border-box;
+  padding: 6px 10px 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(calc(-100% - var(--ios-safe-top, env(safe-area-inset-top, 0px)) - 8px));
+  transition:
+    transform 350ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    opacity 350ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.ios-root .m-home-banner-wrap[data-in='true'] {
+  pointer-events: auto;
+  opacity: 1;
+  transform: none;
+}
+.ios-root .m-home-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  box-shadow:
+    inset 0 0 0 0.5px var(--bg-tertiary),
+    0 5px 24px rgba(0, 0, 0, 0.28);
+}
+.ios-root .m-home-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 4px; /* Spacer(minLength: 4) */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: m-home-banner-swap 220ms ease-out;
+}
+.ios-root .m-home-banner-title {
+  font-size: 15px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ios-root .m-home-banner-body {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+@keyframes m-home-banner-swap {
+  from {
+    opacity: 0.2;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ios-root .m-home-banner-wrap {
+    transform: none;
+    transition: opacity 200ms ease-out;
+  }
+  .ios-root .m-home-banner-text {
+    animation: none;
+  }
+}

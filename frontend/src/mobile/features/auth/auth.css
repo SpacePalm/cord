@@ -1,0 +1,182 @@
+/* Login / Register / Blocked (iOS LoginView, RegisterView).
+   ScrollView > VStack(leading, spacing 18).padding(20), background --bg-primary,
+   no nav bar. Metrics in px (= pt); natural SF line heights (≈1.2 × size). */
+
+.ios-root .m-home-auth-scroll {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  background: var(--bg-primary);
+}
+
+/* VStack(spacing 18).padding(20) — min-height > 100% so the ScrollView always rubber-bands like iOS */
+.ios-root .m-home-auth-content {
+  box-sizing: border-box;
+  min-height: calc(100% + 1px);
+  padding: calc(var(--ios-safe-top, env(safe-area-inset-top, 0px)) + 20px) 20px
+    calc(var(--ios-safe-bottom, env(safe-area-inset-bottom, 0px)) + 20px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  color: var(--text-primary);
+}
+.ios-root .m-home-auth-content.is-sheet {
+  min-height: 0;
+  padding: 20px;
+}
+
+/* row 1: iOS "Сменить сервер" (dropped on web → empty 20px row) / Register "Войти" link */
+.ios-root .m-home-auth-toprow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 20px;
+  flex: none;
+}
+
+.ios-root .m-home-auth-link {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 200ms ease-out;
+}
+.ios-root .m-home-auth-link::before {
+  /* 44pt hit area without moving the text */
+  content: '';
+  position: absolute;
+  inset: -13px -10px;
+}
+.ios-root .m-home-auth-link:active {
+  opacity: 0.3;
+  transition: none;
+}
+.ios-root .m-home-auth-link.is-accent {
+  color: var(--accent);
+}
+
+.ios-root .m-home-auth-title {
+  margin: 0;
+  font-size: 34px;
+  line-height: 41px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Label(notice, systemImage: "lock.shield") .footnote danger, padding 10, danger@12%, radius */
+.ios-root .m-home-auth-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 16px;
+  text-align: left;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ios-root .m-home-auth-notice > .ios-icon {
+  flex: none;
+  margin-top: -1px;
+}
+
+.ios-root .m-home-auth-error {
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* VStack(spacing 6) { CordField ; hint } */
+.ios-root .m-home-auth-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ios-root .m-home-auth-hint {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+.ios-root .m-home-auth-hint.is-danger {
+  color: var(--danger);
+}
+
+/* HStack(spacing 6) "Нет аккаунта?" + "Создать" — subheadline, centred, padding-top 4 */
+.ios-root .m-home-auth-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  column-gap: 6px;
+  padding-top: 4px;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.ios-root .m-home-auth-form {
+  display: contents;
+}
+
+/* Blocked page: countdown card */
+.ios-root .m-home-blocked-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  text-align: center;
+}
+.ios-root .m-home-blocked-caption {
+  font-size: 12px;
+  line-height: 15px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.ios-root .m-home-blocked-timer {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.ios-root .m-home-blocked-date {
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--text-muted);
+}
+.ios-root .m-home-blocked-expired {
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--accent);
+}

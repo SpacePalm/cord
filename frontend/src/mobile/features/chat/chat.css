@@ -1,0 +1,568 @@
+/* Chat screen. Metrics measured on iOS 26. */
+
+/* ── layout under the floating nav bar ─────────────────────────────────────── */
+.ios-root .m-chat-root {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+.ios-root .m-chat-scroller {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* iOS 26: content starts 18pt below the bar (10 inset + LazyVStack .padding(.vertical, 8)) */
+  padding-top: calc(var(--ios-content-top, 44px) + 10px);
+}
+.ios-root .m-chat-list {
+  position: relative;
+  padding: 8px 0;
+}
+.ios-root .m-chat-row {
+  display: block;
+}
+.ios-root .m-chat-top {
+  display: flex;
+  justify-content: center;
+  height: 1px;
+}
+.ios-root .m-chat-top.is-loading {
+  height: auto;
+  padding: 10px 0;
+}
+.ios-root .m-chat-latest {
+  display: block;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-align: center;
+  font: inherit;
+  font-size: 13px;
+  line-height: 16px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+.ios-root .m-chat-latest:active {
+  opacity: 0.35;
+}
+.ios-root .m-chat-bottom-anchor {
+  height: 1px;
+}
+
+/* error line + typing line (between list and composer, no background) */
+.ios-root .m-chat-error {
+  flex: none;
+  padding: 0 12px;
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--danger);
+  text-align: left;
+}
+.ios-root .m-chat-typing {
+  flex: none;
+  padding: 0 16px 2px;
+  font-size: 11px;
+  line-height: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* centred over the whole content (bar bottom → screen bottom), like iOS .overlay { ProgressView() } */
+.ios-root .m-chat-loading {
+  position: absolute;
+  left: 50%;
+  top: calc((100% + var(--ios-content-top, 44px) + var(--ios-content-bottom, 0px)) / 2);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  display: flex;
+}
+
+/* ── bottom bar (composer / selection bar), bg extends under the home indicator ── */
+.ios-root .m-chat-bottombar {
+  background: var(--bg-secondary);
+  padding-bottom: var(--ios-bottom-inset, 0px);
+}
+.ios-root .m-chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+}
+.ios-root .m-chat-spacer {
+  flex: 1 1 auto;
+}
+
+/* hit areas ≥ 32/44px without moving glyphs */
+.ios-root .m-chat-banner-x,
+.ios-root .m-chat-tile-x,
+.ios-root .m-chat-fmt-btn,
+.ios-root .m-chat-fmt-aa,
+.ios-root .m-chat-attach,
+.ios-root .m-chat-trailing,
+.ios-root .m-chat-rec-trash,
+.ios-root .m-chat-poll-remove {
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: pointer;
+}
+.ios-root .m-chat-banner-x::before,
+.ios-root .m-chat-trailing::before,
+.ios-root .m-chat-rec-trash::before,
+.ios-root .m-chat-poll-remove::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+.ios-root .m-chat-fmt-btn::before,
+.ios-root .m-chat-fmt-aa::before,
+.ios-root .m-chat-attach::before,
+.ios-root .m-chat-tile-x::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+}
+
+/* compose banner (reply / edit) */
+.ios-root .m-chat-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  padding: 0 4px;
+}
+.ios-root .m-chat-banner .ios-icon {
+  flex: none;
+}
+.ios-root .m-chat-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ios-root .m-chat-banner-x {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.ios-root .m-chat-banner-x .ios-icon {
+  margin: -1.5px;
+}
+
+/* attachment strip */
+.ios-root .m-chat-strip {
+  height: 62px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.ios-root .m-chat-strip::-webkit-scrollbar {
+  display: none;
+}
+.ios-root .m-chat-strip-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  width: max-content;
+  padding: 0 4px;
+}
+.ios-root .m-chat-tile {
+  position: relative;
+  flex: none;
+  height: 56px;
+  border-radius: 8px;
+}
+.ios-root .m-chat-tile.is-image {
+  width: 56px;
+  overflow: hidden;
+  background: var(--bg-input);
+}
+.ios-root .m-chat-tile.is-image img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.ios-root .m-chat-tile.is-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 150px;
+  padding: 0 10px;
+  background: var(--bg-input);
+}
+.ios-root .m-chat-tile.is-file .ios-icon {
+  flex: none;
+}
+.ios-root .m-chat-tile-name {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ios-root .m-chat-tile-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.ios-root .m-chat-tile-x-disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* @mention suggestions */
+.ios-root .m-chat-mentions {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-input);
+  border-radius: var(--radius, 8px);
+  box-shadow: inset 0 0 0 0.5px var(--bg-tertiary);
+}
+.ios-root .m-chat-mention {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+.ios-root .m-chat-mention > :first-child {
+  flex: none;
+}
+.ios-root .m-chat-mention-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ios-root .m-chat-mention-user {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* formatting bar: Aa · {} · ☺ · chart, spacing 18, subheadline, text-muted */
+.ios-root .m-chat-fmt {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  /* measured on iOS 26: the HStack is ≈17.7pt tall (field top = composer top + 31.7) */
+  height: 18px;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 20px;
+}
+.ios-root .m-chat-fmt-aa {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.ios-root .m-chat-fmt-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+}
+/* SF symbol layout boxes (glyph centres measured on iOS 26: 62.0 / 97.6 / 135.9) */
+.ios-root .m-chat-fmt-btn.is-braces {
+  width: 17.5px;
+}
+.ios-root .m-chat-fmt-btn.is-braces .ios-icon {
+  margin: 0 -1px;
+}
+.ios-root .m-chat-fmt-btn.is-smile {
+  width: 17.6px;
+}
+.ios-root .m-chat-fmt-btn.is-chart {
+  width: 22.9px;
+}
+.ios-root .m-chat-fmt-aa:active,
+.ios-root .m-chat-fmt-btn:active {
+  opacity: 0.35;
+}
+
+/* input row: paperclip · field · trailing (bottom aligned) */
+.ios-root .m-chat-inputrow {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.ios-root .m-chat-attach {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 24px;
+  height: 40px;
+  padding: 0 0 1px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+}
+.ios-root .m-chat-attach:active {
+  opacity: 0.35;
+}
+.ios-root textarea.m-chat-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 40px;
+  min-height: 40px;
+  max-height: 128px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow-y: hidden;
+  background: var(--bg-input);
+  border-radius: var(--radius, 8px);
+  color: var(--text-primary);
+  caret-color: var(--accent);
+  font-family: var(--ios-font, -apple-system, system-ui, sans-serif);
+  font-size: 17px;
+  line-height: 22px;
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: none;
+}
+.ios-root textarea.m-chat-input::placeholder {
+  color: var(--ios-label-4, rgba(235, 235, 245, 0.3));
+  opacity: 1;
+}
+.ios-root .m-chat-trailing {
+  flex: none;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+}
+.ios-root .m-chat-trailing.is-mic {
+  width: 28px;
+  padding-bottom: 2px;
+}
+.ios-root .m-chat-trailing.is-circle {
+  width: 34px;
+}
+.ios-root .m-chat-trailing.is-circle .ios-icon {
+  margin: 0 -2px -2.4px;
+}
+.ios-root .m-chat-trailing:disabled {
+  cursor: default;
+}
+.ios-root .m-chat-trailing:active:not(:disabled) {
+  opacity: 0.35;
+}
+
+/* voice recording bar (replaces everything while recording) */
+.ios-root .m-chat-rec {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0;
+}
+.ios-root .m-chat-rec .m-chat-trailing {
+  height: auto;
+  align-items: center;
+}
+.ios-root .m-chat-rec .m-chat-trailing.is-circle .ios-icon {
+  margin: -2.4px -2px;
+}
+.ios-root .m-chat-rec-mic {
+  display: inline-flex;
+  animation: m-chat-pulse 1s ease-in-out infinite;
+}
+.ios-root .m-chat-rec-time {
+  font-size: 17px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.ios-root .m-chat-rec-trash {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.ios-root .m-chat-rec-trash:active {
+  opacity: 0.35;
+}
+@keyframes m-chat-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ios-root .m-chat-rec-mic {
+    animation: none;
+  }
+}
+
+/* selection bar: [Forward] — [Delete], body medium, padding 14/20 */
+.ios-root .m-chat-selbar {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 500;
+}
+.ios-root .m-chat-selbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: pointer;
+}
+.ios-root .m-chat-selbtn.is-forward {
+  color: var(--accent);
+}
+.ios-root .m-chat-selbtn.is-delete {
+  color: var(--danger);
+}
+.ios-root .m-chat-selbtn:disabled {
+  color: var(--ios-label-4, rgba(235, 235, 245, 0.3));
+  cursor: default;
+}
+.ios-root .m-chat-selbtn:active:not(:disabled) {
+  opacity: 0.35;
+}
+
+/* poll composer sheet */
+.ios-root .m-chat-poll {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+.ios-root .m-chat-poll-label {
+  font-size: 12px;
+  line-height: 15px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+}
+.ios-root .m-chat-poll-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ios-root .m-chat-poll-remove {
+  flex: none;
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.ios-root .m-chat-poll-remove:active,
+.ios-root .m-chat-poll-add:active {
+  opacity: 0.35;
+}
+.ios-root .m-chat-poll-add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 15px;
+  line-height: 18px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
+}

@@ -1,0 +1,759 @@
+/* Message row & feed elements (iOS MessageListView / MessageContentFormatter / PollView / MediaViews /
+   AudioVoice). Every selector is scoped under .ios-root.
+   Line heights: SwiftUI Text uses the font's natural line height (SF Pro ascent+descent = 1.1934 em), measured
+   on the simulator (name line 17.9, text cap top 189.3 for a row at 157.3) — not the HIG leading. */
+
+.ios-root {
+  --m-msg-lh: 1.1934;
+}
+
+/* ───────────────────────────── row ───────────────────────────── */
+.ios-root .m-msg-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  background-color: transparent;
+  transition: background-color 0.3s ease-out;
+  text-align: left;
+}
+.ios-root .m-msg-row,
+.ios-root .m-msg-row * {
+  -webkit-touch-callout: none;
+}
+/* jump highlight (outer) — accent 15%, full row width, 300ms ease-out in/out */
+.ios-root .m-msg-row.is-highlight {
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+/* selection tint (inner `.background`) compounds with the highlight */
+.ios-root .m-msg-row.is-selected {
+  background-image: linear-gradient(color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent) 10%, transparent));
+}
+.ios-root .m-msg-row.is-selecting {
+  cursor: pointer;
+}
+/* while a finger is down the native long-press text selection must not start (our menu opens at 400ms) */
+.ios-root .m-msg-row.is-pressing,
+.ios-root .m-msg-row.is-pressing * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+.ios-root .m-msg-check {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-left: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ios-root .m-msg-zs {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.ios-root .m-msg-arrow {
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  margin-top: -11px;
+  width: 22px;
+  height: 22px;
+  color: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+.ios-root .m-msg-slide {
+  position: relative;
+}
+.ios-root .m-msg-slide.is-dimmed {
+  opacity: 0.5;
+}
+.ios-root .m-msg-row.is-selecting .m-msg-slide {
+  pointer-events: none;
+}
+
+.ios-root .m-msg-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 22px 1px 12px; /* right = 12 + the 10pt HStack spacing before Spacer() */
+}
+.ios-root .m-msg-content.is-compact {
+  padding-top: 1px;
+}
+.ios-root .m-msg-content.is-sending {
+  opacity: 0.6;
+}
+.ios-root .m-msg-lead {
+  flex: none;
+  width: 36px;
+  min-height: 1px;
+  display: flex;
+}
+.ios-root .m-msg-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+/* author (avatar / name) — Menu label: dims while pressed */
+.ios-root .m-msg-author {
+  display: inline-flex;
+  flex: none;
+  border-radius: 50%;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root button.m-msg-author:active,
+.ios-root button.m-msg-name:active {
+  opacity: 0.6;
+}
+
+/* header line: HStack(spacing 6), vertically centred */
+.ios-root .m-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.ios-root .m-msg-name {
+  min-width: 0;
+  font-size: 15px;
+  line-height: var(--m-msg-lh);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.ios-root .m-msg-time {
+  flex: none;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ios-root .m-msg-pin {
+  flex: none;
+  color: var(--text-muted);
+}
+.ios-root .m-msg-pinline {
+  display: flex;
+  height: 13px;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+/* caption2 muted one-liners: forwarded line, "(edited)" */
+.ios-root .m-msg-meta {
+  max-width: 100%;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.ios-root .m-msg-reply {
+  display: block;
+  max-width: 100%;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+/* ───────────────────────────── text ───────────────────────────── */
+.ios-root .m-msg-body {
+  align-self: stretch;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.ios-root .m-msg-text {
+  max-width: 100%;
+  font-size: 17px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
+}
+.ios-root .m-msg-text.has-spoiler {
+  cursor: pointer;
+}
+.ios-root .m-msg-icode {
+  font-family: var(--ios-font-mono);
+  font-size: 17px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+}
+.ios-root .m-msg-spoiler {
+  color: var(--text-muted);
+  background: var(--text-muted);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.ios-root .m-msg-spoiler.is-revealed {
+  color: var(--text-primary);
+  background: var(--bg-input);
+}
+.ios-root .m-msg-bold {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.ios-root .m-msg-italic {
+  font-style: italic;
+  color: var(--text-primary);
+}
+.ios-root .m-msg-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-msg-mention {
+  color: var(--accent);
+}
+/* emoji run: CoreText sizes its line by Apple Color Emoji (ascent 1.0 + descent 0.3125 em) → the line grows
+   (17pt text 20.3 → 22.3; 11pt reply line 13.1 → 14.4) like the iOS Text does */
+.ios-root .m-msg-emo {
+  line-height: 1.3125;
+}
+
+/* code block (CodeBlockView) */
+.ios-root .m-msg-code {
+  position: relative;
+  align-self: stretch;
+  min-width: 0;
+  background: var(--bg-input);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ios-root .m-msg-code::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 0.5px var(--bg-tertiary);
+  pointer-events: none;
+}
+.ios-root .m-msg-code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--bg-tertiary);
+}
+.ios-root .m-msg-code-lang {
+  font-family: var(--ios-font-mono);
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.ios-root .m-msg-code-spacer {
+  flex: 1;
+  min-width: 0;
+}
+.ios-root .m-msg-code-copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 13px;
+  padding: 10px 12px;
+  margin: -10px -12px;
+  color: var(--text-muted);
+}
+.ios-root .m-msg-code-copy.is-copied {
+  color: var(--ios-green);
+}
+.ios-root .m-msg-code-copy:active {
+  opacity: 0.6;
+}
+.ios-root .m-msg-code-body {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+.ios-root .m-msg-code-pre {
+  margin: 0;
+  padding: 10px;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  font-family: var(--ios-font-mono);
+  font-size: 13px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-primary);
+  white-space: pre;
+  tab-size: 4;
+  background: none;
+}
+
+/* ───────────────────────────── attachments ───────────────────────────── */
+/* AuthedAsyncImage placeholders (default: fills the width; message row overrides the size) */
+.ios-root .m-msg-aimg {
+  display: block;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ios-root .m-msg-aimg-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 120px;
+  box-sizing: border-box;
+  background: var(--bg-input);
+}
+.ios-root .m-msg-aimg-ph.is-failed {
+  min-height: 80px;
+  gap: 5px;
+  font-size: 12px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+}
+.ios-root .m-msg-aimg-ph.is-plain {
+  min-height: 0;
+}
+/* in-feed image: frame(maxWidth 240, maxHeight 240) + scaledToFit + clip → always min(240, column) wide,
+   height min(240, 240/aspect), portrait centre-cropped, small images upscaled */
+.ios-root .m-msg-att-img {
+  width: min(240px, 100%);
+  max-height: 240px;
+  border-radius: var(--radius);
+}
+.ios-root img.m-msg-att-img {
+  height: auto;
+  object-fit: cover;
+  object-position: center;
+  cursor: pointer;
+}
+
+/* voice note */
+.ios-root .m-msg-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+}
+.ios-root .m-msg-voice-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+.ios-root .m-msg-voice-btn:not(:disabled):active {
+  opacity: 0.6;
+}
+.ios-root .m-msg-voice-track {
+  position: relative;
+  flex: none;
+  width: 120px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--ios-fill-1);
+}
+.ios-root .m-msg-voice-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.ios-root .m-msg-voice-time {
+  flex: none;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* file chip */
+.ios-root .m-msg-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  box-sizing: border-box;
+  background: var(--bg-input);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  line-height: var(--m-msg-lh);
+  text-align: left;
+}
+.ios-root .m-msg-file:active {
+  opacity: 0.6;
+}
+.ios-root .m-msg-file-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ios-root .m-msg-file-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ───────────────────────────── embed ───────────────────────────── */
+.ios-root .m-msg-embed {
+  position: relative;
+  display: flex;
+  width: min(260px, 100%);
+  box-sizing: border-box;
+  padding: 8px 8px 8px 11px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  color: inherit;
+  text-align: left;
+}
+.ios-root .m-msg-embed:active {
+  opacity: 0.6;
+}
+.ios-root .m-msg-embed-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+}
+.ios-root .m-msg-embed-stack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.ios-root .m-msg-embed-site {
+  max-width: 100%;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ios-root .m-msg-embed-title {
+  max-width: 100%;
+  font-size: 12px;
+  line-height: var(--m-msg-lh);
+  font-weight: 600;
+  color: var(--accent);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.ios-root .m-msg-embed-desc {
+  max-width: 100%;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.ios-root .m-msg-embed-imgslot {
+  display: block;
+  width: 100%;
+  padding-top: 2px;
+}
+.ios-root .m-msg-embed-img {
+  display: block;
+  width: min(232px, 100%);
+  height: auto;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+/* ───────────────────────────── poll ───────────────────────────── */
+.ios-root .m-msg-poll {
+  width: min(280px, 100%);
+  box-sizing: border-box;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  background: color-mix(in srgb, var(--bg-input) 40%, transparent);
+  border-radius: var(--radius);
+}
+.ios-root .m-msg-poll-q {
+  font-size: 15px;
+  line-height: var(--m-msg-lh);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.ios-root .m-msg-poll-opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  background: var(--bg-input);
+  border-radius: 6px;
+  overflow: hidden;
+  text-align: left;
+}
+.ios-root .m-msg-poll-opt:active {
+  opacity: 0.6;
+}
+.ios-root .m-msg-poll-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  transition: width 0.5s ease;
+}
+.ios-root .m-msg-poll-opt.is-voted .m-msg-poll-bar {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.ios-root .m-msg-poll-check {
+  position: relative;
+  flex: none;
+  color: var(--accent);
+}
+.ios-root .m-msg-poll-text {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.ios-root .m-msg-poll-count {
+  position: relative;
+  flex: none;
+  margin-left: 10px; /* 6 (spacing) + Spacer(minLength: 4) + 6 */
+  font-size: 12px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-secondary);
+}
+.ios-root .m-msg-poll-foot {
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+}
+
+/* ───────────────────────────── reactions ───────────────────────────── */
+.ios-root .m-msg-reacts {
+  display: flex;
+  flex-wrap: wrap; /* deliberate: iOS HStack would squeeze many groups */
+  gap: 6px;
+  max-width: 100%;
+  padding-top: 2px;
+}
+.ios-root .m-msg-react {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 7px;
+  border-radius: 9999px;
+  background: var(--bg-input);
+}
+.ios-root .m-msg-react.is-mine {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  /* SwiftUI Capsule().stroke(lineWidth: 1) is centred on the edge */
+  box-shadow: 0 0 0 0.5px var(--accent), inset 0 0 0 0.5px var(--accent);
+}
+.ios-root .m-msg-react:active {
+  opacity: 0.6;
+}
+.ios-root .m-msg-react-emoji {
+  font-size: 12px;
+  line-height: 1.3125; /* Apple Color Emoji metrics → chip 3 + 15.75 + 3 ≈ 22 */
+}
+.ios-root .m-msg-react-count {
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────────────────────────── send state ───────────────────────────── */
+.ios-root .m-msg-sending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+}
+.ios-root .m-msg-failed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--danger);
+  text-align: left;
+}
+.ios-root .m-msg-failed:active {
+  opacity: 0.6;
+}
+
+/* ───────────────────────────── separators ───────────────────────────── */
+.ios-root .m-msg-day,
+.ios-root .m-msg-unread {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+}
+.ios-root .m-msg-unread {
+  padding: 8px 16px;
+}
+.ios-root .m-msg-sep-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+.ios-root .m-msg-unread .m-msg-sep-line {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.ios-root .m-msg-sep-label {
+  flex: none;
+  font-size: 11px;
+  line-height: var(--m-msg-lh);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ios-root .m-msg-unread .m-msg-sep-label {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ───────────────────────────── context-menu preview ───────────────────────────── */
+.ios-root .m-msg-preview {
+  pointer-events: none;
+}
+.ios-root .m-msg-preview .m-msg-text {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ───────────────────────────── full-screen image viewer ───────────────────────────── */
+.ios-root .m-msg-viewer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+}
+.ios-root .m-msg-viewer-stage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--ios-safe-top);
+  bottom: var(--ios-safe-bottom);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ios-root .m-msg-viewer-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: 50% 50%;
+  will-change: transform;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.ios-root .m-msg-viewer-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  line-height: var(--m-msg-lh);
+  color: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+}
+.ios-root .m-msg-viewer-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--ios-safe-top);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  pointer-events: none;
+}
+.ios-root .m-msg-viewer-spacer {
+  flex: 1;
+}
+.ios-root .m-msg-viewer-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  pointer-events: auto;
+}
+.ios-root .m-msg-viewer-btn:active {
+  opacity: 0.6;
+}
+.ios-root .m-msg-viewer-btn:disabled {
+  opacity: 0.35;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, createContext, useContext, type ReactNode } from 'react';
+import { useEffect, useRef, useCallback, useState, createContext, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
 import type { UnreadData } from '../api/notifications';
@@ -89,6 +89,26 @@ const TYPING_FALLBACK_MS = 6000;
 // Typing state — shared across components
 const typingMap = new Map<string, Map<string, { name: string; timeout: ReturnType<typeof setTimeout> }>>();
 const typingListeners = new Set<() => void>();
+
+// ─── Connection status (read by the mobile shell's "Connecting…" strip) ──
+export type WsStatus = 'connecting' | 'open' | 'closed';
+let wsStatus: WsStatus = 'closed';
+const wsStatusListeners = new Set<() => void>();
+function setWsStatus(next: WsStatus) {
+  if (wsStatus === next) return;
+  wsStatus = next;
+  wsStatusListeners.forEach((fn) => fn());
+}
+export function getWsStatus(): WsStatus {
+  return wsStatus;
+}
+export function onWsStatus(fn: () => void): () => void {
+  wsStatusListeners.add(fn);
+  return () => { wsStatusListeners.delete(fn); };
+}
+export function useWsStatus(): WsStatus {
+  return useSyncExternalStore(onWsStatus, getWsStatus, getWsStatus);
+}
 
 // Подписчики на входящие звонки — для показа браузерных уведомлений и UI-оповещений.
 export type IncomingCallEvent = WsIncomingCall;
@@ -185,9 +205,11 @@ export function useCordWebSocket() {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${proto}//${window.location.host}/ws`, [`auth.${token}`]);
     wsRef.current = ws;
+    setWsStatus('connecting');
 
     ws.onopen = () => {
       reconnectDelay.current = 1000;
+      setWsStatus('open');
       if (reconnectedRef.current) {
         // Пропущенные WS-события: рефетч активных кэшей сообщений/unread/dms.
         queryClient.invalidateQueries({ queryKey: ['messages'] });
@@ -348,6 +370,7 @@ export function useCordWebSocket() {
 
     ws.onclose = (ev) => {
       wsRef.current = null;
+      setWsStatus('closed');
       clearHeartbeat();
       // 4001 = auth failure (access токен протух или невалиден).
       // Используем общий tryRefresh из client.ts — он гарантирует, что

@@ -1,0 +1,495 @@
+/* Message-action surfaces: long-press menu, composer emoji popover, forward picker, pinned,
+   in-chat search, attachments & links. Every selector is scoped under
+   .ios-root; class prefix m-act-. */
+
+/* ───────────────────────────── context menu ───────────────────────────── */
+.ios-root .m-act-ctx-blur {
+  position: fixed;
+  left: 0;
+  right: 0;
+  background: var(--ios-material-ultrathin, rgba(30, 30, 32, 0.55));
+  -webkit-backdrop-filter: var(--ios-material-blur, blur(20px) saturate(160%));
+  backdrop-filter: var(--ios-material-blur, blur(20px) saturate(160%));
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ios-root .m-act-ctx-blur.is-top {
+  top: 0;
+  z-index: 9; /* below the floating nav bar (z 10): the bar stays visible and tappable */
+}
+.ios-root .m-act-ctx-blur.is-main {
+  bottom: 0;
+  z-index: 11; /* above the composer / selection bar */
+}
+.ios-root .m-act-ctx-pos {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 12;
+  touch-action: none;
+  will-change: transform;
+}
+.ios-root .m-act-ctx-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  transform-origin: 50% 0;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* quick reactions capsule: 262×46 */
+.ios-root .m-act-react-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 8px;
+  border-radius: 9999px;
+  background: var(--bg-secondary);
+}
+.ios-root .m-act-react-btn,
+.ios-root .m-act-react-more,
+.ios-root .m-act-react-cell,
+.ios-root .m-act-emoji-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--ios-font);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-primary);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-act-react-btn {
+  width: 34px;
+  height: 36px;
+}
+.ios-root .m-act-react-more {
+  width: 30px;
+  height: 36px;
+  color: var(--text-muted);
+}
+.ios-root .m-act-react-btn:active,
+.ios-root .m-act-react-more:active,
+.ios-root .m-act-react-cell:active,
+.ios-root .m-act-emoji-cell:active {
+  opacity: 0.6;
+}
+
+/* expanded 40-emoji grid: full card width × 200, radius 20, 6 columns */
+.ios-root .m-act-react-grid {
+  box-sizing: border-box;
+  height: 200px;
+  border-radius: 20px;
+  background: var(--bg-secondary);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: none;
+}
+.ios-root .m-act-react-grid::-webkit-scrollbar {
+  display: none;
+}
+.ios-root .m-act-react-grid-inner {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  column-gap: 4px;
+  row-gap: 8px;
+  padding: 12px;
+}
+.ios-root .m-act-react-cell {
+  width: 100%;
+  height: 28px;
+}
+
+/* lifted message copy */
+.ios-root .m-act-ctx-preview {
+  align-self: stretch;
+  box-sizing: border-box;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  pointer-events: none;
+}
+.ios-root .m-act-ctx-preview.is-capped {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+}
+
+/* action list */
+.ios-root .m-act-ctx-list {
+  align-self: stretch;
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+.ios-root .m-act-ctx-sep {
+  height: 0.5px;
+  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+}
+.ios-root .m-act-ctx-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 46px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 0;
+  background: none;
+  font-family: var(--ios-font);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 22px;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-act-ctx-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ios-root .m-act-ctx-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--text-secondary);
+}
+.ios-root .m-act-ctx-action.is-destructive,
+.ios-root .m-act-ctx-action.is-destructive .m-act-ctx-icon {
+  color: var(--danger);
+}
+.ios-root .m-act-ctx-action:active > * {
+  opacity: 0.55;
+}
+
+/* ───────────────────────────── composer emoji popover ───────────────────────────── */
+.ios-root .m-act-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 42px);
+  column-gap: 8px;
+  row-gap: 6px;
+  padding: 12px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ios-root .m-act-emoji-cell {
+  width: 42px;
+  height: 28px;
+}
+
+/* ───────────────────────────── sheet scaffolding ───────────────────────────── */
+.ios-root .m-act-fill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+.ios-root .m-act-scroll {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding-top: var(--ios-content-top, 66px);
+  padding-bottom: var(--ios-content-bottom, 0px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  /* sticky plain-list headers: the scroller's own padding-top already keeps them under the bar */
+  --ios-scroll-top-inset: 0px;
+}
+.ios-root .m-act-scroll.no-top {
+  padding-top: 0;
+}
+.ios-root .m-act-scroll.no-bottom {
+  padding-bottom: 0;
+}
+.ios-root .m-act-scroll.is-disabled {
+  pointer-events: none;
+}
+.ios-root .m-act-center {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--ios-content-top, 66px);
+  bottom: var(--ios-content-bottom, 0px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  text-align: center;
+}
+.ios-root .m-act-center.no-top {
+  top: 0;
+}
+.ios-root .m-act-muted {
+  font-size: 17px;
+  line-height: 20px;
+  color: var(--text-muted);
+}
+.ios-root .m-act-muted.is-sub {
+  font-size: 15px;
+  line-height: 18px;
+}
+/* opaque header block above a body scroller: sits over the sheet scroll-edge effect (z 8), under the bar (z 10) */
+.ios-root .m-act-head {
+  position: relative;
+  z-index: 9;
+  flex: none;
+  box-sizing: border-box;
+  padding-top: var(--ios-content-top, 66px);
+  background: var(--bg-primary);
+}
+.ios-root .m-act-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.ios-root .m-act-textbtn {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--ios-font);
+  font-size: 17px;
+  line-height: 20px;
+  color: var(--accent);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-act-textbtn:active {
+  opacity: 0.5;
+}
+
+/* ───────────────────────────── forward picker ───────────────────────────── */
+.ios-root .m-act-fwd-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  /* 22px box like the SF glyph frame: the 24px person.crop.circle.fill stand-in (20px disc) overflows by 1px
+     instead of making the single-line DM rows 54px tall (iOS 26 plain row = 52) */
+  height: 22px;
+  overflow: visible;
+  color: var(--text-muted);
+}
+
+/* ───────────────────────────── pinned / search rows ───────────────────────────── */
+.ios-root .m-act-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 2px 0;
+}
+.ios-root .m-act-hit-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ios-root .m-act-hit-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--text-primary);
+}
+.ios-root .m-act-hit-date {
+  flex: none;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+.ios-root .m-act-hit-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ios-root .m-act-hit-text mark {
+  padding: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+}
+.ios-root .m-act-hit-att {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+/* emoji runs grow their line like CoreText (Apple Color Emoji metrics; same rule as message.css) */
+.ios-root .m-act-hit .m-msg-emo {
+  line-height: 1.3125;
+}
+
+/* ───────────────────────────── attachments & links ───────────────────────────── */
+.ios-root .m-act-media-head .ios-search-drawer {
+  margin-bottom: 0;
+}
+.ios-root .m-act-media-seg {
+  padding: 12px;
+}
+.ios-root .m-act-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+}
+.ios-root .m-act-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--bg-input);
+  cursor: default;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+.ios-root .m-act-thumb.is-loaded {
+  cursor: pointer;
+}
+.ios-root .m-act-thumb.is-loaded:active {
+  opacity: 0.75;
+}
+.ios-root .m-act-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+.ios-root .m-act-loadmore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+  background: none;
+  font-family: var(--ios-font);
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--accent);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-act-loadmore.is-row {
+  min-height: 44px;
+  padding: 8px 0;
+}
+.ios-root .m-act-loadmore:active:not(:disabled) {
+  opacity: 0.5;
+}
+.ios-root .m-act-loadmore:disabled {
+  cursor: default;
+}
+.ios-root .m-act-plain-row {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 4px 12px;
+  background: var(--bg-primary);
+}
+.ios-root .m-act-plain-row.is-loadmore {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.ios-root .m-act-link {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  font-family: var(--ios-font);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .m-act-link:active {
+  opacity: 0.7;
+}
+.ios-root .m-act-link-url {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.ios-root .m-act-link-meta {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-root .m-act-ctx-pos {
+    transition: none !important;
+  }
+}

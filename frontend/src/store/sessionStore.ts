@@ -10,6 +10,23 @@ export interface VoicePresence {
   groupName: string;
   muted: boolean;
   deafened: boolean;
+  // Mobile (iOS-parity) DM-call info — optional, desktop callers never set them.
+  /** The room is a 1:1 DM call (leaving also cancels the call for the peer). */
+  isCall?: boolean;
+  /** I started the call (room shows «Звоним…» while I'm alone). */
+  isCaller?: boolean;
+  /** Peer display name (room title / ringing state). */
+  peerName?: string;
+  /** Peer avatar path (ringing state avatar). */
+  peerImagePath?: string;
+}
+
+/** Optional extras for joinVoice (mobile DM calls). */
+export interface JoinVoiceOptions {
+  isCall?: boolean;
+  isCaller?: boolean;
+  peerName?: string;
+  peerImagePath?: string;
 }
 
 export interface VoiceParticipant {
@@ -75,7 +92,7 @@ interface SessionState {
 
   // Voice channel
   voicePresence: VoicePresence | null;
-  joinVoice: (channelId: string, channelName: string, groupName: string, groupId: string) => void;
+  joinVoice: (channelId: string, channelName: string, groupName: string, groupId: string, opts?: JoinVoiceOptions) => void;
   leaveVoice: () => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
@@ -192,9 +209,9 @@ export const useSessionStore = create<SessionState>()(
       // --- Voice channel ---
       voicePresence: null,
 
-      joinVoice: (channelId, channelName, groupName, groupId) =>
+      joinVoice: (channelId, channelName, groupName, groupId, opts) =>
         set({
-          voicePresence: { channelId, channelName, groupId, groupName, muted: false, deafened: false },
+          voicePresence: { channelId, channelName, groupId, groupName, muted: false, deafened: false, ...(opts ?? {}) },
         }),
 
       leaveVoice: () => set({ voicePresence: null, voiceParticipants: [], callStartedAt: null }),

@@ -1,0 +1,1010 @@
+/* Component styles for the iOS 26 primitives in src/mobile/ui.
+   Imported by the components themselves. EVERY selector is scoped under .ios-root.
+   Metrics measured on iPhone 17 Pro, iOS 26.5. */
+
+/* ───────────────────────────── icon ───────────────────────────── */
+.ios-root .ios-icon {
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+  overflow: visible;
+}
+
+/* ───────────────────────────── lists ───────────────────────────── */
+/* Where the list starts relative to the scroll content top (= nav-bar bottom on inline screens,
+   large-title row bottom on large-title screens). Screens may override the variables. */
+.ios-root .ios-list-inset {
+  --ios-list-first-gap: 45px;          /* first section without header: bar + 45 */
+  --ios-list-first-header-gap: 20px;   /* first header line: bar + 20 */
+  display: block;
+  /* bottom inset (35 + safe area + floating voice bar) is provided by <Screen>'s bottom spacer */
+  padding: 0 var(--ios-gutter, 16px);
+}
+.ios-root .ios-list-inset[data-top='large'],
+.ios-root [data-title-mode='large'] .ios-list-inset:not([data-top]) {
+  --ios-list-first-gap: 10px;          /* first section 10 below the large-title row */
+  --ios-list-first-header-gap: 6px;
+}
+/* Lists inside a sheet (SheetScreen, content top = sheet top + 66) start 6px higher than on pushed screens
+   (in a sheet: header cap 84.3 / first section 110.3 below the sheet top; on a pushed screen: bar + 24.3 / + 50.3) */
+.ios-root [data-sheet='true'] .ios-list-inset:not([data-top]) {
+  --ios-list-first-gap: 39px;
+  --ios-list-first-header-gap: 14px;
+}
+.ios-root .ios-list-inset[data-top='none'] {
+  --ios-list-first-gap: 0px;
+  --ios-list-first-header-gap: 0px;
+}
+
+.ios-root .ios-section {
+  display: block;
+  margin-top: var(--ios-section-gap, 35px);
+}
+.ios-root .ios-section.has-header {
+  margin-top: var(--ios-header-gap-top, 28px);
+}
+.ios-root .ios-list-inset > .ios-section:first-child {
+  margin-top: var(--ios-list-first-gap);
+}
+.ios-root .ios-list-inset > .ios-section.has-header:first-child {
+  margin-top: var(--ios-list-first-header-gap);
+}
+
+.ios-root .ios-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ios-header-line, 20px);
+  margin-bottom: var(--ios-header-gap-bottom, 10px);
+  padding: 0 16px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--text-muted);
+}
+.ios-root .ios-section-header-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ios-root .ios-section-header-accessory {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 20px;
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.ios-root .ios-section-card {
+  --ios-row-bg: var(--bg-secondary);
+  position: relative;
+  background: var(--bg-secondary);
+  border-radius: var(--ios-r-section, 26px);
+  overflow: hidden;
+  isolation: isolate; /* WebKit: clip transformed children (swipe) to the rounded corners */
+}
+.ios-root .ios-section.is-clear > .ios-section-card {
+  --ios-row-bg: transparent;
+  background: transparent;
+}
+
+.ios-root .ios-section-footer {
+  padding: 7px 16px 0;
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--text-muted);
+}
+.ios-root .ios-section-footer > * + * {
+  margin-top: 4px;
+}
+
+/* Plain list (.listStyle(.plain)): full-width rows, sticky headers on the page background. */
+.ios-root .ios-plain-list {
+  --ios-row-bg: var(--bg-secondary);
+  display: block;
+}
+.ios-root .ios-plain-list .ios-section,
+.ios-root .ios-plain-list .ios-section.has-header {
+  margin: 0;
+}
+.ios-root .ios-plain-list .ios-section-header {
+  position: sticky;
+  top: var(--ios-scroll-top-inset, var(--ios-content-top, 0px)); /* pinned under the floating nav bar */
+  z-index: 3;
+  height: auto;
+  /* UITableView plain style: sectionHeaderTopPadding 22 + 10 → header line 32.6 below the list top,
+     first row 10 below the line (iOS 26: list top 222, header ink 258.7, first row 284.7) */
+  margin: 22px 0 0;
+  padding: 10px 16px;
+  background: var(--ios-page-bg, var(--ios-screen-bg, var(--bg-primary)));
+}
+.ios-root .ios-plain-list .ios-section-card {
+  border-radius: 0;
+  overflow: hidden;
+}
+.ios-root .ios-plain-list .ios-section-footer {
+  padding-bottom: 10px;
+}
+
+/* ───────────────────────────── row ───────────────────────────── */
+.ios-root .ios-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ios-row-min-h, 52px);
+  padding: var(--ios-cell-pad-y, 15px) var(--ios-cell-pad-x, 16px);
+  background: var(--ios-row-bg, var(--bg-secondary));
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: left;
+  transition: background-color var(--ios-dur-press-release, 300ms) ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+.ios-root .ios-row.is-pressable {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ios-root .ios-row.is-pressed {
+  background-color: var(--ios-row-highlight);
+  transition: none;
+}
+.ios-root .ios-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.ios-root .ios-row.is-disabled {
+  cursor: default;
+}
+.ios-root .ios-row.is-disabled > * {
+  opacity: 0.45;
+}
+
+/* separator: 1px, inset on both sides (leading = text x, trailing = 16) */
+.ios-root .ios-row::after {
+  content: '';
+  position: absolute;
+  left: var(--sep-inset, 16px);
+  right: 16px;
+  bottom: 0;
+  height: 1px;
+  background: var(--ios-separator);
+  pointer-events: none;
+}
+/* no separator after the last row of a section. Rows must be direct children of the card (fragments are fine),
+   wrapped by SwipeRow, or wrapped in an element with class "ios-cell". */
+.ios-root .ios-row.no-separator::after,
+.ios-root :is(.ios-section-card, .ios-plain-list) > .ios-row:last-child::after,
+.ios-root :is(.ios-section-card, .ios-plain-list) > :is(.ios-swipe, .ios-cell):last-child .ios-row::after,
+.ios-root .ios-row.is-pressed::after,
+.ios-root .ios-row:has(+ .ios-row.is-pressed)::after,
+.ios-root .ios-row:has(+ :is(.ios-swipe, .ios-cell) .ios-row.is-pressed)::after,
+.ios-root :is(.ios-section-card, .ios-plain-list) > :is(.ios-swipe, .ios-cell):has(+ .ios-row.is-pressed) .ios-row::after,
+.ios-root :is(.ios-section-card, .ios-plain-list) > :is(.ios-swipe, .ios-cell):has(+ :is(.ios-swipe, .ios-cell) .ios-row.is-pressed) .ios-row::after,
+.ios-root .ios-swipe.is-active .ios-row::after,
+.ios-root .ios-row:has(+ .ios-swipe.is-active)::after,
+.ios-root :is(.ios-section-card, .ios-plain-list) > :has(+ .ios-swipe.is-active) .ios-row::after {
+  opacity: 0;
+}
+
+.ios-root .ios-row-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ios-icon-col, 24px);
+  height: 20px; /* the 24px glyph box overflows symmetrically: Label rows stay 52 tall like iOS */
+  margin-right: var(--ios-icon-gap, 16px);
+}
+.ios-root .ios-row-leading {
+  flex: none;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+.ios-root .ios-row.is-top {
+  align-items: flex-start;
+}
+.ios-root .ios-row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.5px; /* VStack(spacing: 2) measured: 66.6 single-line / 82.6 two-line caption rows */
+}
+.ios-root .ios-row-title {
+  font-size: 17px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.ios-root .ios-row-subtitle {
+  font-size: 12px;
+  line-height: 1.25; /* 15px at caption size; scales when a feature sets another font size */
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.ios-root .ios-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ios-root .ios-clamp-1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ios-root .ios-row-trailing {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  max-width: 62%;
+  min-width: 0;
+  color: var(--ios-label-2);
+}
+.ios-root .ios-row-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 17px;
+  line-height: 1.2;
+}
+.ios-root .ios-row-badge {
+  flex: none;
+  font-size: 17px;
+  line-height: 1.2;
+  color: var(--ios-label-2);
+}
+.ios-root .ios-row-badge.is-before {
+  margin-left: 12px;
+}
+.ios-root .ios-row-badge.is-after {
+  margin-left: 12px;
+  margin-right: 1px;
+}
+.ios-root .ios-row-chevron {
+  flex: none;
+  display: block;
+  width: 8px;
+  height: 14px;
+  margin-left: 13px;
+  margin-right: 2px;
+  color: var(--ios-label-3);
+  overflow: visible;
+}
+.ios-root .ios-row-chevron.is-first {
+  margin-left: 12px;
+}
+.ios-root .ios-row-chevron:has(+ .ios-row-badge.is-after) {
+  margin-right: 0;
+}
+.ios-root .ios-row-check {
+  flex: none;
+  margin-left: 12px;
+  color: var(--tint, var(--accent));
+}
+.ios-root .ios-row-radio {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20.4px;
+}
+.ios-root .ios-row-switch {
+  flex: none;
+  /* the trailing column already sits 12px after the text; right edge at section-right − 14 */
+  margin-right: -2px;
+}
+.ios-root .ios-row-picker-value {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--tint, var(--accent));
+}
+
+/* centred spinner / empty / error rows */
+.ios-root .ios-row.is-center {
+  justify-content: center;
+}
+.ios-root .ios-row.is-center .ios-row-body {
+  align-items: center;
+}
+.ios-root .ios-row.is-center-title .ios-row-title {
+  text-align: center;
+}
+.ios-root .ios-row.is-disabled .ios-switch:disabled {
+  opacity: 1;
+}
+.ios-root .ios-row-chevron.is-muted {
+  width: 7px;
+  height: 12px;
+  margin-left: 0;
+  margin-right: 0;
+  color: var(--text-muted);
+}
+.ios-root .ios-row-empty {
+  color: var(--text-muted);
+}
+.ios-root .ios-row-error {
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--danger);
+}
+
+/* ───────────────────────────── swipe actions ───────────────────────────── */
+.ios-root .ios-swipe {
+  position: relative;
+  overflow: hidden;
+  background: var(--ios-page-bg, var(--ios-screen-bg, var(--bg-primary)));
+  touch-action: pan-y;
+}
+.ios-root .ios-swipe:not(.is-active) {
+  background: transparent; /* no sub-pixel page-coloured seams between resting rows */
+}
+.ios-root .ios-swipe-content {
+  position: relative;
+  z-index: 1;
+}
+.ios-root .ios-swipe.is-active .ios-swipe-content {
+  will-change: transform;
+  transform: translate3d(calc(var(--dx, 0) * 1px), 0, 0);
+}
+.ios-root .ios-swipe.is-animating .ios-swipe-content {
+  transition: transform 360ms var(--ios-ease-spring, cubic-bezier(0.2, 0.9, 0.25, 1));
+}
+.ios-root .ios-swipe:not(.is-active) .ios-swipe-actions {
+  visibility: hidden;
+}
+.ios-root .ios-swipe-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  display: flex;
+  flex-direction: row-reverse; /* first declared action = rightmost */
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+}
+.ios-root .ios-swipe-btn {
+  --f: clamp(0, (var(--p, 0) - var(--edge, 0)) / 60, 1);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 60px;
+  height: var(--pill-h, 44px);
+  border-radius: var(--ios-r-capsule, 9999px);
+  background: var(--tint, var(--accent));
+  color: #fff;
+  opacity: var(--f);
+  transform: scale(calc(0.55 + 0.45 * var(--f)));
+  transition: width 220ms var(--ios-ease-snappy, ease), opacity 120ms linear;
+  touch-action: manipulation;
+}
+.ios-root .ios-swipe-btn:active {
+  filter: brightness(0.86);
+}
+.ios-root .ios-swipe-btn-label {
+  max-width: 54px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 14px;
+}
+.ios-root .ios-swipe.is-full .ios-swipe-btn:first-child {
+  width: max(60px, calc(var(--p, 0) * 1px - 20px));
+}
+.ios-root .ios-swipe.is-full .ios-swipe-btn:not(:first-child) {
+  opacity: 0;
+}
+
+/* ───────────────────────────── switch ───────────────────────────── */
+.ios-root .ios-switch {
+  position: relative;
+  flex: none;
+  display: inline-block;
+  width: 63px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: var(--ios-switch-off);
+  transition: background-color 250ms ease;
+  cursor: pointer;
+  touch-action: manipulation;
+  vertical-align: middle;
+}
+.ios-root .ios-switch.is-on {
+  background: var(--tint, var(--accent));
+}
+.ios-root .ios-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ios-root .ios-switch-knob {
+  --x: 0px;
+  --s: 1;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 37px;
+  height: 24px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  transform: translateX(var(--x)) scale(var(--s));
+  transition: transform 320ms cubic-bezier(0.3, 1.25, 0.5, 1), background-color 200ms ease;
+}
+.ios-root .ios-switch.is-on .ios-switch-knob {
+  --x: 22px;
+}
+.ios-root .ios-switch:not(:disabled):active .ios-switch-knob {
+  --s: 1.12;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+/* ───────────────────────────── segmented control ───────────────────────────── */
+.ios-root .ios-segmented {
+  /* iOS 26: segments (= thumb width) are separated by ≈4.67px; track 362 → thumb 86 */
+  --seg-gap: 4.67px;
+  position: relative;
+  display: flex;
+  gap: var(--seg-gap);
+  box-sizing: border-box;
+  width: 100%;
+  height: 32px;
+  padding: 2px;
+  border-radius: 16px;
+  background: var(--ios-segment-track);
+  isolation: isolate;
+}
+.ios-root .ios-segmented.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.ios-root .ios-segmented-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  z-index: 0;
+  border-radius: 14px;
+  background: var(--ios-segment-thumb);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 300ms cubic-bezier(0.3, 1.15, 0.5, 1);
+}
+.ios-root .ios-segmented-seg {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  color: var(--ios-segment-label);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  touch-action: manipulation;
+  cursor: pointer;
+  transition: opacity 150ms;
+}
+.ios-root .ios-segmented-seg.is-selected {
+  font-weight: 600;
+}
+.ios-root .ios-segmented-seg:not(.is-selected):active {
+  opacity: 0.55;
+}
+
+/* ───────────────────────────── stepper (iOS 26 glass capsule) ───────────────────────────── */
+.ios-root .ios-stepper {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: stretch;
+  width: 94px;
+  height: 32px;
+  border-radius: 16px;
+  background: var(--ios-fill-3);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.ios-root .ios-stepper::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--ios-separator);
+}
+.ios-root .ios-stepper-btn {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--ios-label);
+  touch-action: manipulation;
+  cursor: pointer;
+  transition: background-color 200ms;
+}
+.ios-root .ios-stepper-btn:not(:disabled):active {
+  background: var(--ios-glass-control-pressed);
+  transition: none;
+}
+.ios-root .ios-stepper-btn:disabled {
+  color: var(--ios-label-3);
+  cursor: default;
+}
+
+/* ───────────────────────────── slider ───────────────────────────── */
+.ios-root .ios-slider {
+  --thumb-w: 38px;
+  --thumb-h: 24px;
+  --track-h: 6px;
+  --fill: var(--tint, var(--accent));
+  --rest: var(--ios-fill-1);
+  --stop: calc(var(--thumb-w) / 2 + (100% - var(--thumb-w)) * var(--p, 0));
+  display: block;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: pan-y;
+  cursor: pointer;
+}
+.ios-root .ios-slider:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ios-root .ios-slider:focus {
+  outline: none;
+}
+.ios-root .ios-slider::-webkit-slider-runnable-track {
+  height: var(--track-h);
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--fill) 0, var(--fill) var(--stop), var(--rest) var(--stop), var(--rest) 100%);
+}
+.ios-root .ios-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--thumb-w);
+  height: var(--thumb-h);
+  margin-top: calc((var(--track-h) - var(--thumb-h)) / 2);
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  transition: transform 150ms;
+}
+.ios-root .ios-slider:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+.ios-root .ios-slider::-moz-range-track {
+  height: var(--track-h);
+  border-radius: 3px;
+  background: var(--rest);
+}
+.ios-root .ios-slider::-moz-range-progress {
+  height: var(--track-h);
+  border-radius: 3px;
+  background: var(--fill);
+}
+.ios-root .ios-slider::-moz-range-thumb {
+  width: var(--thumb-w);
+  height: var(--thumb-h);
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* ───────────────────────────── search fields ───────────────────────────── */
+/* (a) custom Cord search field */
+.ios-root .ios-search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 42px;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+.ios-root .ios-search-field-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 22px;
+  color: var(--text-muted);
+}
+.ios-root .ios-search-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  padding: 0;
+  text-overflow: ellipsis;
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--text-primary);
+}
+.ios-root .ios-search-clear {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -4px -2px -4px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  touch-action: manipulation;
+}
+
+/* (b) system .searchable — iOS 26 floating glass capsule */
+.ios-root .ios-search-capsule-spacer {
+  height: var(--ios-search-capsule-space, 91px);
+  flex: none;
+  pointer-events: none;
+}
+.ios-root .ios-search-dock {
+  position: fixed;
+  left: 28.5px;
+  right: 28.5px;
+  bottom: calc(max(var(--ios-safe-bottom, 0px) - 5px, 16px) + var(--kb, 0px));
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: left 300ms var(--ios-ease-spring), right 300ms var(--ios-ease-spring),
+    bottom 250ms var(--ios-ease-spring);
+}
+.ios-root .ios-search-dock.is-focused {
+  left: 16px;
+  right: 16px;
+}
+.ios-root .ios-search-dock.is-kb {
+  bottom: calc(var(--kb, 0px) + 8px);
+}
+.ios-root .ios-search-capsule {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: var(--ios-search-capsule-h, 46px);
+  padding: 0 14px 0 17px;
+  border-radius: var(--ios-r-capsule, 9999px);
+  background: var(--ios-glass-search);
+  -webkit-backdrop-filter: var(--ios-glass-search-blur);
+  backdrop-filter: var(--ios-glass-search-blur);
+  box-shadow: var(--ios-glass-search-rim), 0 6px 24px rgba(0, 0, 0, 0.28);
+  color: var(--ios-label);
+  cursor: text;
+}
+.ios-root .ios-search-capsule-icon {
+  flex: none;
+  display: flex;
+  color: var(--ios-label);
+  opacity: 0.9;
+}
+.ios-root .ios-search-capsule input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0;
+  text-overflow: ellipsis;
+  font-size: 17px;
+  line-height: 24px;
+  color: var(--ios-label);
+}
+.ios-root .ios-search-capsule input::placeholder {
+  color: var(--ios-label-2);
+}
+.ios-root .ios-search-capsule .ios-search-clear {
+  color: var(--ios-label-2);
+}
+.ios-root .ios-search-cancel {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ios-glass-search);
+  -webkit-backdrop-filter: var(--ios-glass-search-blur);
+  backdrop-filter: var(--ios-glass-search-blur);
+  box-shadow: var(--ios-glass-search-rim), 0 6px 24px rgba(0, 0, 0, 0.28);
+  color: var(--ios-label);
+  animation: ios-pop-in 250ms var(--ios-ease-spring) both;
+  touch-action: manipulation;
+}
+.ios-root .ios-search-cancel:active,
+.ios-root .ios-search-capsule:active {
+  background: var(--ios-glass-control-pressed);
+}
+.ios-root .ios-search-drawer {
+  margin: 0 16px 8px;
+}
+.ios-root .ios-search-drawer .ios-search-capsule {
+  height: 44px;
+  box-shadow: var(--ios-glass-search-rim);
+}
+
+/* ───────────────────────────── CordField ───────────────────────────── */
+.ios-root .ios-field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ios-root .ios-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 15px;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+}
+.ios-root .ios-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1.5px transparent;
+  transition: box-shadow 150ms;
+}
+.ios-root .ios-field.is-focused {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.ios-root .ios-field.is-disabled {
+  opacity: 0.5;
+}
+.ios-root .ios-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  padding: 0;
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--text-primary);
+}
+.ios-root .ios-field input::placeholder {
+  color: var(--text-muted);
+}
+.ios-root .ios-field-eye {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  margin-right: -2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  touch-action: manipulation;
+}
+
+/* ───────────────────────────── CordButton ───────────────────────────── */
+.ios-root .ios-cord-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+.ios-root .ios-cord-btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+.ios-root .ios-cord-btn--primary:not(:disabled):active {
+  background: var(--accent-hover);
+}
+.ios-root .ios-cord-btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+.ios-root .ios-cord-btn--danger:not(:disabled):active {
+  background: color-mix(in srgb, var(--danger) 85%, transparent);
+}
+.ios-root .ios-cord-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.ios-root .ios-cord-btn--ghost:not(:disabled):active {
+  background: rgba(255, 255, 255, 0.1);
+}
+.ios-root .ios-cord-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ───────────────────────────── avatar / status dot ───────────────────────────── */
+.ios-root .ios-avatar {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  vertical-align: middle;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ios-root .ios-avatar.is-loaded {
+  background: var(--bg-input);
+}
+.ios-root .ios-avatar-initials {
+  white-space: nowrap;
+}
+.ios-root .ios-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+}
+.ios-root .ios-avatar.is-loaded .ios-avatar-img {
+  opacity: 1;
+}
+.ios-root .ios-avatar.is-loaded .ios-avatar-initials {
+  visibility: hidden;
+}
+
+.ios-root .ios-status-dot {
+  flex: none;
+  display: inline-block;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background-clip: padding-box;
+  vertical-align: middle;
+}
+
+/* ───────────────────────────── spinner / progress ring / HUD ───────────────────────────── */
+.ios-root .ios-spinner {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+  animation: ios-spin 1s steps(8, end) infinite; /* 1s, 8 discrete steps */
+}
+@keyframes ios-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ios-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ios-root .ios-progress-ring {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+.ios-root .ios-progress-ring svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.ios-root .ios-progress-ring-arc {
+  transition: stroke-dashoffset 150ms linear;
+}
+.ios-root .ios-progress-ring-label {
+  position: relative;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ios-root .ios-hud-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.ios-root .ios-hud-layer.is-fixed {
+  position: fixed;
+}
+.ios-root .ios-hud {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--ios-material-ultrathin);
+  -webkit-backdrop-filter: var(--ios-material-blur);
+  backdrop-filter: var(--ios-material-blur);
+  pointer-events: auto;
+  animation: ios-pop-in 200ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-root .ios-switch-knob,
+  .ios-root .ios-segmented-thumb,
+  .ios-root .ios-swipe.is-animating .ios-swipe-content,
+  .ios-root .ios-search-dock {
+    transition-duration: 1ms;
+  }
+}
+
+/* swipe pill labels only for tall rows (≥ 91px) */
+.ios-root .ios-swipe:not(.is-tall) .ios-swipe-btn-label {
+  display: none;
+}

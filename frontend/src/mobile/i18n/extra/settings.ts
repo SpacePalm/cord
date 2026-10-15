@@ -1,0 +1,51 @@
+// Mobile-only strings of the "settings" area (web-only capabilities iOS lacks). iOS keys come from
+// ios.*.ts; web `audio.*` / `camera.*` / `notifications.*` keys are reused through the web fallback.
+export const ru = {
+  'settings.voiceVideo': 'Голос и видео',
+  'settings.micSection': 'Микрофон',
+  'settings.cameraSection': 'Камера',
+  'settings.micTest': 'Проверить микрофон',
+  'settings.micTestStop': 'Остановить проверку',
+  'settings.cameraTest': 'Проверить камеру',
+  'settings.cameraStop': 'Остановить камеру',
+  'settings.deviceFallback': 'Устройство %d',
+  'settings.notifBrowser': 'Уведомления в браузере',
+  'settings.notifBrowserHint': 'Показывать уведомления о новых сообщениях, когда приложение в фоне',
+  'settings.notifSoundFooterWeb': 'Звук играет, пока приложение открыто.',
+  'settings.notifUnsupported':
+    'Этот браузер не поддерживает системные уведомления. На iPhone добавьте cord на экран «Домой», чтобы их получать.',
+  'settings.storageFooterMemory': 'Фото и файлы кэшируются в памяти вкладки; лимит не даёт ей разрастаться.',
+  'storage.zero': 'Ноль КБ',
+  'storage.bytes.one': '%d байт',
+  'storage.bytes.few': '%d байта',
+  'storage.bytes.many': '%d байт',
+  'storage.unit.kb': 'КБ',
+  'storage.unit.mb': 'МБ',
+  'storage.unit.gb': 'ГБ',
+  'storage.unit.tb': 'ТБ',
+};
+
+export const en = {
+  'settings.voiceVideo': 'Voice & video',
+  'settings.micSection': 'Microphone',
+  'settings.cameraSection': 'Camera',
+  'settings.micTest': 'Test microphone',
+  'settings.micTestStop': 'Stop test',
+  'settings.cameraTest': 'Test camera',
+  'settings.cameraStop': 'Stop camera',
+  'settings.deviceFallback': 'Device %d',
+  'settings.notifBrowser': 'Browser notifications',
+  'settings.notifBrowserHint': 'Show notifications for new messages while the app is in the background',
+  'settings.notifSoundFooterWeb': 'The sound plays while the app is open.',
+  'settings.notifUnsupported':
+    'This browser doesn’t support system notifications. On iPhone, add cord to your Home Screen to get them.',
+  'settings.storageFooterMemory': 'Photos and files are cached in the tab’s memory; the limit keeps it bounded.',
+  'storage.zero': 'Zero KB',
+  'storage.bytes.one': '%d byte',
+  'storage.bytes.few': '%d bytes',
+  'storage.bytes.many': '%d bytes',
+  'storage.unit.kb': 'KB',
+  'storage.unit.mb': 'MB',
+  'storage.unit.gb': 'GB',
+  'storage.unit.tb': 'TB',
+};

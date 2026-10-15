@@ -12,6 +12,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { playNotificationSound } from '../utils/notificationSound';
 import type { Group, Chat } from '../types';
+import { isMobileNow } from '../hooks/useIsMobile';
 
 // Определяет, упомянут ли пользователь в тексте сообщения.
 // Простой regex: @ + слово, границы — не буква/цифра/подчерк.
@@ -56,6 +57,13 @@ export function MessageNotifier() {
       const msg = event.message;
       if (!me || msg.author_id === me.id) return;  // своё сообщение
       if (!_markSeen(msg.id)) return;  // уже обрабатывали этот id — дубль подписки
+
+      // Phones: iOS notification gate → in-app banner (independent of browser-notification
+      // permission), sound, OS notification only while the page is hidden. Desktop path below unchanged.
+      if (isMobileNow()) {
+        void import('../mobile/features/home/notificationGate').then((m) => m.handleMobileIncoming(event, me, queryClient));
+        return;
+      }
 
       // Свежие настройки (не из-замкнутого селектора, чтобы не пересоздавать подписку)
       const settings = useNotificationStore.getState();
