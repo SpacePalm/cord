@@ -3,6 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <script>
+      // Phones get the iOS-style shell (src/mobile), which draws its own safe-area insets.
+      // viewport-fit=cover must be on before the first layout: switching it later leaves an iOS
+      // home-screen web app scrolled by the status-bar height, so taps land below what is drawn.
+      // Breakpoint must match src/hooks/useIsMobile.ts.
+      (function () {
+        if (!window.matchMedia || !window.matchMedia('(max-width: 767.98px)').matches) return;
+        var m = document.querySelector('meta[name="viewport"]');
+        if (m && !/viewport-fit\s*=/.test(m.content)) m.content += ', viewport-fit=cover';
+      })();
+    </script>
     <meta name="theme-color" content="#111113" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

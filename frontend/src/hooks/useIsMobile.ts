@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 
 // Single source of truth for the mobile breakpoint (< 768px). The mobile web UI is a
 // separate iOS-style shell (src/mobile); desktop layout is untouched above this width.
+// The inline script in index.html repeats this breakpoint (viewport-fit before first layout).
 const MQ = '(max-width: 767.98px)';
 
 function subscribe(cb: () => void) {

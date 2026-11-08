@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import './ios.css';
 import { PresentationProvider } from './present/PresentationProvider';
 import { useThemeStore } from '../store/themeStore';
+import { isMobileNow } from '../hooks/useIsMobile';
 
 /** Parse a CSS colour (hex / rgb[a]) into 0–255 channels. */
 function parseColor(input: string): [number, number, number] | null {
@@ -35,28 +36,37 @@ function readBgPrimary(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#111113';
 }
 
-// Ref-counted: two roots may overlap (a page hand-off), and only the last one out restores the meta.
+/**
+ * Add / remove `viewport-fit=cover`, touching the meta only when the value really changes.
+ * Every change makes iOS re-inset the page; in a home-screen web app that leaves the page
+ * scrolled by the status-bar height, so taps land below what is drawn (see the effect below).
+ */
+function setViewportFit(cover: boolean) {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+  if (!meta) return;
+  const current = meta.getAttribute('content') ?? '';
+  const parts = current
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && !/^viewport-fit\s*=/.test(s));
+  if (cover) parts.push('viewport-fit=cover');
+  const next = parts.join(', ');
+  if (next !== current) meta.setAttribute('content', next);
+}
+
+// Ref-counted: two roots may overlap (a page hand-off). index.html already turns cover on before
+// the first layout on phone widths, so normally this changes nothing. Cover stays on while the
+// width is still mobile (a page hand-off, or a lazy chunk loading in between) and goes away only
+// when the desktop layout takes over (e.g. a phone rotated to landscape).
 let fitUsers = 0;
-let fitMeta: HTMLMetaElement | null = null;
-let fitOriginal: string | null = null;
 function acquireViewportFit(): () => void {
-  if (fitUsers++ === 0) {
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
-    if (meta) {
-      fitMeta = meta;
-      fitOriginal = meta.getAttribute('content');
-      const prev = fitOriginal ?? '';
-      if (!/viewport-fit\s*=/.test(prev)) meta.setAttribute('content', prev ? `${prev}, viewport-fit=cover` : 'viewport-fit=cover');
-    }
-  }
+  if (fitUsers++ === 0) setViewportFit(true);
   let released = false;
   return () => {
     if (released) return;
     released = true;
     if (--fitUsers > 0) return;
-    if (fitMeta && fitOriginal !== null) fitMeta.setAttribute('content', fitOriginal);
-    fitMeta = null;
-    fitOriginal = null;
+    if (!isMobileNow()) setViewportFit(false);
   };
 }
 
@@ -98,6 +108,31 @@ export function MobileRoot({ children, overlays }: MobileRootProps) {
       vv.removeEventListener('resize', sync);
       vv.removeEventListener('scroll', sync);
       el.style.removeProperty('--ios-vv-top');
+    };
+  }, []);
+
+  // When viewport-fit changes at runtime (e.g. rotating back from the desktop layout), an iOS
+  // home-screen web app can keep the old status-bar inset as a negative document scroll: the page
+  // is drawn in place, but taps land one status-bar height lower until the keyboard next opens.
+  // html/body are fixed, so the document never scrolls above 0 legitimately — snap it back.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    let raf = 0;
+    const check = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (window.scrollY < 0 || window.scrollX < 0) window.scrollTo(0, 0);
+      });
+    };
+    check();
+    window.addEventListener('resize', check);
+    window.addEventListener('scroll', check);
+    vv?.addEventListener('resize', check);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', check);
+      window.removeEventListener('scroll', check);
+      vv?.removeEventListener('resize', check);
     };
   }, []);
 
